@@ -1,0 +1,312 @@
+"""MLX LLM provider for local inference on Apple Silicon."""
+
+from __future__ import annotations
+
+import sys
+from typing import TYPE_CHECKING
+
+from ..core.config import MLXConfig
+from ..core.types import EmbeddingResult, RerankDocumentResult, RerankResult
+from .base import LLMProvider
+
+if TYPE_CHECKING:
+    from mlx_lm import generate, load
+
+
+class MLXProvider(LLMProvider):
+    """MLX local LLM provider for Apple Silicon Macs.
+
+    Uses mlx-lm for text generation (query expansion, reranking)
+    and mlx-embeddings for embedding generation.
+    """
+
+    def __init__(self, config: MLXConfig):
+        """Initialize MLX provider.
+
+        Args:
+            config: MLXConfig with model settings.
+
+        Raises:
+            RuntimeError: If not running on macOS/Apple Silicon.
+        """
+        if sys.platform != "darwin":
+            raise RuntimeError("MLX provider requires macOS with Apple Silicon")
+
+        self.config = config
+
+        # Text generation model (mlx-lm)
+        self._model = None
+        self._tokenizer = None
+        self._model_loaded = False
+
+        # Embedding model (mlx-embeddings)
+        self._embedding_model = None
+        self._embedding_model_loaded = False
+
+        # Load immediately if not lazy loading
+        if not config.lazy_load:
+            self._ensure_model_loaded()
+            self._ensure_embedding_model_loaded()
+
+    def _ensure_model_loaded(self) -> None:
+        """Load the text generation model if not already loaded."""
+        if self._model_loaded:
+            return
+
+        from mlx_lm import load
+
+        self._model, self._tokenizer = load(self.config.model)
+        self._model_loaded = True
+
+    def _ensure_embedding_model_loaded(self) -> None:
+        """Load the embedding model if not already loaded."""
+        if self._embedding_model_loaded:
+            return
+
+        from mlx_embeddings import load as load_embeddings
+
+        self._embedding_model = load_embeddings(self.config.embedding_model)
+        self._embedding_model_loaded = True
+
+    async def embed(
+        self,
+        text: str,
+        model: str | None = None,
+        is_query: bool = False,
+    ) -> EmbeddingResult | None:
+        """Generate embeddings using mlx-embeddings.
+
+        Args:
+            text: Text to embed.
+            model: Ignored (uses configured embedding model).
+            is_query: If True, formats text as query for asymmetric models.
+
+        Returns:
+            EmbeddingResult with embedding vector, or None on failure.
+        """
+        try:
+            self._ensure_embedding_model_loaded()
+
+            from mlx_embeddings import embed
+
+            # Some embedding models (like E5) expect query/passage prefixes
+            if is_query:
+                formatted_text = f"query: {text}"
+            else:
+                formatted_text = f"passage: {text}"
+
+            # Generate embedding
+            result = embed(self._embedding_model, formatted_text)
+
+            # Extract embedding vector - result is typically a dict or array
+            if hasattr(result, "tolist"):
+                embedding = result.tolist()
+            elif isinstance(result, dict) and "embedding" in result:
+                embedding = result["embedding"]
+            elif isinstance(result, (list, tuple)):
+                embedding = list(result)
+            else:
+                # Try to convert directly
+                embedding = list(result)
+
+            # Handle nested list (batch of 1)
+            if embedding and isinstance(embedding[0], list):
+                embedding = embedding[0]
+
+            return EmbeddingResult(
+                embedding=embedding,
+                model=self.config.embedding_model,
+            )
+
+        except Exception:
+            return None
+
+    async def generate(
+        self,
+        prompt: str,
+        model: str | None = None,
+        max_tokens: int = 256,
+        temperature: float = 0.7,
+    ) -> str | None:
+        """Generate text using MLX.
+
+        Args:
+            prompt: Prompt text.
+            model: Ignored (uses configured model).
+            max_tokens: Maximum tokens to generate.
+            temperature: Sampling temperature.
+
+        Returns:
+            Generated text or None on failure.
+        """
+        try:
+            self._ensure_model_loaded()
+
+            from mlx_lm import generate
+
+            # Format as chat message for instruction-tuned models
+            messages = [{"role": "user", "content": prompt}]
+
+            # Apply chat template if available
+            if hasattr(self._tokenizer, "apply_chat_template"):
+                formatted_prompt = self._tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            else:
+                formatted_prompt = prompt
+
+            response = generate(
+                self._model,
+                self._tokenizer,
+                prompt=formatted_prompt,
+                max_tokens=max_tokens,
+                temp=temperature,
+                verbose=False,
+            )
+
+            return response.strip() if response else None
+
+        except Exception:
+            return None
+
+    async def rerank(
+        self,
+        query: str,
+        documents: list[dict],
+        model: str | None = None,
+    ) -> RerankResult:
+        """Rerank documents using MLX for relevance judgment.
+
+        Args:
+            query: Search query.
+            documents: List of dicts with 'file' and 'body' keys.
+            model: Ignored (uses configured model).
+
+        Returns:
+            RerankResult with relevance scores.
+        """
+        results = []
+
+        for doc in documents:
+            prompt = (
+                "You are a relevance judge. Given a query and a document, "
+                "respond with ONLY 'Yes' if the document is relevant to the query, "
+                "or 'No' if it is not relevant.\n\n"
+                f"Query: {query}\n\n"
+                f"Document: {doc.get('body', '')[:1000]}\n\n"
+                "Is this document relevant? Answer with Yes or No only:"
+            )
+
+            try:
+                response = await self.generate(
+                    prompt,
+                    max_tokens=5,
+                    temperature=0.0,
+                )
+
+                if response:
+                    answer = response.strip().lower()
+                    relevant = answer.startswith("yes")
+                    confidence = 0.9 if relevant else 0.1
+                    score = 0.5 + 0.5 * confidence if relevant else 0.5 * (1 - confidence)
+
+                    results.append(
+                        RerankDocumentResult(
+                            file=doc.get("file", ""),
+                            relevant=relevant,
+                            confidence=confidence,
+                            score=score,
+                            raw_token=answer[:10],
+                            logprob=None,
+                        )
+                    )
+                else:
+                    # Default neutral on failure
+                    results.append(self._neutral_result(doc))
+
+            except Exception:
+                results.append(self._neutral_result(doc))
+
+        return RerankResult(results=results, model=self.config.model)
+
+    def _neutral_result(self, doc: dict) -> RerankDocumentResult:
+        """Create a neutral rerank result for error cases."""
+        return RerankDocumentResult(
+            file=doc.get("file", ""),
+            relevant=False,
+            confidence=0.5,
+            score=0.5,
+            raw_token="error",
+            logprob=None,
+        )
+
+    async def model_exists(self, model: str) -> bool:
+        """Check if model is available.
+
+        For MLX, we just check if the configured model can be loaded.
+
+        Args:
+            model: Model name to check.
+
+        Returns:
+            True if model appears to be valid HuggingFace model ID.
+        """
+        # Basic validation - check if it looks like a valid model ID
+        return "/" in model or model == self.config.model
+
+    async def is_available(self) -> bool:
+        """Check if MLX is available.
+
+        Returns:
+            True if running on macOS and mlx-lm is importable.
+        """
+        if sys.platform != "darwin":
+            return False
+
+        try:
+            import mlx_lm
+            return True
+        except ImportError:
+            return False
+
+    def get_default_embedding_model(self) -> str:
+        """Get default embedding model name.
+
+        Returns:
+            Embedding model name (from mlx-embeddings).
+        """
+        return self.config.embedding_model
+
+    def get_default_expansion_model(self) -> str:
+        """Get default query expansion model name.
+
+        Returns:
+            Model name.
+        """
+        return self.config.model
+
+    def get_default_reranker_model(self) -> str:
+        """Get default reranker model name.
+
+        Returns:
+            Model name.
+        """
+        return self.config.model
+
+    def unload_model(self) -> None:
+        """Unload the text generation model to free memory."""
+        self._model = None
+        self._tokenizer = None
+        self._model_loaded = False
+
+    def unload_embedding_model(self) -> None:
+        """Unload the embedding model to free memory."""
+        self._embedding_model = None
+        self._embedding_model_loaded = False
+
+    def unload_all(self) -> None:
+        """Unload all models to free memory."""
+        self.unload_model()
+        self.unload_embedding_model()

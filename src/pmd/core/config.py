@@ -40,6 +40,22 @@ class OllamaConfig:
 
 
 @dataclass
+class MLXConfig:
+    """MLX local model configuration for Apple Silicon."""
+
+    # Model to use for text generation (query expansion, reranking)
+    model: str = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+    # Model to use for embeddings (via mlx-embeddings)
+    embedding_model: str = "mlx-community/multilingual-e5-small-mlx"
+    # Maximum tokens to generate
+    max_tokens: int = 256
+    # Sampling temperature
+    temperature: float = 0.7
+    # Whether to lazy-load models (load on first use)
+    lazy_load: bool = True
+
+
+@dataclass
 class SearchConfig:
     """Search pipeline configuration."""
 
@@ -75,6 +91,7 @@ class Config:
     lm_studio: LMStudioConfig = field(default_factory=LMStudioConfig)
     openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
+    mlx: MLXConfig = field(default_factory=MLXConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
     chunk: ChunkConfig = field(default_factory=ChunkConfig)
 
@@ -101,6 +118,12 @@ class Config:
         # Ollama configuration (legacy)
         if url := os.environ.get("OLLAMA_URL"):
             config.ollama.base_url = url
+
+        # MLX configuration
+        if model := os.environ.get("MLX_MODEL"):
+            config.mlx.model = model
+        if embedding_model := os.environ.get("MLX_EMBEDDING_MODEL"):
+            config.mlx.embedding_model = embedding_model
 
         if path := os.environ.get("INDEX_PATH"):
             config.db_path = Path(path)

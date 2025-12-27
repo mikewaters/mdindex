@@ -1,5 +1,7 @@
 """LLM provider factory for instantiating the right provider."""
 
+import sys
+
 from ..core.config import Config
 from ..core.exceptions import OllamaConnectionError
 from .base import LLMProvider
@@ -18,6 +20,7 @@ def create_llm_provider(config: Config) -> LLMProvider:
 
     Raises:
         ValueError: If provider is not recognized or not properly configured.
+        RuntimeError: If MLX is requested but not available.
     """
     provider_name = config.llm_provider.lower().strip()
 
@@ -25,13 +28,18 @@ def create_llm_provider(config: Config) -> LLMProvider:
         return LMStudioProvider(config.lm_studio)
     elif provider_name == "openrouter":
         return OpenRouterProvider(config.openrouter)
+    elif provider_name == "mlx":
+        if sys.platform != "darwin":
+            raise RuntimeError("MLX provider requires macOS with Apple Silicon")
+        from .mlx_provider import MLXProvider
+        return MLXProvider(config.mlx)
     elif provider_name == "ollama":
         # Legacy Ollama support would go here
         raise NotImplementedError("Ollama support coming in future release")
     else:
         raise ValueError(
             f"Unknown LLM provider: {provider_name}. "
-            "Supported providers: lm-studio, openrouter"
+            "Supported providers: lm-studio, openrouter, mlx"
         )
 
 
@@ -49,5 +57,6 @@ def get_provider_name(config: Config) -> str:
         "lm-studio": "LM Studio",
         "openrouter": "OpenRouter",
         "ollama": "Ollama",
+        "mlx": "MLX (Local)",
     }
     return names.get(provider, provider)
