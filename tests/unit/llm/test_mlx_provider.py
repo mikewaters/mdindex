@@ -1,5 +1,6 @@
 """Tests for MLX LLM provider."""
 
+import os
 import sys
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
@@ -219,7 +220,9 @@ class TestMLXProviderGenerate:
 
         assert not provider._model_loaded
 
-        await provider.generate("prompt")
+        # Mock _get_hf_token to return None for simpler assertion
+        with patch.object(provider, "_get_hf_token", return_value=None):
+            await provider.generate("prompt")
 
         assert provider._model_loaded
         mock_lm_module.load.assert_called_once_with(mlx_config.model)
@@ -427,6 +430,117 @@ class TestMLXProviderUnloadModel:
         assert provider._model is None
         assert provider._tokenizer is None
         assert provider._model_loaded is False
+
+
+class TestMLXProviderHuggingFaceToken:
+    """Tests for HuggingFace token support."""
+
+    def test_get_hf_token_from_env(self, mlx_config, mock_mlx_lm):
+        """Should get token from HF_TOKEN environment variable."""
+        from pmd.llm.mlx_provider import MLXProvider
+
+        provider = MLXProvider(mlx_config)
+
+        with patch.dict("os.environ", {"HF_TOKEN": "test-token-123"}):
+            token = provider._get_hf_token()
+
+        assert token == "test-token-123"
+
+    def test_get_hf_token_from_cached_login(self, mlx_config, mock_mlx_lm):
+        """Should get token from huggingface-cli cached login."""
+        from pmd.llm.mlx_provider import MLXProvider
+
+        provider = MLXProvider(mlx_config)
+
+        # Remove HF_TOKEN but keep other env vars
+        env_without_token = {k: v for k, v in os.environ.items() if k != "HF_TOKEN"}
+        with patch.dict("os.environ", env_without_token, clear=True):
+            with patch("huggingface_hub.HfFolder.get_token", return_value="cached-token"):
+                token = provider._get_hf_token()
+
+        assert token == "cached-token"
+
+    def test_get_hf_token_env_takes_priority(self, mlx_config, mock_mlx_lm):
+        """HF_TOKEN env var should take priority over cached login."""
+        from pmd.llm.mlx_provider import MLXProvider
+
+        provider = MLXProvider(mlx_config)
+
+        with patch.dict("os.environ", {"HF_TOKEN": "env-token"}):
+            with patch("huggingface_hub.HfFolder.get_token", return_value="cached-token"):
+                token = provider._get_hf_token()
+
+        assert token == "env-token"
+
+    def test_get_hf_token_returns_none_when_not_available(self, mlx_config, mock_mlx_lm):
+        """Should return None when no token available."""
+        from pmd.llm.mlx_provider import MLXProvider
+
+        provider = MLXProvider(mlx_config)
+
+        # Remove HF_TOKEN but keep other env vars, and mock HfFolder to raise exception
+        env_without_token = {k: v for k, v in os.environ.items() if k != "HF_TOKEN"}
+        with patch.dict("os.environ", env_without_token, clear=True):
+            with patch("huggingface_hub.HfFolder.get_token", side_effect=Exception("No token")):
+                token = provider._get_hf_token()
+
+        assert token is None
+
+    def test_model_load_passes_token(self, mlx_config, mock_mlx_lm):
+        """Model load should pass token when available."""
+        from pmd.llm.mlx_provider import MLXProvider
+
+        mock_lm_module, _, _, _, _ = mock_mlx_lm
+        provider = MLXProvider(mlx_config)
+
+        with patch.object(provider, "_get_hf_token", return_value="my-token"):
+            provider._ensure_model_loaded()
+
+        # Check that load was called with tokenizer_config containing the token
+        mock_lm_module.load.assert_called_once()
+        call_kwargs = mock_lm_module.load.call_args
+        assert call_kwargs[1].get("tokenizer_config", {}).get("token") == "my-token"
+
+    def test_model_load_without_token(self, mlx_config, mock_mlx_lm):
+        """Model load should work without token."""
+        from pmd.llm.mlx_provider import MLXProvider
+
+        mock_lm_module, _, _, _, _ = mock_mlx_lm
+        provider = MLXProvider(mlx_config)
+
+        with patch.object(provider, "_get_hf_token", return_value=None):
+            provider._ensure_model_loaded()
+
+        # Check that load was called with just the model name
+        mock_lm_module.load.assert_called_once_with(mlx_config.model)
+
+    def test_embedding_model_load_passes_token(self, mlx_config, mock_mlx_lm):
+        """Embedding model load should pass token when available."""
+        from pmd.llm.mlx_provider import MLXProvider
+
+        _, mock_embed_module, _, _, _ = mock_mlx_lm
+        provider = MLXProvider(mlx_config)
+
+        with patch.object(provider, "_get_hf_token", return_value="embed-token"):
+            provider._ensure_embedding_model_loaded()
+
+        # Check that load was called with token
+        mock_embed_module.load.assert_called_once()
+        call_kwargs = mock_embed_module.load.call_args
+        assert call_kwargs[1].get("token") == "embed-token"
+
+    def test_embedding_model_load_without_token(self, mlx_config, mock_mlx_lm):
+        """Embedding model load should work without token."""
+        from pmd.llm.mlx_provider import MLXProvider
+
+        _, mock_embed_module, _, _, _ = mock_mlx_lm
+        provider = MLXProvider(mlx_config)
+
+        with patch.object(provider, "_get_hf_token", return_value=None):
+            provider._ensure_embedding_model_loaded()
+
+        # Check that load was called with just the model name
+        mock_embed_module.load.assert_called_once_with(mlx_config.embedding_model)
 
 
 class TestMLXProviderFactoryIntegration:

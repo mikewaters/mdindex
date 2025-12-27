@@ -58,12 +58,6 @@ class LLMError(PMDError):
     pass
 
 
-class OllamaConnectionError(LLMError):
-    """Cannot connect to Ollama service."""
-
-    pass
-
-
 class ModelNotFoundError(LLMError):
     """Required model not available."""
 

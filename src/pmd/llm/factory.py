@@ -3,7 +3,6 @@
 import sys
 
 from ..core.config import Config
-from ..core.exceptions import OllamaConnectionError
 from .base import LLMProvider
 from .lm_studio import LMStudioProvider
 from .openrouter import OpenRouterProvider
@@ -33,9 +32,6 @@ def create_llm_provider(config: Config) -> LLMProvider:
             raise RuntimeError("MLX provider requires macOS with Apple Silicon")
         from .mlx_provider import MLXProvider
         return MLXProvider(config.mlx)
-    elif provider_name == "ollama":
-        # Legacy Ollama support would go here
-        raise NotImplementedError("Ollama support coming in future release")
     else:
         raise ValueError(
             f"Unknown LLM provider: {provider_name}. "
@@ -56,7 +52,6 @@ def get_provider_name(config: Config) -> str:
     names = {
         "lm-studio": "LM Studio",
         "openrouter": "OpenRouter",
-        "ollama": "Ollama",
         "mlx": "MLX (Local)",
     }
     return names.get(provider, provider)

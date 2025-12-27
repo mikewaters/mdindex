@@ -3,7 +3,6 @@
 import httpx
 
 from ..core.config import OpenRouterConfig
-from ..core.exceptions import OllamaConnectionError
 from ..core.types import EmbeddingResult, RerankDocumentResult, RerankResult
 from .base import LLMProvider
 

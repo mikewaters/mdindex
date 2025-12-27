@@ -52,13 +52,6 @@ class TestCreateLLMProvider:
         with pytest.raises(ValueError, match="API_KEY"):
             create_llm_provider(config)
 
-    def test_ollama_not_implemented(self):
-        """Should raise NotImplementedError for ollama."""
-        config = Config(llm_provider="ollama")
-
-        with pytest.raises(NotImplementedError, match="Ollama"):
-            create_llm_provider(config)
-
     def test_unknown_provider_raises(self):
         """Should raise ValueError for unknown provider."""
         config = Config(llm_provider="unknown-provider")
@@ -123,13 +116,13 @@ class TestGetProviderName:
 
         assert name == "OpenRouter"
 
-    def test_ollama_name(self):
-        """Should return 'Ollama' for ollama."""
-        config = Config(llm_provider="ollama")
+    def test_mlx_name(self):
+        """Should return 'MLX (Local)' for mlx."""
+        config = Config(llm_provider="mlx")
 
         name = get_provider_name(config)
 
-        assert name == "Ollama"
+        assert name == "MLX (Local)"
 
     def test_unknown_returns_raw(self):
         """Should return raw provider name for unknown."""

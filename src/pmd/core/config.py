@@ -29,17 +29,6 @@ class OpenRouterConfig:
 
 
 @dataclass
-class OllamaConfig:
-    """Ollama service configuration (legacy support)."""
-
-    base_url: str = "http://localhost:11434"
-    embedding_model: str = "embeddinggemma"
-    expansion_model: str = "qwen3:0.6b"
-    reranker_model: str = "ExpedientFalcon/Qwen3-Reranker-0.6B-GGUF:Q8_0"
-    timeout: float = 120.0
-
-
-@dataclass
 class MLXConfig:
     """MLX local model configuration for Apple Silicon."""
 
@@ -87,10 +76,9 @@ class Config:
     """Main application configuration."""
 
     db_path: Path = field(default_factory=_default_db_path)
-    llm_provider: str = "lm-studio"  # Default LLM provider
+    llm_provider: str = "mlx"  # Default LLM provider (local inference on Apple Silicon)
     lm_studio: LMStudioConfig = field(default_factory=LMStudioConfig)
     openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
-    ollama: OllamaConfig = field(default_factory=OllamaConfig)
     mlx: MLXConfig = field(default_factory=MLXConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
     chunk: ChunkConfig = field(default_factory=ChunkConfig)
@@ -114,10 +102,6 @@ class Config:
 
         if url := os.environ.get("OPENROUTER_URL"):
             config.openrouter.base_url = url
-
-        # Ollama configuration (legacy)
-        if url := os.environ.get("OLLAMA_URL"):
-            config.ollama.base_url = url
 
         # MLX configuration
         if model := os.environ.get("MLX_MODEL"):

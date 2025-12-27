@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,10 @@ class MLXProvider(LLMProvider):
 
     Uses mlx-lm for text generation (query expansion, reranking)
     and mlx-embeddings for embedding generation.
+
+    Models are downloaded from HuggingFace. Authentication can be provided via:
+    - HF_TOKEN environment variable
+    - huggingface-cli login (or hf auth login)
     """
 
     def __init__(self, config: MLXConfig):
@@ -48,6 +53,27 @@ class MLXProvider(LLMProvider):
             self._ensure_model_loaded()
             self._ensure_embedding_model_loaded()
 
+    def _get_hf_token(self) -> str | None:
+        """Get HuggingFace token from environment or cached login.
+
+        Checks in order:
+        1. HF_TOKEN environment variable
+        2. Cached token from huggingface-cli login
+
+        Returns:
+            Token string or None if not available.
+        """
+        # Check environment variable first
+        if token := os.environ.get("HF_TOKEN"):
+            return token
+
+        # Try to get token from huggingface_hub cached login
+        try:
+            from huggingface_hub import HfFolder
+            return HfFolder.get_token()
+        except Exception:
+            return None
+
     def _ensure_model_loaded(self) -> None:
         """Load the text generation model if not already loaded."""
         if self._model_loaded:
@@ -55,7 +81,18 @@ class MLXProvider(LLMProvider):
 
         from mlx_lm import load
 
-        self._model, self._tokenizer = load(self.config.model)
+        # Get HF token for model download
+        token = self._get_hf_token()
+
+        # mlx_lm.load accepts tokenizer_config dict for token
+        if token:
+            self._model, self._tokenizer = load(
+                self.config.model,
+                tokenizer_config={"token": token},
+            )
+        else:
+            self._model, self._tokenizer = load(self.config.model)
+
         self._model_loaded = True
 
     def _ensure_embedding_model_loaded(self) -> None:
@@ -65,7 +102,18 @@ class MLXProvider(LLMProvider):
 
         from mlx_embeddings import load as load_embeddings
 
-        self._embedding_model = load_embeddings(self.config.embedding_model)
+        # Get HF token for model download
+        token = self._get_hf_token()
+
+        # mlx_embeddings.load should also support token parameter
+        if token:
+            self._embedding_model = load_embeddings(
+                self.config.embedding_model,
+                token=token,
+            )
+        else:
+            self._embedding_model = load_embeddings(self.config.embedding_model)
+
         self._embedding_model_loaded = True
 
     async def embed(
