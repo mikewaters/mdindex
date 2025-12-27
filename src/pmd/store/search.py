@@ -1,4 +1,4 @@
-"""Full-text search implementation for PMD."""
+"""Full-text and vector search implementation for PMD."""
 
 from abc import ABC, abstractmethod
 
@@ -24,6 +24,27 @@ class SearchRepository(ABC):
             limit: Maximum number of results to return.
             collection_id: Optional collection ID to limit search scope.
             min_score: Minimum score threshold for results.
+
+        Returns:
+            List of SearchResult objects sorted by relevance.
+        """
+        pass
+
+    @abstractmethod
+    def search_vec(
+        self,
+        query_embedding: list[float],
+        limit: int = 5,
+        collection_id: int | None = None,
+        min_score: float = 0.0,
+    ) -> list[SearchResult]:
+        """Perform vector similarity search.
+
+        Args:
+            query_embedding: Query embedding vector.
+            limit: Maximum number of results to return.
+            collection_id: Optional collection ID to limit search scope.
+            min_score: Minimum similarity score (0.0-1.0).
 
         Returns:
             List of SearchResult objects sorted by relevance.
@@ -210,6 +231,31 @@ class FTS5SearchRepository(SearchRepository):
         """Clear all FTS5 index entries."""
         with self.db.transaction() as cursor:
             cursor.execute("DELETE FROM documents_fts")
+
+    def search_vec(
+        self,
+        query_embedding: list[float],
+        limit: int = 5,
+        collection_id: int | None = None,
+        min_score: float = 0.0,
+    ) -> list[SearchResult]:
+        """Perform vector similarity search using sqlite-vec.
+
+        Note: This is a placeholder for Phase 2. Phase 3 will implement
+        actual cosine similarity search via sqlite-vec.
+
+        Args:
+            query_embedding: Query embedding vector.
+            limit: Maximum number of results to return.
+            collection_id: Optional collection ID to limit search scope.
+            min_score: Minimum similarity score (0.0-1.0).
+
+        Returns:
+            List of SearchResult objects sorted by relevance.
+        """
+        # Phase 2: Return empty list (vector search not yet implemented)
+        # Phase 3: Will query sqlite-vec for cosine similarity matches
+        return []
 
     @staticmethod
     def _prepare_fts_query(query: str) -> str:
