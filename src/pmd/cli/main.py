@@ -57,6 +57,17 @@ def create_parser() -> argparse.ArgumentParser:
     query_parser = subparsers.add_parser("query", help="Hybrid search with reranking")
     commands.add_search_arguments(query_parser)
 
+    # Indexing commands
+    subparsers.add_parser("update-all", help="Update all collections")
+
+    embed_parser = subparsers.add_parser("embed", help="Generate embeddings")
+    commands.add_index_arguments(embed_parser)
+
+    index_parser = subparsers.add_parser("index", help="Index a collection")
+    commands.add_index_arguments(index_parser)
+
+    subparsers.add_parser("cleanup", help="Clean cache and orphaned data")
+
     # Status command
     subparsers.add_parser("status", help="Show index status")
 
@@ -78,6 +89,14 @@ def main() -> NoReturn:
             commands.handle_vsearch(args, config)
         elif args.command == "query":
             commands.handle_query(args, config)
+        elif args.command == "index":
+            commands.handle_index_collection(args, config)
+        elif args.command == "update-all":
+            commands.handle_update_all(args, config)
+        elif args.command == "embed":
+            commands.handle_embed(args, config)
+        elif args.command == "cleanup":
+            commands.handle_cleanup(args, config)
         elif args.command == "status":
             commands.handle_status(args, config)
         else:
