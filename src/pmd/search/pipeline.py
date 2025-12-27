@@ -1,11 +1,16 @@
 """Hybrid search pipeline for PMD."""
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from ..core.types import RankedResult, SearchResult
 from ..store.search import SearchRepository
 from .fusion import reciprocal_rank_fusion
 from .scoring import blend_scores
+
+if TYPE_CHECKING:
+    from ..llm.query_expansion import QueryExpander
+    from ..llm.reranker import DocumentReranker
 
 
 @dataclass
@@ -18,8 +23,8 @@ class SearchPipelineConfig:
     top_rank_bonus: float = 0.05
     expansion_weight: float = 0.5
     rerank_candidates: int = 30
-    enable_query_expansion: bool = False  # Phase 3
-    enable_reranking: bool = False  # Phase 3
+    enable_query_expansion: bool = False
+    enable_reranking: bool = False
 
 
 class HybridSearchPipeline:
@@ -29,24 +34,36 @@ class HybridSearchPipeline:
         self,
         search_repo: SearchRepository,
         config: SearchPipelineConfig | None = None,
+        query_expander: "QueryExpander | None" = None,
+        reranker: "DocumentReranker | None" = None,
     ):
         """Initialize the pipeline.
 
         Args:
             search_repo: SearchRepository instance for queries.
             config: Optional SearchPipelineConfig (uses defaults if None).
+            query_expander: Optional QueryExpander for query variations.
+            reranker: Optional DocumentReranker for relevance scoring.
         """
         self.search_repo = search_repo
         self.config = config or SearchPipelineConfig()
+        self.query_expander = query_expander
+        self.reranker = reranker
 
-    def search(
+        # Ensure expander and reranker are only used if enabled
+        if not self.config.enable_query_expansion:
+            self.query_expander = None
+        if not self.config.enable_reranking:
+            self.reranker = None
+
+    async def search(
         self,
         query: str,
         limit: int = 5,
         collection_id: int | None = None,
         min_score: float = 0.0,
     ) -> list[RankedResult]:
-        """Execute full hybrid search pipeline.
+        """Execute full hybrid search pipeline asynchronously.
 
         Pipeline steps:
         1. Query expansion (Phase 3)
@@ -68,7 +85,7 @@ class HybridSearchPipeline:
         # Step 1: Query expansion (Phase 3)
         queries = [query]
         if self.config.enable_query_expansion:
-            expansions = self._expand_query(query)
+            expansions = await self._expand_query(query)
             queries.extend(expansions)
 
         # Step 2: Parallel FTS5 and vector search for all query variants
@@ -86,8 +103,8 @@ class HybridSearchPipeline:
 
         # Step 4: LLM Reranking (Phase 3)
         if self.config.enable_reranking and candidates:
-            reranked = self._rerank(query, candidates)
-            final = blend_scores(candidates, reranked)
+            reranked = await self._rerank(query, candidates)
+            final = reranked
         else:
             final = candidates
 
@@ -95,19 +112,23 @@ class HybridSearchPipeline:
         final = [r for r in final if r.score >= min_score]
         return final[:limit]
 
-    def _expand_query(self, query: str) -> list[str]:
-        """Generate query variations.
-
-        Phase 3: Will use Ollama to generate semantic variations.
+    async def _expand_query(self, query: str) -> list[str]:
+        """Generate query variations using LLM.
 
         Args:
             query: Original query string.
 
         Returns:
-            List of query variations.
+            List of query variations [original, var1, var2, ...].
         """
-        # Phase 2: Return empty list (no expansion yet)
-        return []
+        if not self.query_expander:
+            return []
+
+        try:
+            variations = await self.query_expander.expand(query, num_variations=2)
+            return variations
+        except Exception:
+            return []
 
     def _parallel_search(
         self,
@@ -146,21 +167,24 @@ class HybridSearchPipeline:
 
         return results
 
-    def _rerank(
+    async def _rerank(
         self,
         query: str,
         candidates: list[RankedResult],
-    ) -> list:
+    ) -> list[RankedResult]:
         """Rerank candidates using LLM.
-
-        Phase 3: Will use Ollama reranker.
 
         Args:
             query: Original search query.
             candidates: Candidate results to rerank.
 
         Returns:
-            List of RerankDocumentResult objects.
+            Reranked results.
         """
-        # Phase 2: Return empty list (no reranking yet)
-        return []
+        if not self.reranker:
+            return candidates
+
+        try:
+            return await self.reranker.rerank(query, candidates)
+        except Exception:
+            return candidates
