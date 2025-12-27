@@ -6,8 +6,31 @@ from pathlib import Path
 
 
 @dataclass
+class LMStudioConfig:
+    """LM Studio service configuration (default)."""
+
+    base_url: str = "http://localhost:1234"
+    embedding_model: str = "nomic-embed-text"
+    expansion_model: str = "qwen2:0.5b"
+    reranker_model: str = "qwen2:0.5b"
+    timeout: float = 120.0
+
+
+@dataclass
+class OpenRouterConfig:
+    """OpenRouter API configuration."""
+
+    api_key: str = ""
+    base_url: str = "https://openrouter.io/api/v1"
+    embedding_model: str = "nomic-ai/nomic-embed-text"
+    expansion_model: str = "qwen/qwen-1.5-0.5b"
+    reranker_model: str = "qwen/qwen-1.5-0.5b"
+    timeout: float = 120.0
+
+
+@dataclass
 class OllamaConfig:
-    """Ollama service configuration."""
+    """Ollama service configuration (legacy support)."""
 
     base_url: str = "http://localhost:11434"
     embedding_model: str = "embeddinggemma"
@@ -48,6 +71,9 @@ class Config:
     """Main application configuration."""
 
     db_path: Path = field(default_factory=_default_db_path)
+    llm_provider: str = "lm-studio"  # Default LLM provider
+    lm_studio: LMStudioConfig = field(default_factory=LMStudioConfig)
+    openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
     chunk: ChunkConfig = field(default_factory=ChunkConfig)
@@ -57,6 +83,22 @@ class Config:
         """Load configuration from environment variables."""
         config = cls()
 
+        # LLM Provider selection
+        if provider := os.environ.get("LLM_PROVIDER"):
+            config.llm_provider = provider
+
+        # LM Studio configuration
+        if url := os.environ.get("LM_STUDIO_URL"):
+            config.lm_studio.base_url = url
+
+        # OpenRouter configuration
+        if api_key := os.environ.get("OPENROUTER_API_KEY"):
+            config.openrouter.api_key = api_key
+
+        if url := os.environ.get("OPENROUTER_URL"):
+            config.openrouter.base_url = url
+
+        # Ollama configuration (legacy)
         if url := os.environ.get("OLLAMA_URL"):
             config.ollama.base_url = url
 

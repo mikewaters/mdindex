@@ -1,6 +1,13 @@
 """Core business logic and types for PMD."""
 
-from .config import ChunkConfig, Config, OllamaConfig, SearchConfig
+from .config import (
+    ChunkConfig,
+    Config,
+    LMStudioConfig,
+    OllamaConfig,
+    OpenRouterConfig,
+    SearchConfig,
+)
 from .exceptions import (
     CollectionError,
     CollectionExistsError,
@@ -37,6 +44,8 @@ from .types import (
 
 __all__ = [
     "Config",
+    "LMStudioConfig",
+    "OpenRouterConfig",
     "OllamaConfig",
     "SearchConfig",
     "ChunkConfig",
