@@ -1,510 +1,372 @@
-# QMD - Quick Markdown Search
+# PMD - Python Markdown Search
 
-An on-device search engine for everything you need to remember. Index your markdown notes, meeting transcripts, documentation, and knowledge bases. Search with keywords or natural language. Ideal for your agentic flows.
+A hybrid search engine for markdown documents with full-text search, vector semantic search, and LLM-powered relevance ranking.
 
-QMD combines BM25 full-text search, vector semantic search, and LLM re-ranking—all running locally via Ollama.
+## Features
 
-## Quick Start
-
-```sh
-# Install globally
-bun install -g https://github.com/tobi/qmd
-
-# Index your notes, docs, and meeting transcripts
-cd ~/notes && qmd add .
-cd ~/Documents/meetings && qmd add .
-cd ~/work/docs && qmd add .
-
-# Add context to help with search results
-qmd add-context ~/notes "Personal notes and ideas"
-qmd add-context ~/Documents/meetings "Meeting transcripts and notes"
-qmd add-context ~/work/docs "Work documentation"
-
-# Generate embeddings for semantic search
-qmd embed
-
-# Search across everything
-qmd search "project timeline"           # Fast keyword search
-qmd vsearch "how to deploy"             # Semantic search
-qmd query "quarterly planning process"  # Hybrid + reranking (best quality)
-
-# Get a specific document
-qmd get "meetings/2024-01-15.md"
-
-# Get multiple documents by glob pattern
-qmd multi-get "journals/2025-05*.md"
-
-# Search within a specific collection
-qmd search "API" -c notes
-
-# Export all matches for an agent
-qmd search "API" --all --files --min-score 0.3
-```
-
-### Using with AI Agents
-
-QMD's `--json` and `--files` output formats are designed for agentic workflows:
-
-```sh
-# Get structured results for an LLM
-qmd search "authentication" --json -n 10
-
-# List all relevant files above a threshold
-qmd query "error handling" --all --files --min-score 0.4
-
-# Retrieve full document content
-qmd get "docs/api-reference.md" --full
-```
-
-### MCP Server
-
-Although the tool works perfectly fine when you just tell your agent to use it on the command line, it also exposes an MCP (Model Context Protocol) server for tighter integration.
-
-**Tools exposed:**
-- `qmd_search` - Fast BM25 keyword search (supports collection filter)
-- `qmd_vsearch` - Semantic vector search (supports collection filter)
-- `qmd_query` - Hybrid search with reranking (supports collection filter)
-- `qmd_get` - Retrieve document content (with fuzzy matching suggestions)
-- `qmd_multi_get` - Retrieve multiple documents by glob pattern or list
-- `qmd_status` - Index health and collection info
-
-**Claude Desktop configuration** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "qmd": {
-      "command": "qmd",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-**Claude Code configuration** (`~/.claude/settings.json`):
-
-```json
-{
-  "mcpServers": {
-    "qmd": {
-      "command": "qmd",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         QMD Hybrid Search Pipeline                          │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-                              ┌─────────────────┐
-                              │   User Query    │
-                              └────────┬────────┘
-                                       │
-                        ┌──────────────┴──────────────┐
-                        ▼                             ▼
-               ┌────────────────┐            ┌────────────────┐
-               │ Query Expansion│            │  Original Query│
-               │  (qwen3:0.6b)  │            │   (×2 weight)  │
-               └───────┬────────┘            └───────┬────────┘
-                       │                             │
-                       │ 2 alternative queries       │
-                       └──────────────┬──────────────┘
-                                      │
-              ┌───────────────────────┼───────────────────────┐
-              ▼                       ▼                       ▼
-     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-     │ Original Query  │     │ Expanded Query 1│     │ Expanded Query 2│
-     └────────┬────────┘     └────────┬────────┘     └────────┬────────┘
-              │                       │                       │
-      ┌───────┴───────┐       ┌───────┴───────┐       ┌───────┴───────┐
-      ▼               ▼       ▼               ▼       ▼               ▼
-  ┌───────┐       ┌───────┐ ┌───────┐     ┌───────┐ ┌───────┐     ┌───────┐
-  │ BM25  │       │Vector │ │ BM25  │     │Vector │ │ BM25  │     │Vector │
-  │(FTS5) │       │Search │ │(FTS5) │     │Search │ │(FTS5) │     │Search │
-  └───┬───┘       └───┬───┘ └───┬───┘     └───┬───┘ └───┬───┘     └───┬───┘
-      │               │         │             │         │             │
-      └───────┬───────┘         └──────┬──────┘         └──────┬──────┘
-              │                        │                       │
-              └────────────────────────┼───────────────────────┘
-                                       │
-                                       ▼
-                          ┌───────────────────────┐
-                          │   RRF Fusion + Bonus  │
-                          │  Original query: ×2   │
-                          │  Top-rank bonus: +0.05│
-                          │     Top 30 Kept       │
-                          └───────────┬───────────┘
-                                      │
-                                      ▼
-                          ┌───────────────────────┐
-                          │    LLM Re-ranking     │
-                          │  (qwen3-reranker)     │
-                          │  Yes/No + logprobs    │
-                          └───────────┬───────────┘
-                                      │
-                                      ▼
-                          ┌───────────────────────┐
-                          │  Position-Aware Blend │
-                          │  Top 1-3:  75% RRF    │
-                          │  Top 4-10: 60% RRF    │
-                          │  Top 11+:  40% RRF    │
-                          └───────────────────────┘
-```
-
-## Score Normalization & Fusion
-
-### Search Backends
-
-| Backend | Raw Score | Conversion | Range |
-|---------|-----------|------------|-------|
-| **FTS (BM25)** | SQLite FTS5 BM25 | `Math.abs(score)` | 0 to ~25+ |
-| **Vector** | Cosine distance | `1 / (1 + distance)` | 0.0 to 1.0 |
-| **Reranker** | LLM 0-10 rating | `score / 10` | 0.0 to 1.0 |
-
-### Fusion Strategy
-
-The `query` command uses **Reciprocal Rank Fusion (RRF)** with position-aware blending:
-
-1. **Query Expansion**: Original query (×2 for weighting) + 1 LLM variation
-2. **Parallel Retrieval**: Each query searches both FTS and vector indexes
-3. **RRF Fusion**: Combine all result lists using `score = Σ(1/(k+rank+1))` where k=60
-4. **Top-Rank Bonus**: Documents ranking #1 in any list get +0.05, #2-3 get +0.02
-5. **Top-K Selection**: Take top 30 candidates for reranking
-6. **Re-ranking**: LLM scores each document (yes/no with logprobs confidence)
-7. **Position-Aware Blending**:
-   - RRF rank 1-3: 75% retrieval, 25% reranker (preserves exact matches)
-   - RRF rank 4-10: 60% retrieval, 40% reranker
-   - RRF rank 11+: 40% retrieval, 60% reranker (trust reranker more)
-
-**Why this approach**: Pure RRF can dilute exact matches when expanded queries don't match. The top-rank bonus preserves documents that score #1 for the original query. Position-aware blending prevents the reranker from destroying high-confidence retrieval results.
-
-### Score Interpretation
-
-| Score | Meaning |
-|-------|---------|
-| 0.8 - 1.0 | Highly relevant |
-| 0.5 - 0.8 | Moderately relevant |
-| 0.2 - 0.5 | Somewhat relevant |
-| 0.0 - 0.2 | Low relevance |
-
-## Requirements
-
-### System Requirements
-
-- **Bun** >= 1.0.0
-- **macOS**: Homebrew SQLite (for extension support)
-  ```sh
-  brew install sqlite
-  ```
-- **Ollama** running locally (default: `http://localhost:11434`)
-
-### Ollama Models
-
-QMD uses three models (auto-pulled if missing):
-
-| Model | Purpose | Size |
-|-------|---------|------|
-| `embeddinggemma` | Vector embeddings | ~1.6GB |
-| `ExpedientFalcon/qwen3-reranker:0.6b-q8_0` | Re-ranking (trained) | ~640MB |
-| `qwen3:0.6b` | Query expansion | ~400MB |
-
-```sh
-# Pre-pull models (optional)
-ollama pull embeddinggemma
-ollama pull ExpedientFalcon/qwen3-reranker:0.6b-q8_0
-ollama pull qwen3:0.6b
-```
+- **BM25 Full-Text Search** via SQLite FTS5
+- **Vector Semantic Search** via sqlite-vec embeddings
+- **LLM Re-ranking** via LM Studio (default) or OpenRouter
+- **Hybrid Search Pipeline** with Reciprocal Rank Fusion (RRF)
+- **Query Expansion** for improved recall
+- **Content-Addressable Storage** for efficient deduplication
+- **MCP Server Integration** for AI agent access
+- **Multiple Output Formats**: JSON, CSV, XML, Markdown, plain text
 
 ## Installation
 
-```sh
-bun install
+```bash
+# Clone the repository
+git clone https://github.com/yourrepo/pmd.git
+cd pmd
+
+# Install in development mode
+pip install -e ".[dev]"
+
+# Or install just the runtime dependencies
+pip install -e .
 ```
 
-## Usage
+### Requirements
 
-### Index Markdown Files
+- Python 3.11+
+- SQLite with FTS5 support (included in most Python distributions)
+- LM Studio (recommended) or OpenRouter API key for LLM features
 
-```sh
-# Index all .md files in current directory
-qmd add .
+## Quick Start
 
-# Index with custom glob pattern
-qmd add "docs/**/*.md"
+### 1. Create a Collection
 
-# Drop and re-add a collection
-qmd add --drop .
+A collection is a directory of markdown files you want to search.
+
+```bash
+# Add a collection named "notes" pointing to your markdown directory
+pmd collection add notes /path/to/your/markdown/files
+
+# Optionally specify a custom glob pattern (default: **/*.md)
+pmd collection add notes /path/to/files -g "**/*.markdown"
 ```
 
-### Generate Vector Embeddings
+### 2. Index Documents
 
-```sh
-# Embed all indexed documents (chunked into ~6KB pieces)
-qmd embed
+```bash
+# Index a specific collection
+pmd index notes
 
-# Force re-embed everything
-qmd embed -f
+# Or update all collections
+pmd update-all
 ```
 
-### Add Context
+### 3. Search
 
-```sh
-# Add context description for files in a path
-qmd add-context . "Project documentation and guides"
-qmd add-context ./meetings "Internal meeting transcripts"
+```bash
+# Basic full-text search (FTS5/BM25)
+pmd search "your search query"
+
+# Hybrid search with LLM query expansion and reranking
+pmd query "your search query"
+
+# Vector semantic search (requires embeddings)
+pmd vsearch "your search query"
 ```
+
+### 4. Manage Collections
+
+```bash
+# List all collections
+pmd collection list
+
+# Remove a collection
+pmd collection remove notes
+
+# Rename a collection
+pmd collection rename notes my-notes
+```
+
+### 5. Check Status
+
+```bash
+pmd status
+```
+
+## CLI Reference
 
 ### Search Commands
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                        Search Modes                              │
-├──────────┬───────────────────────────────────────────────────────┤
-│ search   │ BM25 full-text search only                           │
-│ vsearch  │ Vector semantic search only                          │
-│ query    │ Hybrid: FTS + Vector + Query Expansion + Re-ranking  │
-└──────────┴───────────────────────────────────────────────────────┘
-```
+| Command | Description |
+|---------|-------------|
+| `pmd search <query>` | BM25 keyword search via FTS5 |
+| `pmd vsearch <query>` | Vector semantic search using embeddings |
+| `pmd query <query>` | Hybrid search with expansion and reranking |
 
-```sh
-# Full-text search (fast, keyword-based)
-qmd search "authentication flow"
+**Common Options:**
+- `-l, --limit N` - Maximum results (default: 5)
+- `-c, --collection NAME` - Limit to specific collection
+- `-s, --score N` - Minimum score threshold (default: 0.0)
 
-# Vector search (semantic similarity)
-qmd vsearch "how to login"
+### Collection Commands
 
-# Hybrid search with re-ranking (best quality)
-qmd query "user authentication"
-```
+| Command | Description |
+|---------|-------------|
+| `pmd collection add <name> <path>` | Add a new collection |
+| `pmd collection list` | List all collections |
+| `pmd collection remove <name>` | Remove a collection |
+| `pmd collection rename <old> <new>` | Rename a collection |
 
-### Options
+**Options for `add`:**
+- `-g, --glob PATTERN` - File glob pattern (default: `**/*.md`)
 
-```sh
-# Search options
--n <num>           # Number of results (default: 5, or 20 for --files/--json)
--c, --collection   # Restrict search to a specific collection
---all              # Return all matches (use with --min-score to filter)
---min-score <num>  # Minimum score threshold (default: 0)
---full             # Show full document content
---index <name>     # Use named index
+### Index Commands
 
-# Output formats (for search and multi-get)
---files            # Output: score,filepath,context (search) or filepath,context (multi-get)
---json             # JSON output
---csv              # CSV output
---md               # Markdown output
---xml              # XML output
+| Command | Description |
+|---------|-------------|
+| `pmd index <collection>` | Index documents in a collection |
+| `pmd update-all` | Update all collections |
+| `pmd embed <collection>` | Generate embeddings (requires LLM) |
+| `pmd cleanup` | Remove orphaned data |
 
-# Multi-get options
--l <num>           # Maximum lines per file
---max-bytes <num>  # Skip files larger than N bytes (default: 10KB)
-```
+**Options for `index` and `embed`:**
+- `-f, --force` - Force reindex/re-embed all documents
 
-### Output Format
+### Other Commands
 
-Default output is colorized CLI format (respects `NO_COLOR` env):
+| Command | Description |
+|---------|-------------|
+| `pmd status` | Show index status |
+| `pmd -v, --version` | Show version |
+| `pmd -h, --help` | Show help |
 
-```
-docs/guide.md:42
-Title: Software Craftsmanship
-Context: Work documentation
-Score: 93%
+## Python API
 
-This section covers the **craftsmanship** of building
-quality software with attention to detail.
-See also: engineering principles
+### Basic Usage
 
+```python
+from pmd.core.config import Config
+from pmd.store.database import Database
+from pmd.store.collections import CollectionRepository
+from pmd.store.documents import DocumentRepository
+from pmd.store.search import FTS5SearchRepository
 
-notes/meeting.md:15
-Title: Q4 Planning
-Context: Personal notes and ideas
-Score: 67%
+# Initialize
+config = Config.from_env()
+db = Database(config.db_path)
+db.connect()
 
-Discussion about code quality and craftsmanship
-in the development process.
-```
+# Create repositories
+collections = CollectionRepository(db)
+documents = DocumentRepository(db)
+search = FTS5SearchRepository(db)
 
-- **Path**: Collection-relative, includes parent folder (e.g., `docs/guide.md`)
-- **Title**: Extracted from document (first heading or filename)
-- **Context**: Folder context if configured via `add-context`
-- **Score**: Color-coded (green >70%, yellow >40%, dim otherwise)
-- **Snippet**: Context around match with query terms highlighted
+# Create a collection
+collection = collections.create("notes", "/path/to/files", "**/*.md")
 
-### Examples
+# Add a document
+doc, is_new = documents.add_or_update(
+    collection_id=collection.id,
+    path="example.md",
+    title="Example Document",
+    content="# Example\n\nThis is example content.",
+)
 
-```sh
-# Get 10 results with minimum score 0.3
-qmd query -n 10 --min-score 0.3 "API design patterns"
+# Index for search
+search.index_document(doc.filepath, doc.filepath, doc.body)
 
-# Output as markdown for LLM context
-qmd search --md --full "error handling"
+# Search
+results = search.search_fts("example", limit=5)
+for result in results:
+    print(f"{result.title}: {result.score}")
 
-# JSON output for scripting
-qmd query --json "quarterly reports"
-
-# Use separate index for different knowledge base
-qmd --index work search "quarterly reports"
+db.close()
 ```
 
-### Manage Collections
+### Hybrid Search with LLM
 
-```sh
-# Show index status and collections with contexts
-qmd status
+```python
+import asyncio
+from pmd.core.config import Config
+from pmd.store.database import Database
+from pmd.store.search import FTS5SearchRepository
+from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
+from pmd.llm import create_llm_provider, QueryExpander, DocumentReranker
 
-# Re-index all collections
-qmd update-all
+async def hybrid_search(query: str):
+    config = Config.from_env()
+    db = Database(config.db_path)
+    db.connect()
 
-# Get document body by filepath (with fuzzy matching)
-qmd get ~/notes/meeting.md
+    # Initialize LLM provider
+    llm = create_llm_provider(config)
 
-# Get multiple documents by glob pattern
-qmd multi-get "journals/2025-05*.md"
+    # Create search components
+    search_repo = FTS5SearchRepository(db)
+    expander = QueryExpander(llm)
+    reranker = DocumentReranker(llm)
 
-# Get multiple documents by comma-separated list
-qmd multi-get "doc1.md, doc2.md, doc3.md"
+    # Configure pipeline
+    pipeline_config = SearchPipelineConfig(
+        enable_query_expansion=True,
+        enable_reranking=True,
+        rerank_candidates=30,
+    )
 
-# Limit multi-get to files under 20KB
-qmd multi-get "docs/*.md" --max-bytes 20480
+    pipeline = HybridSearchPipeline(
+        search_repo,
+        pipeline_config,
+        query_expander=expander,
+        reranker=reranker,
+    )
 
-# Output multi-get as JSON for agent processing
-qmd multi-get "docs/*.md" --json
+    # Execute search
+    results = await pipeline.search(query, limit=5)
 
-# Clean up cache and orphaned data
-qmd cleanup
+    for result in results:
+        print(f"{result.title}")
+        print(f"  Score: {result.score:.3f}")
+        print(f"  FTS: {result.fts_score}, Rerank: {result.rerank_score}")
+
+    await llm.close()
+    db.close()
+
+# Run
+asyncio.run(hybrid_search("your query"))
 ```
 
-## Data Storage
+### Embedding Generation
 
-Index stored in: `~/.cache/qmd/index.sqlite`
+```python
+import asyncio
+from pmd.core.config import Config
+from pmd.store.database import Database
+from pmd.store.embeddings import EmbeddingRepository
+from pmd.llm import create_llm_provider
+from pmd.llm.embeddings import EmbeddingGenerator
 
-### Schema
+async def generate_embeddings(content: str, hash_value: str):
+    config = Config.from_env()
+    db = Database(config.db_path)
+    db.connect()
 
-```sql
-collections     -- Indexed directories and glob patterns
-path_contexts   -- Context descriptions by path prefix
-documents       -- Markdown content with metadata
-documents_fts   -- FTS5 full-text index
-content_vectors -- Embedding chunks (hash, seq, pos)
-vectors_vec     -- sqlite-vec vector index (hash_seq key)
-ollama_cache    -- Cached API responses
+    llm = create_llm_provider(config)
+    embedding_repo = EmbeddingRepository(db)
+    generator = EmbeddingGenerator(llm, embedding_repo, config)
+
+    # Generate embeddings for document
+    chunks_embedded = await generator.embed_document(hash_value, content)
+    print(f"Embedded {chunks_embedded} chunks")
+
+    # Generate query embedding
+    query_embedding = await generator.embed_query("search query")
+    print(f"Query embedding dimensions: {len(query_embedding)}")
+
+    await llm.close()
+    db.close()
+
+asyncio.run(generate_embeddings("Document content...", "abc123hash"))
 ```
 
-## Environment Variables
+### MCP Server Integration
+
+```python
+import asyncio
+from pmd.core.config import Config
+from pmd.mcp.server import PMDMCPServer
+
+async def run_mcp_server():
+    config = Config.from_env()
+    server = PMDMCPServer(config)
+
+    await server.initialize()
+
+    # Search
+    results = await server.search("python programming", limit=5)
+    print(results)
+
+    # Get document
+    doc = await server.get_document("notes", "example.md")
+    print(doc)
+
+    # List collections
+    collections = await server.list_collections()
+    print(collections)
+
+    # Get status
+    status = await server.get_status()
+    print(status)
+
+    await server.shutdown()
+
+asyncio.run(run_mcp_server())
+```
+
+## Configuration
+
+### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OLLAMA_URL` | `http://localhost:11434` | Ollama API endpoint |
-| `XDG_CACHE_HOME` | `~/.cache` | Cache directory location |
+| `LLM_PROVIDER` | `lm-studio` | LLM provider: `lm-studio` or `openrouter` |
+| `LM_STUDIO_URL` | `http://localhost:1234` | LM Studio API endpoint |
+| `OPENROUTER_API_KEY` | (none) | OpenRouter API key |
+| `OPENROUTER_URL` | `https://openrouter.io/api/v1` | OpenRouter endpoint |
+| `INDEX_PATH` | `~/.cache/pmd/index.db` | Database file path |
+| `XDG_CACHE_HOME` | `~/.cache` | Cache directory base |
 
-## How It Works
+### LLM Provider Configuration
 
-### Indexing Flow
-
-```
-Markdown Files ──► Parse Title ──► Hash Content ──► Store in SQLite
-                      │                                    │
-                      └──────────► FTS5 Index ◄────────────┘
-```
-
-### Embedding Flow
-
-Documents are chunked into ~6KB pieces to fit the embedding model's token window:
-
-```
-Document ──► Chunk (~6KB each) ──► Format each chunk ──► Ollama API ──► Store Vectors
-                │                    "title | text"        /api/embed
-                │
-                └─► Chunks stored with:
-                    - hash: document hash
-                    - seq: chunk sequence (0, 1, 2...)
-                    - pos: character position in original
+**LM Studio (Default)**
+```bash
+export LLM_PROVIDER=lm-studio
+export LM_STUDIO_URL=http://localhost:1234
 ```
 
-### Query Flow (Hybrid)
-
-```
-Query ──► LLM Expansion ──► [Original, Variant 1, Variant 2]
-                │
-      ┌─────────┴─────────┐
-      ▼                   ▼
-   For each query:     FTS (BM25)
-      │                   │
-      ▼                   ▼
-   Vector Search      Ranked List
-      │
-      ▼
-   Ranked List
-      │
-      └─────────┬─────────┘
-                ▼
-         RRF Fusion (k=60)
-         Original query ×2 weight
-         Top-rank bonus: +0.05/#1, +0.02/#2-3
-                │
-                ▼
-         Top 30 candidates
-                │
-                ▼
-         LLM Re-ranking
-         (yes/no + logprob confidence)
-                │
-                ▼
-         Position-Aware Blend
-         Rank 1-3:  75% RRF / 25% reranker
-         Rank 4-10: 60% RRF / 40% reranker
-         Rank 11+:  40% RRF / 60% reranker
-                │
-                ▼
-         Final Results
+**OpenRouter**
+```bash
+export LLM_PROVIDER=openrouter
+export OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
-## Model Configuration
+### Default Models
 
-Models are configured as constants in `qmd.ts`:
+| Provider | Embedding | Expansion | Reranking |
+|----------|-----------|-----------|-----------|
+| LM Studio | `nomic-embed-text` | `qwen2:0.5b` | `qwen2:0.5b` |
+| OpenRouter | `nomic-ai/nomic-embed-text` | `qwen/qwen-1.5-0.5b` | `qwen/qwen-1.5-0.5b` |
 
-```typescript
-const DEFAULT_EMBED_MODEL = "embeddinggemma";
-const DEFAULT_RERANK_MODEL = "ExpedientFalcon/qwen3-reranker:0.6b-q8_0";
-const DEFAULT_QUERY_MODEL = "qwen3:0.6b";
+## Development
+
+### Running Tests
+
+```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run tests
+pytest
+
+# Run with coverage
+pytest --cov=pmd
 ```
 
-### EmbeddingGemma Prompt Format
+### Type Checking
 
-```
-// For queries
-"task: search result | query: {query}"
-
-// For documents
-"title: {title} | text: {content}"
+```bash
+mypy src/pmd
 ```
 
-### Qwen3-Reranker
+### Linting
 
-A dedicated reranker model trained on relevance classification:
-
+```bash
+ruff check src/pmd
+ruff format src/pmd
 ```
-System: Judge whether the Document meets the requirements based on the Query
-        and the Instruct provided. Note that the answer can only be "yes" or "no".
-
-User: <Instruct>: Given a search query, determine if the document is relevant...
-      <Query>: {query}
-      <Document>: {doc}
-```
-
-- Uses `logprobs: true` to extract token probabilities
-- Outputs yes/no with confidence score (0.0 - 1.0)
-- `num_predict: 1` - Only need the yes/no token
-
-### Qwen3 (Query Expansion)
-
-- `num_predict: 150` - For generating query variations
 
 ## License
 
-MIT
+MIT License - See LICENSE file for details.
+
+## Related Projects
+
+- **QMD**: Original TypeScript implementation
+- **sqlite-vec**: Vector similarity search for SQLite
+- **LM Studio**: Local LLM inference
+- **OpenRouter**: Multi-model API gateway
