@@ -12,7 +12,9 @@
       "Bash(bd sync:*)",
       "Bash(bd update:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(python3:*)"
     ]
   }
 }
