@@ -47,6 +47,16 @@ def create_parser() -> argparse.ArgumentParser:
     rename_parser.add_argument("old_name", help="Current collection name")
     rename_parser.add_argument("new_name", help="New collection name")
 
+    # Search commands
+    search_parser = subparsers.add_parser("search", help="BM25 keyword search")
+    commands.add_search_arguments(search_parser)
+
+    vsearch_parser = subparsers.add_parser("vsearch", help="Vector semantic search")
+    commands.add_search_arguments(vsearch_parser)
+
+    query_parser = subparsers.add_parser("query", help="Hybrid search with reranking")
+    commands.add_search_arguments(query_parser)
+
     # Status command
     subparsers.add_parser("status", help="Show index status")
 
@@ -62,6 +72,12 @@ def main() -> NoReturn:
     try:
         if args.command == "collection":
             commands.handle_collection(args, config)
+        elif args.command == "search":
+            commands.handle_search(args, config)
+        elif args.command == "vsearch":
+            commands.handle_vsearch(args, config)
+        elif args.command == "query":
+            commands.handle_query(args, config)
         elif args.command == "status":
             commands.handle_status(args, config)
         else:

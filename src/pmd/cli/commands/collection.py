@@ -8,6 +8,26 @@ from ...store.collections import CollectionRepository
 from ...store.database import Database
 
 
+def _get_collection_id(db: Database, name: str) -> int:
+    """Get collection ID by name.
+
+    Args:
+        db: Database instance.
+        name: Collection name.
+
+    Returns:
+        Collection ID.
+
+    Raises:
+        CollectionNotFoundError: If collection not found.
+    """
+    repo = CollectionRepository(db)
+    collection = repo.get_by_name(name)
+    if not collection:
+        raise CollectionNotFoundError(f"Collection '{name}' not found")
+    return collection.id
+
+
 def handle_collection(args, config: Config) -> None:
     """Handle collection subcommands.
 
