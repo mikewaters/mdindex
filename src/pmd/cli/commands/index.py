@@ -1,12 +1,15 @@
 """Document indexing commands for PMD CLI."""
 
-from pathlib import Path
+import asyncio
 
 from ...core.config import Config
 from ...core.exceptions import CollectionNotFoundError
+from ...llm import create_llm_provider
+from ...llm.embeddings import EmbeddingGenerator
 from ...store.collections import CollectionRepository
 from ...store.database import Database
 from ...store.documents import DocumentRepository
+from ...store.embeddings import EmbeddingRepository
 from ...store.search import FTS5SearchRepository
 
 
@@ -41,22 +44,29 @@ def handle_index_collection(args, config: Config) -> None:
     try:
         coll_repo = CollectionRepository(db)
         doc_repo = DocumentRepository(db)
-        search_repo = FTS5SearchRepository(db)
+        embedding_repo = EmbeddingRepository(db)
+        search_repo = FTS5SearchRepository(db, embedding_repo)
 
         # Get collection
         collection = coll_repo.get_by_name(args.collection)
         if not collection:
             raise CollectionNotFoundError(f"Collection '{args.collection}' not found")
 
-        # Index documents from filesystem
-        count = _index_collection_files(
-            collection,
+        # Index documents from filesystem using repository method
+        result = coll_repo.index_documents(
+            collection.id,
             doc_repo,
             search_repo,
             args.force,
         )
 
-        print(f"✓ Indexed {count} documents in '{args.collection}'")
+        print(f"✓ Indexed {result.indexed} documents in '{args.collection}'")
+        if result.skipped > 0:
+            print(f"  Skipped {result.skipped} unchanged documents")
+        if result.errors:
+            print(f"  Errors: {len(result.errors)}")
+            for path, error in result.errors[:5]:  # Show first 5 errors
+                print(f"    {path}: {error}")
     finally:
         db.close()
 
@@ -64,13 +74,85 @@ def handle_index_collection(args, config: Config) -> None:
 def handle_embed(args, config: Config) -> None:
     """Generate embeddings for documents.
 
-    Phase 3: Will use Ollama to generate embeddings.
+    Args:
+        args: Parsed command arguments.
+        config: Application configuration.
+    """
+    asyncio.run(_handle_embed_async(args, config))
+
+
+async def _handle_embed_async(args, config: Config) -> None:
+    """Async handler for embedding generation.
 
     Args:
         args: Parsed command arguments.
         config: Application configuration.
     """
-    print("Embedding not yet available (Phase 3)")
+    db = Database(config.db_path)
+    db.connect()
+
+    llm_provider = None
+    try:
+        # Check if sqlite-vec is available
+        if not db.vec_available:
+            print("Vector storage not available (sqlite-vec extension not loaded)")
+            return
+
+        coll_repo = CollectionRepository(db)
+        doc_repo = DocumentRepository(db)
+        embedding_repo = EmbeddingRepository(db)
+
+        # Get collection
+        collection = coll_repo.get_by_name(args.collection)
+        if not collection:
+            raise CollectionNotFoundError(f"Collection '{args.collection}' not found")
+
+        # Initialize LLM provider for embeddings
+        llm_provider = create_llm_provider(config)
+
+        # Check if LLM is available
+        if not await llm_provider.is_available():
+            print("LLM provider not available (is it running?)")
+            return
+
+        embedding_generator = EmbeddingGenerator(llm_provider, embedding_repo, config)
+
+        # Get all documents in collection
+        cursor = db.execute(
+            """
+            SELECT d.path, d.hash, c.doc
+            FROM documents d
+            JOIN content c ON d.hash = c.hash
+            WHERE d.collection_id = ? AND d.active = 1
+            """,
+            (collection.id,),
+        )
+        documents = cursor.fetchall()
+
+        embedded_count = 0
+        skipped_count = 0
+
+        for doc in documents:
+            # Check if already embedded (unless force)
+            if not args.force and embedding_repo.has_embeddings(doc["hash"]):
+                skipped_count += 1
+                continue
+
+            # Generate and store embeddings
+            chunks_embedded = await embedding_generator.embed_document(
+                doc["hash"],
+                doc["doc"],
+            )
+
+            if chunks_embedded > 0:
+                embedded_count += 1
+                print(f"  Embedded: {doc['path']} ({chunks_embedded} chunks)")
+
+        print(f"✓ Embedded {embedded_count} documents ({skipped_count} skipped)")
+    finally:
+        if llm_provider:
+            await llm_provider.close()
+        db.close()
 
 
 def handle_cleanup(args, config: Config) -> None:
@@ -128,96 +210,24 @@ def handle_update_all(args, config: Config) -> None:
     try:
         coll_repo = CollectionRepository(db)
         doc_repo = DocumentRepository(db)
-        search_repo = FTS5SearchRepository(db)
+        embedding_repo = EmbeddingRepository(db)
+        search_repo = FTS5SearchRepository(db, embedding_repo)
 
         collections = coll_repo.list_all()
         total = 0
 
         for collection in collections:
-            count = _index_collection_files(
-                collection,
+            result = coll_repo.index_documents(
+                collection.id,
                 doc_repo,
                 search_repo,
                 force=False,
             )
-            print(f"  {collection.name}: {count} documents")
-            total += count
+            print(f"  {collection.name}: {result.indexed} indexed, {result.skipped} skipped")
+            total += result.indexed
 
-        print(f"✓ Updated {len(collections)} collections ({total} documents)")
+        print(f"✓ Updated {len(collections)} collections ({total} documents indexed)")
     finally:
         db.close()
 
 
-def _index_collection_files(
-    collection,
-    doc_repo: DocumentRepository,
-    search_repo: FTS5SearchRepository,
-    force: bool = False,
-) -> int:
-    """Index all files in a collection.
-
-    Args:
-        collection: Collection object to index.
-        doc_repo: DocumentRepository instance.
-        search_repo: SearchRepository instance.
-        force: Force reindex of all documents.
-
-    Returns:
-        Number of documents indexed.
-    """
-    collection_path = Path(collection.pwd)
-    if not collection_path.exists():
-        raise ValueError(f"Collection path does not exist: {collection_path}")
-
-    indexed_count = 0
-
-    # Find all matching files
-    glob_pattern = collection.glob_pattern or "**/*.md"
-    for file_path in collection_path.glob(glob_pattern):
-        if not file_path.is_file():
-            continue
-
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-        except (UnicodeDecodeError, IOError):
-            continue
-
-        # Get relative path
-        relative_path = str(file_path.relative_to(collection_path))
-
-        # Extract title from first line or filename
-        lines = content.split("\n")
-        title = None
-        for line in lines:
-            if line.startswith("# "):
-                title = line[2:].strip()
-                break
-
-        if not title:
-            title = file_path.stem
-
-        # Check if document has been modified
-        if not force:
-            modified = doc_repo.check_if_modified(collection.id, relative_path, None)
-            if not modified:
-                continue
-
-        # Store document
-        doc_result, is_new = doc_repo.add_or_update(
-            collection.id,
-            relative_path,
-            title,
-            content,
-        )
-
-        # Index in FTS5
-        search_repo.index_document(
-            doc_result.filepath,
-            relative_path,
-            content,
-        )
-
-        indexed_count += 1
-
-    return indexed_count
