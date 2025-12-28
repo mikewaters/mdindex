@@ -1,9 +1,22 @@
 """Embedding storage and vector search for PMD."""
 
+import struct
 from datetime import datetime
 
 from ..core.types import SearchResult, SearchSource
 from .database import Database
+
+
+def _serialize_embedding(embedding: list[float]) -> bytes:
+    """Serialize embedding to binary format for sqlite-vec.
+
+    Args:
+        embedding: List of floats.
+
+    Returns:
+        Binary representation of the embedding.
+    """
+    return struct.pack(f"{len(embedding)}f", *embedding)
 
 
 class EmbeddingRepository:
@@ -47,8 +60,26 @@ class EmbeddingRepository:
                 (hash_value, seq, pos, model, now),
             )
 
-            # Note: sqlite-vec storage is abstracted here for Phase 2
-            # Phase 3 will integrate actual vector storage
+            # Store actual vector in sqlite-vec if available
+            if self.db.vec_available:
+                # Create composite key for the vector
+                vec_key = f"{hash_value}:{seq}"
+                vec_bytes = _serialize_embedding(embedding)
+
+                # Delete existing entry if present
+                cursor.execute(
+                    "DELETE FROM content_vectors_vec WHERE hash = ?",
+                    (vec_key,),
+                )
+
+                # Insert the embedding vector
+                cursor.execute(
+                    """
+                    INSERT INTO content_vectors_vec (hash, seq, embedding)
+                    VALUES (?, ?, ?)
+                    """,
+                    (vec_key, seq, vec_bytes),
+                )
 
     def get_embeddings_for_content(self, hash_value: str) -> list[tuple[int, int, str]]:
         """Get all embeddings for a content hash.
@@ -116,7 +147,15 @@ class EmbeddingRepository:
             )
             count = cursor.fetchone()["count"]
 
+            # Delete from metadata table
             cursor.execute("DELETE FROM content_vectors WHERE hash = ?", (hash_value,))
+
+            # Delete from vector table if available
+            if self.db.vec_available:
+                cursor.execute(
+                    "DELETE FROM content_vectors_vec WHERE hash LIKE ?",
+                    (f"{hash_value}:%",),
+                )
 
         return count
 
@@ -166,10 +205,7 @@ class EmbeddingRepository:
         collection_id: int | None = None,
         min_score: float = 0.0,
     ) -> list[SearchResult]:
-        """Search for documents by vector similarity.
-
-        Note: This is a placeholder for Phase 2. Phase 3 will implement
-        actual cosine similarity search via sqlite-vec.
+        """Search for documents by vector similarity using sqlite-vec.
 
         Args:
             query_embedding: Query embedding vector.
@@ -178,8 +214,99 @@ class EmbeddingRepository:
             min_score: Minimum similarity score (0.0-1.0).
 
         Returns:
-            List of SearchResult objects.
+            List of SearchResult objects sorted by similarity.
         """
-        # Phase 2: Return empty list (no vector search yet)
-        # Phase 3: Implement actual cosine similarity search via sqlite-vec
-        return []
+        if not self.db.vec_available or not query_embedding:
+            return []
+
+        # Serialize query embedding
+        query_bytes = _serialize_embedding(query_embedding)
+
+        # Build query - sqlite-vec uses L2 distance by default
+        # We join with content_vectors to get the actual hash, then join with documents
+        if collection_id is not None:
+            sql = """
+                SELECT
+                    d.id,
+                    d.collection_id,
+                    d.path,
+                    d.path as display_path,
+                    d.title,
+                    d.hash,
+                    d.modified_at,
+                    c.doc as body,
+                    cv.seq,
+                    cv.pos,
+                    v.distance
+                FROM content_vectors_vec v
+                JOIN content_vectors cv ON (
+                    cv.hash || ':' || cv.seq = v.hash
+                )
+                JOIN documents d ON d.hash = cv.hash AND d.active = 1
+                JOIN content c ON d.hash = c.hash
+                WHERE v.embedding MATCH ? AND k = ?
+                AND d.collection_id = ?
+                ORDER BY v.distance ASC
+            """
+            cursor = self.db.execute(sql, (query_bytes, limit * 3, collection_id))
+        else:
+            sql = """
+                SELECT
+                    d.id,
+                    d.collection_id,
+                    d.path,
+                    d.path as display_path,
+                    d.title,
+                    d.hash,
+                    d.modified_at,
+                    c.doc as body,
+                    cv.seq,
+                    cv.pos,
+                    v.distance
+                FROM content_vectors_vec v
+                JOIN content_vectors cv ON (
+                    cv.hash || ':' || cv.seq = v.hash
+                )
+                JOIN documents d ON d.hash = cv.hash AND d.active = 1
+                JOIN content c ON d.hash = c.hash
+                WHERE v.embedding MATCH ? AND k = ?
+                ORDER BY v.distance ASC
+            """
+            cursor = self.db.execute(sql, (query_bytes, limit * 3))
+
+        results = []
+        seen_docs: set[str] = set()
+
+        for row in cursor.fetchall():
+            # Skip duplicate documents (we want best chunk per doc)
+            if row["path"] in seen_docs:
+                continue
+
+            # Convert L2 distance to similarity score (0-1 range)
+            # Using: score = 1 / (1 + distance)
+            distance = row["distance"]
+            score = 1.0 / (1.0 + distance)
+
+            if score >= min_score:
+                seen_docs.add(row["path"])
+                results.append(
+                    SearchResult(
+                        filepath=row["path"],
+                        display_path=row["display_path"],
+                        title=row["title"],
+                        context=None,
+                        hash=row["hash"],
+                        collection_id=row["collection_id"],
+                        modified_at=row["modified_at"],
+                        body_length=len(row["body"]) if row["body"] else 0,
+                        body=None,
+                        score=score,
+                        source=SearchSource.VECTOR,
+                        chunk_pos=row["pos"],
+                    )
+                )
+
+                if len(results) >= limit:
+                    break
+
+        return results

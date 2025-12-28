@@ -46,6 +46,7 @@ class MLXProvider(LLMProvider):
 
         # Embedding model (mlx-embeddings)
         self._embedding_model = None
+        self._embedding_tokenizer = None
         self._embedding_model_loaded = False
 
         # Load immediately if not lazy loading
@@ -105,14 +106,14 @@ class MLXProvider(LLMProvider):
         # Get HF token for model download
         token = self._get_hf_token()
 
-        # mlx_embeddings.load should also support token parameter
-        if token:
-            self._embedding_model = load_embeddings(
-                self.config.embedding_model,
-                token=token,
-            )
-        else:
-            self._embedding_model = load_embeddings(self.config.embedding_model)
+        # mlx_embeddings.load returns (model, tokenizer)
+        # Token is passed via tokenizer_config for HuggingFace auth
+        tokenizer_config = {"token": token} if token else {}
+
+        self._embedding_model, self._embedding_tokenizer = load_embeddings(
+            self.config.embedding_model,
+            tokenizer_config=tokenizer_config,
+        )
 
         self._embedding_model_loaded = True
 
@@ -135,7 +136,7 @@ class MLXProvider(LLMProvider):
         try:
             self._ensure_embedding_model_loaded()
 
-            from mlx_embeddings import embed
+            from mlx_embeddings import generate as generate_embeddings
 
             # Some embedding models (like E5) expect query/passage prefixes
             if is_query:
@@ -143,23 +144,23 @@ class MLXProvider(LLMProvider):
             else:
                 formatted_text = f"passage: {text}"
 
-            # Generate embedding
-            result = embed(self._embedding_model, formatted_text)
+            # Generate embedding using mlx_embeddings.generate
+            # Returns a BaseModelOutput with pooler_output for sentence embedding
+            result = generate_embeddings(
+                self._embedding_model,
+                self._embedding_tokenizer,
+                formatted_text,
+            )
 
-            # Extract embedding vector - result is typically a dict or array
-            if hasattr(result, "tolist"):
-                embedding = result.tolist()
-            elif isinstance(result, dict) and "embedding" in result:
-                embedding = result["embedding"]
-            elif isinstance(result, (list, tuple)):
-                embedding = list(result)
+            # Extract sentence embedding from pooler_output
+            # Shape is (batch_size, embedding_dim), we take first element
+            if hasattr(result, "pooler_output"):
+                embedding = result.pooler_output.tolist()[0]
+            elif hasattr(result, "text_embeds"):
+                embedding = result.text_embeds.tolist()[0]
             else:
-                # Try to convert directly
-                embedding = list(result)
-
-            # Handle nested list (batch of 1)
-            if embedding and isinstance(embedding[0], list):
-                embedding = embedding[0]
+                # Fallback: try last_hidden_state mean pooling
+                embedding = result.last_hidden_state.mean(axis=1).tolist()[0]
 
             return EmbeddingResult(
                 embedding=embedding,
@@ -352,6 +353,7 @@ class MLXProvider(LLMProvider):
     def unload_embedding_model(self) -> None:
         """Unload the embedding model to free memory."""
         self._embedding_model = None
+        self._embedding_tokenizer = None
         self._embedding_model_loaded = False
 
     def unload_all(self) -> None:
