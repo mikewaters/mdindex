@@ -63,8 +63,15 @@ def _add_collection(repo: CollectionRepository, args) -> None:
         repo: CollectionRepository instance.
         args: Parsed arguments with name, path, glob.
     """
+    # Resolve to absolute path to avoid issues when indexing from different directories
+    resolved_path = str(Path(args.path).resolve())
+
+    if not Path(resolved_path).exists():
+        print(f"✗ Path does not exist: {resolved_path}")
+        raise ValueError(f"Path does not exist: {resolved_path}")
+
     try:
-        collection = repo.create(args.name, args.path, args.glob)
+        collection = repo.create(args.name, resolved_path, args.glob)
         print(f"✓ Created collection '{collection.name}'")
         print(f"  Path: {collection.pwd}")
         print(f"  Pattern: {collection.glob_pattern}")
