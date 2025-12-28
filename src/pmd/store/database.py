@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterator
 
 from ..core.exceptions import DatabaseError
-from .schema import get_schema
+from .schema import get_schema, get_vector_schema
 
 
 class Database:
@@ -20,6 +20,7 @@ class Database:
         """
         self.path = path
         self._connection: sqlite3.Connection | None = None
+        self._vec_available: bool = False
 
     def connect(self) -> None:
         """Initialize database connection and load extensions."""
@@ -117,17 +118,40 @@ class Database:
     def _load_vec_extension(self) -> None:
         """Load sqlite-vec extension.
 
-        Note: sqlite-vec is optional for this phase. If unavailable,
-        vector search will be disabled.
+        sqlite-vec is optional. If unavailable, vector search will be disabled.
         """
-        # TODO: Implement proper sqlite-vec loading
-        # For now, we skip this as vector search is Phase 2
-        pass
+        if not self._connection:
+            return
+
+        try:
+            # Try to load sqlite-vec via the Python package
+            import sqlite_vec
+
+            self._connection.enable_load_extension(True)
+            sqlite_vec.load(self._connection)
+            self._connection.enable_load_extension(False)
+            self._vec_available = True
+        except ImportError:
+            # sqlite-vec Python package not installed
+            self._vec_available = False
+        except Exception:
+            # Extension loading failed
+            self._vec_available = False
+
+    @property
+    def vec_available(self) -> bool:
+        """Check if sqlite-vec extension is available."""
+        return self._vec_available
 
     def _init_schema(self) -> None:
         """Initialize database schema."""
         try:
             schema = get_schema()
             self.executescript(schema)
+
+            # Create vector table if sqlite-vec is available
+            if self._vec_available:
+                vec_schema = get_vector_schema()
+                self.executescript(vec_schema)
         except Exception as e:
             raise DatabaseError(f"Failed to initialize schema: {e}") from e

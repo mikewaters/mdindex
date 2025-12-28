@@ -1,6 +1,9 @@
-"""Database schema definitions and migrations for PMD."""
+"""Database schema definitions for PMD."""
 
 SCHEMA_VERSION = 1
+
+# Default embedding dimension (nomic-embed-text uses 768)
+EMBEDDING_DIMENSION = 768
 
 SCHEMA_SQL = """\
 -- Content-addressable storage
@@ -32,10 +35,9 @@ CREATE TABLE IF NOT EXISTS documents (
     UNIQUE(collection_id, path)
 );
 
--- Full-text search index
+-- Full-text search index (stores content for DELETE/UPDATE support)
 CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
     path, body,
-    content='',
     tokenize='porter unicode61'
 );
 
@@ -73,7 +75,29 @@ CREATE INDEX IF NOT EXISTS idx_content_vectors_hash ON content_vectors(hash);
 CREATE INDEX IF NOT EXISTS idx_path_contexts_collection ON path_contexts(collection_id);
 """
 
+# Vector storage table (requires sqlite-vec extension)
+# Created separately since it needs the extension loaded first
+VECTOR_TABLE_SQL = """\
+CREATE VIRTUAL TABLE IF NOT EXISTS content_vectors_vec USING vec0(
+    hash TEXT PRIMARY KEY,
+    seq INTEGER,
+    embedding FLOAT[{dimension}]
+);
+"""
+
 
 def get_schema() -> str:
     """Get the SQL schema string."""
     return SCHEMA_SQL
+
+
+def get_vector_schema(dimension: int = EMBEDDING_DIMENSION) -> str:
+    """Get the vector table schema SQL.
+
+    Args:
+        dimension: Embedding vector dimension.
+
+    Returns:
+        SQL string for creating the vector virtual table.
+    """
+    return VECTOR_TABLE_SQL.format(dimension=dimension)

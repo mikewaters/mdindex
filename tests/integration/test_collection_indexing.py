@@ -559,10 +559,6 @@ class TestBulkIndexing:
         assert indexed_count > 100  # Test corpus has 118 files
         assert len(errors) == 0, f"Errors during indexing: {errors}"
 
-    @pytest.mark.xfail(
-        reason="reindex_collection uses DELETE which is not supported on contentless FTS5 tables",
-        strict=True,
-    )
     def test_reindex_collection(
         self,
         test_corpus_collection,
@@ -666,10 +662,6 @@ class TestCollectionIndexDocuments:
         assert result2.indexed == 0
         assert result2.skipped == result1.indexed
 
-    @pytest.mark.xfail(
-        reason="FTS5 index_document uses DELETE which is not supported on contentless tables",
-        strict=True,
-    )
     def test_index_documents_force_reindexes_all(
         self,
         test_corpus_collection,
