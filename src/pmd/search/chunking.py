@@ -18,8 +18,9 @@ def chunk_document(content: str, config: ChunkConfig) -> ChunkingResult:
     """Chunk a document into smaller pieces for embedding.
 
     Uses the following strategy:
-    1. If content <= max_bytes: return single chunk
-    2. Otherwise, split preferring: \\n\\n -> sentence end -> \\n -> space
+    1. If content is empty: return zero chunks
+    2. If content <= max_bytes: return single chunk
+    3. Otherwise, split preferring: \\n\\n -> sentence end -> \\n -> space
 
     Args:
         content: Document content to chunk.
@@ -28,6 +29,10 @@ def chunk_document(content: str, config: ChunkConfig) -> ChunkingResult:
     Returns:
         ChunkingResult with chunks and total byte count.
     """
+    # Guard against empty content
+    if not content.strip():
+        return ChunkingResult(chunks=[], total_bytes=0)
+
     content_bytes = content.encode("utf-8")
 
     # If content fits in one chunk, return it as-is

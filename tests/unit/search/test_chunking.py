@@ -46,14 +46,23 @@ class TestChunkDocument:
         assert result.chunks[0].pos == 0
 
     def test_empty_document(self):
-        """Empty document should return single empty chunk."""
+        """Empty document should return zero chunks."""
         content = ""
         config = ChunkConfig(max_bytes=1000, min_chunk_size=10)
 
         result = chunk_document(content, config)
 
-        assert len(result.chunks) == 1
-        assert result.chunks[0].text == ""
+        assert len(result.chunks) == 0
+        assert result.total_bytes == 0
+
+    def test_whitespace_only_document(self):
+        """Whitespace-only document should return zero chunks."""
+        content = "   \n\n  \t  "
+        config = ChunkConfig(max_bytes=1000, min_chunk_size=10)
+
+        result = chunk_document(content, config)
+
+        assert len(result.chunks) == 0
         assert result.total_bytes == 0
 
     def test_large_document_multiple_chunks(self):
@@ -238,14 +247,15 @@ class TestChunkDocumentEdgeCases:
         assert result.total_bytes == 1000
 
     def test_only_newlines(self):
-        """Should handle content that's only newlines."""
+        """Content that's only newlines should return zero chunks."""
         content = "\n\n\n\n"
         config = ChunkConfig(max_bytes=100, min_chunk_size=10)
 
         result = chunk_document(content, config)
 
-        # Should produce some chunks
-        assert result.total_bytes == 4
+        # Whitespace-only content returns zero chunks
+        assert len(result.chunks) == 0
+        assert result.total_bytes == 0
 
     def test_mixed_line_endings(self):
         """Should handle different line endings."""

@@ -10,6 +10,7 @@ from loguru import logger
 
 from ..core.exceptions import CollectionExistsError, CollectionNotFoundError
 from ..core.types import Collection
+from ..search.text import normalize_content
 from .database import Database
 
 if TYPE_CHECKING:
@@ -253,7 +254,7 @@ class CollectionRepository:
         """Get the database ID for a document by path.
 
         Args:
-            collection_id: Collection ID.
+            collectio   n_id: Collection ID.
             path: Document path relative to collection.
 
         Returns:
@@ -344,9 +345,11 @@ class CollectionRepository:
             )
 
             # Get the document ID for FTS5 indexing
+            # Use normalized fts_body so title-only docs remain searchable
             doc_id = self._get_document_id(collection_id, relative_path)
             if doc_id is not None:
-                search_repo.index_document(doc_id, relative_path, content)
+                normalized = normalize_content(content)
+                search_repo.index_document(doc_id, relative_path, normalized.fts_body)
 
             indexed_count += 1
             logger.debug(f"Indexed: {relative_path} ({len(content)} chars)")
