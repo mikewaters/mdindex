@@ -27,8 +27,11 @@ See Also:
     - `pmd.store.embeddings.EmbeddingRepository`: Vector storage and search
 """
 
+import time
 from abc import ABC, abstractmethod
 from typing import Generic, TypeVar
+
+from loguru import logger
 
 from ..core.types import SearchResult, SearchSource
 from .database import Database
@@ -133,6 +136,10 @@ class FTS5SearchRepository(SearchRepository[str]):
             >>> results = repo.search("python OR programming", limit=5)
             >>> results = repo.search("machine learning", collection_id=1)
         """
+        query_preview = query[:50] + "..." if len(query) > 50 else query
+        logger.debug(f"FTS5 search: {query_preview!r}, limit={limit}, collection_id={collection_id}")
+        start_time = time.perf_counter()
+
         # Escape and prepare query for FTS5
         fts_query = self._prepare_fts_query(query)
 
@@ -209,6 +216,13 @@ class FTS5SearchRepository(SearchRepository[str]):
                             source=SearchSource.FTS,
                         )
                     )
+
+        elapsed = (time.perf_counter() - start_time) * 1000
+        if results:
+            top_score = results[0].score if results else 0
+            logger.debug(f"FTS5 search complete: {len(results)} results, top_score={top_score:.3f}, {elapsed:.1f}ms")
+        else:
+            logger.debug(f"FTS5 search complete: no results, {elapsed:.1f}ms")
 
         return results
 

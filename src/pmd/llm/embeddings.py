@@ -1,5 +1,9 @@
 """Embedding generation and management for PMD."""
 
+import time
+
+from loguru import logger
+
 from ..core.config import Config
 from ..core.types import Chunk
 from ..search.chunking import chunk_document
@@ -40,13 +44,17 @@ class EmbeddingGenerator:
         Args:
             hash_value: SHA256 hash of content.
             content: Document content to embed.
-            force: Force regenation even if embeddings exist.
+            force: Force regeneration even if embeddings exist.
 
         Returns:
             Number of chunks embedded.
         """
+        logger.debug(f"Embedding document: hash={hash_value[:12]}..., content_len={len(content)}, force={force}")
+        start_time = time.perf_counter()
+
         # Check if already embedded
         if not force and self.embedding_repo.has_embeddings(hash_value, self.model):
+            logger.debug(f"Document already embedded, skipping: hash={hash_value[:12]}...")
             return 0
 
         # Clear existing embeddings for this hash
@@ -54,6 +62,7 @@ class EmbeddingGenerator:
 
         # Chunk the document
         chunking_result = chunk_document(content, self.config.chunk)
+        logger.debug(f"Document chunked: {len(chunking_result.chunks)} chunks")
 
         embedded_count = 0
         for seq, chunk in enumerate(chunking_result.chunks):
@@ -75,6 +84,9 @@ class EmbeddingGenerator:
                 )
                 embedded_count += 1
 
+        elapsed = (time.perf_counter() - start_time) * 1000
+        logger.debug(f"Document embedding complete: {embedded_count}/{len(chunking_result.chunks)} chunks, {elapsed:.1f}ms")
+
         return embedded_count
 
     async def embed_query(self, query: str) -> list[float] | None:
@@ -86,11 +98,21 @@ class EmbeddingGenerator:
         Returns:
             Embedding vector or None on failure.
         """
+        query_preview = query[:50] + "..." if len(query) > 50 else query
+        logger.debug(f"Embedding query: {query_preview!r}")
+        start_time = time.perf_counter()
+
         embedding_result = await self.llm.embed(
             query,
             model=self.model,
             is_query=True,
         )
+
+        elapsed = (time.perf_counter() - start_time) * 1000
+        if embedding_result:
+            logger.debug(f"Query embedded: dim={len(embedding_result.embedding)}, {elapsed:.1f}ms")
+        else:
+            logger.warning(f"Query embedding failed after {elapsed:.1f}ms")
 
         return embedding_result.embedding if embedding_result else None
 

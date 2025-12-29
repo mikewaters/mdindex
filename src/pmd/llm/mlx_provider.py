@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from typing import TYPE_CHECKING
+
+from loguru import logger
 
 from ..core.config import MLXConfig
 from ..core.types import EmbeddingResult, RerankDocumentResult, RerankResult
@@ -80,6 +83,9 @@ class MLXProvider(LLMProvider):
         if self._model_loaded:
             return
 
+        logger.info(f"Loading text generation model: {self.config.model}")
+        start_time = time.perf_counter()
+
         from mlx_lm import load
 
         # Get HF token for model download
@@ -87,6 +93,7 @@ class MLXProvider(LLMProvider):
 
         # mlx_lm.load accepts tokenizer_config dict for token
         if token:
+            logger.debug("Using HuggingFace token for model download")
             self._model, self._tokenizer = load(
                 self.config.model,
                 tokenizer_config={"token": token},
@@ -95,11 +102,16 @@ class MLXProvider(LLMProvider):
             self._model, self._tokenizer = load(self.config.model)
 
         self._model_loaded = True
+        elapsed = time.perf_counter() - start_time
+        logger.info(f"Model loaded in {elapsed:.2f}s: {self.config.model}")
 
     def _ensure_embedding_model_loaded(self) -> None:
         """Load the embedding model if not already loaded."""
         if self._embedding_model_loaded:
             return
+
+        logger.info(f"Loading embedding model: {self.config.embedding_model}")
+        start_time = time.perf_counter()
 
         from mlx_embeddings import load as load_embeddings
 
@@ -109,6 +121,8 @@ class MLXProvider(LLMProvider):
         # mlx_embeddings.load returns (model, tokenizer)
         # Token is passed via tokenizer_config for HuggingFace auth
         tokenizer_config = {"token": token} if token else {}
+        if token:
+            logger.debug("Using HuggingFace token for embedding model download")
 
         self._embedding_model, self._embedding_tokenizer = load_embeddings(
             self.config.embedding_model,
@@ -116,6 +130,8 @@ class MLXProvider(LLMProvider):
         )
 
         self._embedding_model_loaded = True
+        elapsed = time.perf_counter() - start_time
+        logger.info(f"Embedding model loaded in {elapsed:.2f}s: {self.config.embedding_model}")
 
     async def embed(
         self,
@@ -133,6 +149,10 @@ class MLXProvider(LLMProvider):
         Returns:
             EmbeddingResult with embedding vector, or None on failure.
         """
+        text_preview = text[:50] + "..." if len(text) > 50 else text
+        logger.debug(f"Embedding text ({len(text)} chars, is_query={is_query}): {text_preview!r}")
+        start_time = time.perf_counter()
+
         try:
             self._ensure_embedding_model_loaded()
 
@@ -162,12 +182,17 @@ class MLXProvider(LLMProvider):
                 # Fallback: try last_hidden_state mean pooling
                 embedding = result.last_hidden_state.mean(axis=1).tolist()[0]
 
+            elapsed = (time.perf_counter() - start_time) * 1000
+            logger.debug(f"Embedding generated: dim={len(embedding)}, {elapsed:.1f}ms")
+
             return EmbeddingResult(
                 embedding=embedding,
                 model=self.config.embedding_model,
             )
 
-        except Exception:
+        except Exception as e:
+            elapsed = (time.perf_counter() - start_time) * 1000
+            logger.error(f"Embedding failed after {elapsed:.1f}ms: {e}")
             return None
 
     async def generate(
@@ -188,6 +213,10 @@ class MLXProvider(LLMProvider):
         Returns:
             Generated text or None on failure.
         """
+        prompt_preview = prompt[:80] + "..." if len(prompt) > 80 else prompt
+        logger.debug(f"Generating text (max_tokens={max_tokens}, temp={temperature}): {prompt_preview!r}")
+        start_time = time.perf_counter()
+
         try:
             self._ensure_model_loaded()
 
@@ -215,9 +244,16 @@ class MLXProvider(LLMProvider):
                 verbose=False,
             )
 
-            return response.strip() if response else None
+            result = response.strip() if response else None
+            elapsed = (time.perf_counter() - start_time) * 1000
+            resp_preview = result[:50] + "..." if result and len(result) > 50 else result
+            logger.debug(f"Generated in {elapsed:.1f}ms: {resp_preview!r}")
 
-        except Exception:
+            return result
+
+        except Exception as e:
+            elapsed = (time.perf_counter() - start_time) * 1000
+            logger.error(f"Generation failed after {elapsed:.1f}ms: {e}")
             return None
 
     async def rerank(
@@ -236,9 +272,11 @@ class MLXProvider(LLMProvider):
         Returns:
             RerankResult with relevance scores.
         """
+        logger.debug(f"Reranking {len(documents)} documents for query: {query[:50]!r}...")
+        start_time = time.perf_counter()
         results = []
 
-        for doc in documents:
+        for i, doc in enumerate(documents):
             prompt = (
                 "You are a relevance judge. Given a query and a document, "
                 "respond with ONLY 'Yes' if the document is relevant to the query, "
@@ -271,12 +309,19 @@ class MLXProvider(LLMProvider):
                             logprob=None,
                         )
                     )
+                    logger.debug(f"  [{i+1}/{len(documents)}] {doc.get('file', '')}: {answer} (score={score:.2f})")
                 else:
                     # Default neutral on failure
                     results.append(self._neutral_result(doc))
+                    logger.debug(f"  [{i+1}/{len(documents)}] {doc.get('file', '')}: no response, neutral")
 
-            except Exception:
+            except Exception as e:
                 results.append(self._neutral_result(doc))
+                logger.warning(f"  [{i+1}/{len(documents)}] {doc.get('file', '')}: error: {e}")
+
+        elapsed = (time.perf_counter() - start_time) * 1000
+        relevant_count = sum(1 for r in results if r.relevant)
+        logger.debug(f"Reranking complete: {relevant_count}/{len(results)} relevant, {elapsed:.1f}ms")
 
         return RerankResult(results=results, model=self.config.model)
 
@@ -360,3 +405,10 @@ class MLXProvider(LLMProvider):
         """Unload all models to free memory."""
         self.unload_model()
         self.unload_embedding_model()
+
+    async def close(self) -> None:
+        """Close the provider and release resources.
+
+        For MLX, this unloads all models to free memory.
+        """
+        self.unload_all()

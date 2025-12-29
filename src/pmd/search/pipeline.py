@@ -39,8 +39,11 @@ See Also:
     - `pmd.store.embeddings`: EmbeddingRepository for vector search
 """
 
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from loguru import logger
 
 from ..core.types import RankedResult, SearchResult
 from ..store.search import FTS5SearchRepository
@@ -180,11 +183,16 @@ class HybridSearchPipeline:
             - `pmd.search.scoring.blend_scores`: Position-aware blending
             - `pmd.search.scoring.normalize_scores`: Score normalization
         """
+        query_preview = query[:50] + "..." if len(query) > 50 else query
+        logger.info(f"Hybrid search: {query_preview!r}, limit={limit}, collection_id={collection_id}")
+        start_time = time.perf_counter()
+
         # Step 1: Query expansion
         queries = [query]
         if self.config.enable_query_expansion:
             expansions = await self._expand_query(query)
             queries.extend(expansions)
+            logger.debug(f"Query expansion: {len(queries)} queries (original + {len(expansions)} expansions)")
 
         # Step 2: Parallel FTS5 and vector search for all query variants
         all_results = await self._parallel_search(queries, limit * 3, collection_id)
@@ -195,6 +203,7 @@ class HybridSearchPipeline:
             k=self.config.rrf_k,
             original_query_weight=2.0,
         )
+        logger.debug(f"RRF fusion: {len(fused)} candidates from {len(all_results)} result lists")
 
         # Take top candidates for reranking
         candidates = fused[: self.config.rerank_candidates]
@@ -211,7 +220,16 @@ class HybridSearchPipeline:
 
         # Step 7: Filter and limit
         final = [r for r in final if r.score >= min_score]
-        return final[:limit]
+        final = final[:limit]
+
+        elapsed = (time.perf_counter() - start_time) * 1000
+        if final:
+            top_score = final[0].score if final else 0
+            logger.info(f"Search complete: {len(final)} results, top_score={top_score:.3f}, {elapsed:.1f}ms")
+        else:
+            logger.info(f"Search complete: no results, {elapsed:.1f}ms")
+
+        return final
 
     async def _expand_query(self, query: str) -> list[str]:
         """Generate query variations using LLM.
@@ -225,10 +243,17 @@ class HybridSearchPipeline:
         if not self.query_expander:
             return []
 
+        logger.debug(f"Expanding query: {query[:50]!r}...")
+        start_time = time.perf_counter()
+
         try:
             variations = await self.query_expander.expand(query, num_variations=2)
+            elapsed = (time.perf_counter() - start_time) * 1000
+            logger.debug(f"Query expanded to {len(variations)} variations in {elapsed:.1f}ms")
             return variations
-        except Exception:
+        except Exception as e:
+            elapsed = (time.perf_counter() - start_time) * 1000
+            logger.warning(f"Query expansion failed after {elapsed:.1f}ms: {e}")
             return []
 
     async def _parallel_search(
@@ -250,7 +275,11 @@ class HybridSearchPipeline:
         Returns:
             List of result lists [fts1, vec1, fts2, vec2, ...].
         """
+        logger.debug(f"Parallel search: {len(queries)} queries, limit={limit}")
+        start_time = time.perf_counter()
         results = []
+        total_fts = 0
+        total_vec = 0
 
         for query in queries:
             # FTS5 search using dedicated repository
@@ -260,6 +289,7 @@ class HybridSearchPipeline:
                 collection_id,
             )
             results.append(fts_results)
+            total_fts += len(fts_results)
 
             # Vector search with query embedding via EmbeddingRepository
             vec_results: list[SearchResult] = []
@@ -272,10 +302,14 @@ class HybridSearchPipeline:
                             limit,
                             collection_id,
                         )
-                except Exception:
-                    pass  # Fall back to empty results on error
+                except Exception as e:
+                    logger.debug(f"Vector search failed for query: {e}")
 
             results.append(vec_results)
+            total_vec += len(vec_results)
+
+        elapsed = (time.perf_counter() - start_time) * 1000
+        logger.debug(f"Parallel search complete: FTS={total_fts}, VEC={total_vec}, {elapsed:.1f}ms")
 
         return results
 
@@ -310,11 +344,19 @@ class HybridSearchPipeline:
         if not self.reranker:
             return candidates
 
+        logger.debug(f"Reranking {len(candidates)} candidates with LLM")
+        start_time = time.perf_counter()
+
         try:
             # Get raw rerank scores from LLM
             rerank_results = await self.reranker.get_rerank_scores(query, candidates)
 
             # Apply position-aware blending
-            return blend_scores(candidates, rerank_results)
-        except Exception:
+            blended = blend_scores(candidates, rerank_results)
+            elapsed = (time.perf_counter() - start_time) * 1000
+            logger.debug(f"Reranking complete: {len(blended)} results, {elapsed:.1f}ms")
+            return blended
+        except Exception as e:
+            elapsed = (time.perf_counter() - start_time) * 1000
+            logger.warning(f"Reranking failed after {elapsed:.1f}ms: {e}")
             return candidates

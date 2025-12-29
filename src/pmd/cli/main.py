@@ -4,8 +4,33 @@ import argparse
 import sys
 from typing import NoReturn
 
+from loguru import logger
+
 from ..core.config import Config
 from . import commands
+
+
+def configure_logging(level: str) -> None:
+    """Configure loguru logging with the specified level.
+
+    Args:
+        level: Log level (DEBUG, INFO, WARNING, ERROR).
+    """
+    # Remove default handler
+    logger.remove()
+
+    # Add custom handler with formatting
+    logger.add(
+        sys.stderr,
+        level=level.upper(),
+        format=(
+            "<green>{time:HH:mm:ss.SSS}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+            "<level>{message}</level>"
+        ),
+        colorize=True,
+    )
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -15,6 +40,13 @@ def create_parser() -> argparse.ArgumentParser:
         description="Python Markdown Search - Hybrid search for markdown documents",
     )
     parser.add_argument("-v", "--version", action="version", version="%(prog)s 1.0.0")
+    parser.add_argument(
+        "-L",
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default="WARNING",
+        help="Set logging level (default: WARNING)",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=False)
 
@@ -78,7 +110,12 @@ def main() -> NoReturn:
     """Main entry point."""
     parser = create_parser()
     args = parser.parse_args()
+
+    # Configure logging before anything else
+    configure_logging(args.log_level)
+
     config = Config.from_env()
+    logger.debug(f"Loaded config from environment, db_path={config.db_path}")
 
     try:
         if args.command == "collection":

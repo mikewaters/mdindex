@@ -1,9 +1,12 @@
 """SQLite database connection manager for PMD."""
 
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
+
+from loguru import logger
 
 from ..core.exceptions import DatabaseError
 from .schema import get_schema, get_vector_schema
@@ -24,6 +27,7 @@ class Database:
 
     def connect(self) -> None:
         """Initialize database connection and load extensions."""
+        logger.debug(f"Connecting to database: {self.path}")
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self._connection = sqlite3.connect(str(self.path))
@@ -31,15 +35,20 @@ class Database:
             self._enable_fts5()
             self._load_vec_extension()
             self._init_schema()
+            logger.info(f"Database connected: {self.path} (vec_available={self._vec_available})")
         except Exception as e:
+            logger.error(f"Failed to connect to database: {e}")
             raise DatabaseError(f"Failed to connect to database: {e}") from e
 
     def close(self) -> None:
         """Close database connection."""
         if self._connection:
+            logger.debug(f"Closing database connection: {self.path}")
             try:
                 self._connection.close()
+                logger.debug("Database connection closed")
             except Exception as e:
+                logger.error(f"Failed to close database: {e}")
                 raise DatabaseError(f"Failed to close database: {e}") from e
             finally:
                 self._connection = None
@@ -58,11 +67,17 @@ class Database:
             raise DatabaseError("Database not connected")
 
         cursor = self._connection.cursor()
+        start_time = time.perf_counter()
+        logger.debug("Transaction started")
         try:
             yield cursor
             self._connection.commit()
+            elapsed = (time.perf_counter() - start_time) * 1000
+            logger.debug(f"Transaction committed ({elapsed:.2f}ms)")
         except Exception as e:
             self._connection.rollback()
+            elapsed = (time.perf_counter() - start_time) * 1000
+            logger.warning(f"Transaction rolled back after {elapsed:.2f}ms: {e}")
             raise DatabaseError(f"Transaction failed: {e}") from e
         finally:
             cursor.close()
@@ -123,6 +138,7 @@ class Database:
         if not self._connection:
             return
 
+        logger.debug("Attempting to load sqlite-vec extension")
         try:
             # Try to load sqlite-vec via the Python package
             import sqlite_vec
@@ -131,12 +147,15 @@ class Database:
             sqlite_vec.load(self._connection)
             self._connection.enable_load_extension(False)
             self._vec_available = True
+            logger.debug("sqlite-vec extension loaded successfully")
         except ImportError:
             # sqlite-vec Python package not installed
             self._vec_available = False
-        except Exception:
+            logger.debug("sqlite-vec not available: package not installed")
+        except Exception as e:
             # Extension loading failed
             self._vec_available = False
+            logger.debug(f"sqlite-vec loading failed: {e}")
 
     @property
     def vec_available(self) -> bool:
@@ -145,13 +164,17 @@ class Database:
 
     def _init_schema(self) -> None:
         """Initialize database schema."""
+        logger.debug("Initializing database schema")
         try:
             schema = get_schema()
             self.executescript(schema)
+            logger.debug("Base schema initialized")
 
             # Create vector table if sqlite-vec is available
             if self._vec_available:
                 vec_schema = get_vector_schema()
                 self.executescript(vec_schema)
+                logger.debug("Vector schema initialized")
         except Exception as e:
+            logger.error(f"Failed to initialize schema: {e}")
             raise DatabaseError(f"Failed to initialize schema: {e}") from e

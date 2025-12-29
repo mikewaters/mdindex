@@ -1,6 +1,9 @@
 """OpenRouter LLM provider implementation."""
 
+import time
+
 import httpx
+from loguru import logger
 
 from ..core.config import OpenRouterConfig
 from ..core.types import EmbeddingResult, RerankDocumentResult, RerankResult
@@ -31,6 +34,7 @@ class OpenRouterProvider(LLMProvider):
                 "X-Title": "PMD - Python Markdown Search",
             },
         )
+        logger.debug(f"OpenRouter provider initialized: base_url={config.base_url}")
 
     async def embed(
         self,
@@ -49,6 +53,9 @@ class OpenRouterProvider(LLMProvider):
             EmbeddingResult or None on failure.
         """
         model = model or self.config.embedding_model
+        text_preview = text[:50] + "..." if len(text) > 50 else text
+        logger.debug(f"Embedding text ({len(text)} chars, is_query={is_query}): {text_preview!r}")
+        start_time = time.perf_counter()
 
         try:
             response = await self._client.post(
@@ -59,13 +66,18 @@ class OpenRouterProvider(LLMProvider):
                 },
             )
 
+            elapsed = (time.perf_counter() - start_time) * 1000
             if response.status_code == 200:
                 data = response.json()
                 embedding = data["data"][0]["embedding"]
+                logger.debug(f"Embedding generated: dim={len(embedding)}, {elapsed:.1f}ms")
                 return EmbeddingResult(embedding=embedding, model=model)
 
+            logger.warning(f"Embedding failed: HTTP {response.status_code}, {elapsed:.1f}ms")
             return None
-        except Exception:
+        except Exception as e:
+            elapsed = (time.perf_counter() - start_time) * 1000
+            logger.error(f"Embedding failed after {elapsed:.1f}ms: {e}")
             return None
 
     async def generate(
@@ -87,6 +99,9 @@ class OpenRouterProvider(LLMProvider):
             Generated text or None on failure.
         """
         model = model or self.config.expansion_model
+        prompt_preview = prompt[:80] + "..." if len(prompt) > 80 else prompt
+        logger.debug(f"Generating text (max_tokens={max_tokens}, temp={temperature}): {prompt_preview!r}")
+        start_time = time.perf_counter()
 
         try:
             response = await self._client.post(
@@ -99,12 +114,19 @@ class OpenRouterProvider(LLMProvider):
                 },
             )
 
+            elapsed = (time.perf_counter() - start_time) * 1000
             if response.status_code == 200:
                 data = response.json()
-                return data["choices"][0]["message"]["content"]
+                result = data["choices"][0]["message"]["content"]
+                resp_preview = result[:50] + "..." if result and len(result) > 50 else result
+                logger.debug(f"Generated in {elapsed:.1f}ms: {resp_preview!r}")
+                return result
 
+            logger.warning(f"Generation failed: HTTP {response.status_code}, {elapsed:.1f}ms")
             return None
-        except Exception:
+        except Exception as e:
+            elapsed = (time.perf_counter() - start_time) * 1000
+            logger.error(f"Generation failed after {elapsed:.1f}ms: {e}")
             return None
 
     async def rerank(
@@ -124,9 +146,11 @@ class OpenRouterProvider(LLMProvider):
             RerankResult with relevance scores.
         """
         model = model or self.config.reranker_model
+        logger.debug(f"Reranking {len(documents)} documents for query: {query[:50]!r}...")
+        start_time = time.perf_counter()
         results = []
 
-        for doc in documents:
+        for i, doc in enumerate(documents):
             system_prompt = (
                 "You are a relevance judge. Given a query and a document, "
                 "respond with ONLY 'Yes' if the document is relevant to the query, "
@@ -169,7 +193,20 @@ class OpenRouterProvider(LLMProvider):
                             logprob=None,
                         )
                     )
-            except Exception:
+                    logger.debug(f"  [{i+1}/{len(documents)}] {doc.get('file', '')}: {answer} (score={score:.2f})")
+                else:
+                    results.append(
+                        RerankDocumentResult(
+                            file=doc.get("file", ""),
+                            relevant=False,
+                            confidence=0.5,
+                            score=0.5,
+                            raw_token="error",
+                            logprob=None,
+                        )
+                    )
+                    logger.debug(f"  [{i+1}/{len(documents)}] {doc.get('file', '')}: HTTP {response.status_code}, neutral")
+            except Exception as e:
                 # Default to neutral score on error
                 results.append(
                     RerankDocumentResult(
@@ -181,6 +218,11 @@ class OpenRouterProvider(LLMProvider):
                         logprob=None,
                     )
                 )
+                logger.warning(f"  [{i+1}/{len(documents)}] {doc.get('file', '')}: error: {e}")
+
+        elapsed = (time.perf_counter() - start_time) * 1000
+        relevant_count = sum(1 for r in results if r.relevant)
+        logger.debug(f"Reranking complete: {relevant_count}/{len(results)} relevant, {elapsed:.1f}ms")
 
         return RerankResult(results=results, model=model)
 
@@ -213,13 +255,17 @@ class OpenRouterProvider(LLMProvider):
         Returns:
             True if service is reachable.
         """
+        logger.debug(f"Checking OpenRouter availability at {self.config.base_url}")
         try:
             response = await self._client.get(
                 f"{self.config.base_url}/models",
                 timeout=5.0,
             )
-            return response.status_code == 200
-        except Exception:
+            available = response.status_code == 200
+            logger.debug(f"OpenRouter available: {available}")
+            return available
+        except Exception as e:
+            logger.debug(f"OpenRouter not available: {e}")
             return False
 
     def get_default_embedding_model(self) -> str:

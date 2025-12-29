@@ -1,7 +1,10 @@
 """Embedding storage and vector search for PMD."""
 
 import struct
+import time
 from datetime import datetime
+
+from loguru import logger
 
 from ..core.types import SearchResult, SearchSource
 from .database import Database
@@ -47,6 +50,7 @@ class EmbeddingRepository:
             embedding: Vector embedding (list of floats).
             model: Model name used to generate embedding.
         """
+        logger.debug(f"Storing embedding: hash={hash_value[:12]}..., seq={seq}, dim={len(embedding)}")
         now = datetime.utcnow().isoformat()
 
         with self.db.transaction() as cursor:
@@ -157,6 +161,9 @@ class EmbeddingRepository:
                     (f"{hash_value}:%",),
                 )
 
+        if count > 0:
+            logger.debug(f"Deleted {count} embeddings for hash={hash_value[:12]}...")
+
         return count
 
     def clear_embeddings_by_model(self, model: str) -> int:
@@ -216,7 +223,11 @@ class EmbeddingRepository:
         Returns:
             List of SearchResult objects sorted by similarity.
         """
+        logger.debug(f"Vector search: limit={limit}, collection_id={collection_id}, min_score={min_score}")
+        start_time = time.perf_counter()
+
         if not self.db.vec_available or not query_embedding:
+            logger.debug("Vector search skipped: vec not available or no query embedding")
             return []
 
         # Serialize query embedding
@@ -272,12 +283,14 @@ class EmbeddingRepository:
                 WHERE v.embedding MATCH ? AND k = ?
                 ORDER BY v.distance ASC
             """
+            
             cursor = self.db.execute(sql, (query_bytes, limit * 3))
 
         results = []
         seen_docs: set[str] = set()
 
         for row in cursor.fetchall():
+            
             # Skip duplicate documents (we want best chunk per doc)
             if row["path"] in seen_docs:
                 continue
@@ -308,5 +321,12 @@ class EmbeddingRepository:
 
                 if len(results) >= limit:
                     break
+
+        elapsed = (time.perf_counter() - start_time) * 1000
+        if results:
+            top_score = results[0].score if results else 0
+            logger.debug(f"Vector search complete: {len(results)} results, top_score={top_score:.3f}, {elapsed:.1f}ms")
+        else:
+            logger.debug(f"Vector search complete: no results, {elapsed:.1f}ms")
 
         return results
