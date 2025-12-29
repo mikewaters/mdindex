@@ -1,9 +1,12 @@
 """Collection CRUD operations for PMD."""
 
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from loguru import logger
 
 from ..core.exceptions import CollectionExistsError, CollectionNotFoundError
 from ..core.types import Collection
@@ -85,6 +88,8 @@ class CollectionRepository:
         Raises:
             CollectionExistsError: If collection with this name already exists.
         """
+        logger.debug(f"Creating collection: name={name!r}, pwd={pwd!r}, pattern={glob_pattern!r}")
+
         if self.get_by_name(name):
             raise CollectionExistsError(f"Collection '{name}' already exists")
 
@@ -100,8 +105,10 @@ class CollectionRepository:
             )
             collection_id = cursor.lastrowid
 
+        logger.info(f"Collection created: id={collection_id}, name={name!r}")
+
         return Collection(
-            id=collection_id,
+            id=collection_id,  # type: ignore
             name=name,
             pwd=pwd,
             glob_pattern=glob_pattern,
@@ -124,6 +131,8 @@ class CollectionRepository:
         collection = self.get_by_id(collection_id)
         if not collection:
             raise CollectionNotFoundError(f"Collection {collection_id} not found")
+
+        logger.debug(f"Removing collection: id={collection_id}, name={collection.name!r}")
 
         with self.db.transaction() as cursor:
             # Get count of documents to delete
@@ -152,6 +161,8 @@ class CollectionRepository:
             # Delete the collection
             cursor.execute("DELETE FROM collections WHERE id = ?", (collection_id,))
 
+        logger.info(f"Collection removed: name={collection.name!r}, docs={docs_count}, orphans={len(orphaned_hashes)}")
+
         return (docs_count, len(orphaned_hashes))
 
     def rename(self, collection_id: int, new_name: str) -> None:
@@ -172,6 +183,8 @@ class CollectionRepository:
         if new_name != collection.name and self.get_by_name(new_name):
             raise CollectionExistsError(f"Collection '{new_name}' already exists")
 
+        logger.debug(f"Renaming collection: {collection.name!r} -> {new_name!r}")
+
         now = datetime.utcnow().isoformat()
 
         with self.db.transaction() as cursor:
@@ -179,6 +192,8 @@ class CollectionRepository:
                 "UPDATE collections SET name = ?, updated_at = ? WHERE id = ?",
                 (new_name, now, collection_id),
             )
+
+        logger.info(f"Collection renamed: {collection.name!r} -> {new_name!r}")
 
     def update_collection_path(
         self, collection_id: int, pwd: str, glob_pattern: str | None = None
@@ -197,6 +212,8 @@ class CollectionRepository:
         if not collection:
             raise CollectionNotFoundError(f"Collection {collection_id} not found")
 
+        logger.debug(f"Updating collection path: name={collection.name!r}, pwd={pwd!r}, pattern={glob_pattern!r}")
+
         now = datetime.utcnow().isoformat()
 
         with self.db.transaction() as cursor:
@@ -211,6 +228,8 @@ class CollectionRepository:
                     (pwd, now, collection_id),
                 )
 
+        logger.info(f"Collection path updated: name={collection.name!r}")
+
     @staticmethod
     def _row_to_collection(row: tuple) -> Collection:
         """Convert database row to Collection object.
@@ -222,13 +241,13 @@ class CollectionRepository:
             Collection object.
         """
         return Collection(
-            id=row["id"],
-            name=row["name"],
-            pwd=row["pwd"],
-            glob_pattern=row["glob_pattern"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-        )
+            id=row["id"],  # type: ignore
+            name=row["name"],  # type: ignore
+            pwd=row["pwd"],  # type: ignore
+            glob_pattern=row["glob_pattern"],  # type: ignore
+            created_at=row["created_at"],  # type: ignore
+            updated_at=row["updated_at"],  # type: ignore
+        ) 
 
     def _get_document_id(self, collection_id: int, path: str) -> int | None:
         """Get the database ID for a document by path.
@@ -280,6 +299,9 @@ class CollectionRepository:
         if not collection_path.exists():
             raise ValueError(f"Collection path does not exist: {collection_path}")
 
+        logger.info(f"Indexing collection: name={collection.name!r}, path={collection_path}, force={force}")
+        start_time = time.perf_counter()
+
         indexed_count = 0
         skipped_count = 0
         errors: list[tuple[str, str]] = []
@@ -287,6 +309,7 @@ class CollectionRepository:
         glob_pattern = collection.glob_pattern or "**/*.md"
 
         for file_path in collection_path.glob(glob_pattern):
+
             if not file_path.is_file():
                 continue
 
@@ -297,6 +320,7 @@ class CollectionRepository:
                     content = f.read()
             except (UnicodeDecodeError, IOError) as e:
                 errors.append((relative_path, str(e)))
+                logger.warning(f"Failed to read file: {relative_path}: {e}")
                 continue
 
             # Extract title from first markdown heading or use filename
@@ -325,6 +349,13 @@ class CollectionRepository:
                 search_repo.index_document(doc_id, relative_path, content)
 
             indexed_count += 1
+            logger.debug(f"Indexed: {relative_path} ({len(content)} chars)")
+
+        elapsed = (time.perf_counter() - start_time) * 1000
+        logger.info(
+            f"Indexing complete: name={collection.name!r}, indexed={indexed_count}, "
+            f"skipped={skipped_count}, errors={len(errors)}, {elapsed:.1f}ms"
+        )
 
         return IndexResult(
             indexed=indexed_count,

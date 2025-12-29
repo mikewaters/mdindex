@@ -175,6 +175,8 @@ class EmbeddingRepository:
         Returns:
             Number of embedding records deleted.
         """
+        logger.debug(f"Clearing embeddings for model: {model!r}")
+
         with self.db.transaction() as cursor:
             cursor.execute(
                 "SELECT COUNT(*) as count FROM content_vectors WHERE model = ?",
@@ -183,6 +185,9 @@ class EmbeddingRepository:
             count = cursor.fetchone()["count"]
 
             cursor.execute("DELETE FROM content_vectors WHERE model = ?", (model,))
+
+        if count > 0:
+            logger.info(f"Cleared {count} embeddings for model: {model!r}")
 
         return count
 

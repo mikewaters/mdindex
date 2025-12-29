@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+from loguru import logger
+
 from ..core.exceptions import DocumentNotFoundError
 from ..core.types import DocumentResult
 from ..utils.hashing import sha256_hash
@@ -40,6 +42,8 @@ class DocumentRepository:
         hash_value = sha256_hash(content)
         now = datetime.utcnow().isoformat()
 
+        logger.debug(f"Adding/updating document: path={path!r}, hash={hash_value[:12]}..., len={len(content)}")
+
         with self.db.transaction() as cursor:
             # Ensure content exists in content-addressable storage
             cursor.execute(
@@ -71,6 +75,7 @@ class DocumentRepository:
                     (title, hash_value, now, collection_id, path),
                 )
                 is_new = False
+                logger.debug(f"Document updated: path={path!r}")
             else:
                 # Insert new document
                 cursor.execute(
@@ -82,6 +87,7 @@ class DocumentRepository:
                     (collection_id, path, title, hash_value, now),
                 )
                 is_new = True
+                logger.debug(f"Document created: path={path!r}")
 
         return (
             DocumentResult(
@@ -173,7 +179,10 @@ class DocumentRepository:
         )
 
         if not cursor.fetchone():
+            logger.debug(f"Document not found for deletion: path={path!r}")
             return False
+
+        logger.debug(f"Deleting document: path={path!r}")
 
         with self.db.transaction() as cursor:
             cursor.execute(
@@ -184,6 +193,7 @@ class DocumentRepository:
                 (collection_id, path),
             )
 
+        logger.debug(f"Document deleted: path={path!r}")
         return True
 
     def check_if_modified(
@@ -286,7 +296,8 @@ class DocumentRepository:
         Returns:
             DocumentResult object.
         """
-        content = row.get("doc") if isinstance(row, dict) else getattr(row, "doc", None)
+        # sqlite3.Row supports key access but not .get()
+        content = row["doc"] if "doc" in row.keys() else None
         return DocumentResult(
             filepath=row["path"],
             display_path=row["path"],
