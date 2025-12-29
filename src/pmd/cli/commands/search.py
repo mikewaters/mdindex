@@ -1,9 +1,20 @@
-"""Search commands for PMD CLI."""
+"""Search commands for PMD CLI.
+
+Provides three search commands:
+- `pmd search`: BM25 full-text search (FTS5)
+- `pmd vsearch`: Vector semantic search
+- `pmd query`: Hybrid search with FTS + vector + LLM reranking
+"""
+
+import asyncio
 
 from ...core.config import Config
+from ...llm import QueryExpander, DocumentReranker, create_llm_provider
+from ...llm.embeddings import EmbeddingGenerator
 from ...search.pipeline import HybridSearchPipeline, SearchPipelineConfig
 from ...store.database import Database
-from ...store.search import FTS5SearchRepository
+from ...store.embeddings import EmbeddingRepository
+from ...store.search import FTS5SearchRepository, VectorSearchRepository
 
 
 def add_search_arguments(parser) -> None:
@@ -37,6 +48,8 @@ def add_search_arguments(parser) -> None:
 def handle_search(args, config: Config) -> None:
     """Handle search command (FTS5 only).
 
+    Uses FTS5SearchRepository for BM25 full-text search.
+
     Args:
         args: Parsed command arguments.
         config: Application configuration.
@@ -45,17 +58,17 @@ def handle_search(args, config: Config) -> None:
     db.connect()
 
     try:
-        search_repo = FTS5SearchRepository(db)
+        fts_repo = FTS5SearchRepository(db)
 
         # Get collection ID if specified
         collection_id = None
         if args.collection:
-            from .collections import _get_collection_id
+            from .collection import _get_collection_id
 
             collection_id = _get_collection_id(db, args.collection)
 
-        # Perform FTS5 search
-        results = search_repo.search_fts(
+        # Perform FTS5 search using the unified search() method
+        results = fts_repo.search(
             args.query,
             limit=args.limit,
             collection_id=collection_id,
@@ -70,6 +83,18 @@ def handle_search(args, config: Config) -> None:
 def handle_vsearch(args, config: Config) -> None:
     """Handle vsearch command (vector search).
 
+    Uses VectorSearchRepository for semantic similarity search.
+
+    Args:
+        args: Parsed command arguments.
+        config: Application configuration.
+    """
+    asyncio.run(_handle_vsearch_async(args, config))
+
+
+async def _handle_vsearch_async(args, config: Config) -> None:
+    """Async handler for vector search.
+
     Args:
         args: Parsed command arguments.
         config: Application configuration.
@@ -77,35 +102,62 @@ def handle_vsearch(args, config: Config) -> None:
     db = Database(config.db_path)
     db.connect()
 
+    llm_provider = None
     try:
-        search_repo = FTS5SearchRepository(db)
+        embedding_repo = EmbeddingRepository(db)
+        vec_repo = VectorSearchRepository(db, embedding_repo)
+
+        # Check if vector search is available
+        if not vec_repo.available:
+            raise RuntimeError("Vector search not available (sqlite-vec extension not loaded)")
 
         # Get collection ID if specified
         collection_id = None
         if args.collection:
-            from .collections import _get_collection_id
+            from .collection import _get_collection_id
 
             collection_id = _get_collection_id(db, args.collection)
 
-        # Vector search (placeholder in Phase 2)
-        results = search_repo.search_vec(
-            [],  # Empty embedding in Phase 2
+        # Generate query embedding via LLM
+        llm_provider = create_llm_provider(config)
+        embedding_generator = EmbeddingGenerator(llm_provider, embedding_repo, config)
+
+        query_embedding = await embedding_generator.embed_query(args.query)
+
+        if not query_embedding:
+            print("Failed to generate query embedding (is LLM provider running?)")
+            return
+
+        # Perform vector search using the unified search() method
+        results = vec_repo.search(
+            query_embedding,
             limit=args.limit,
             collection_id=collection_id,
             min_score=args.score,
         )
 
-        if not results:
-            print("Vector search not yet available (Phase 3)")
-        else:
-            _print_search_results(results, "Vector Search")
+        _print_search_results(results, "Vector Search")
     finally:
+        if llm_provider:
+            await llm_provider.close()
         db.close()
 
 
 def handle_query(args, config: Config) -> None:
     """Handle query command (hybrid search).
 
+    Uses HybridSearchPipeline with separate FTS5 and Vector repositories.
+
+    Args:
+        args: Parsed command arguments.
+        config: Application configuration.
+    """
+    asyncio.run(_handle_query_async(args, config))
+
+
+async def _handle_query_async(args, config: Config) -> None:
+    """Async handler for hybrid search.
+
     Args:
         args: Parsed command arguments.
         config: Application configuration.
@@ -113,26 +165,45 @@ def handle_query(args, config: Config) -> None:
     db = Database(config.db_path)
     db.connect()
 
+    llm_provider = None
     try:
-        search_repo = FTS5SearchRepository(db)
+        # Create separate repositories for FTS and vector search
+        embedding_repo = EmbeddingRepository(db)
+        fts_repo = FTS5SearchRepository(db)
+        vec_repo = VectorSearchRepository(db, embedding_repo) if db.vec_available else None
 
         # Get collection ID if specified
         collection_id = None
         if args.collection:
-            from .collections import _get_collection_id
+            from .collection import _get_collection_id
 
             collection_id = _get_collection_id(db, args.collection)
 
-        # Run hybrid search pipeline
+        # Initialize LLM components
+        llm_provider = create_llm_provider(config)
+        query_expander = QueryExpander(llm_provider)
+        reranker = DocumentReranker(llm_provider)
+        embedding_generator = EmbeddingGenerator(llm_provider, embedding_repo, config)
+
+        # Run hybrid search pipeline with separate repositories
         pipeline_config = SearchPipelineConfig(
             fts_weight=config.search.fts_weight,
             vec_weight=config.search.vec_weight,
             rrf_k=config.search.rrf_k,
             rerank_candidates=config.search.rerank_candidates,
+            enable_query_expansion=True,
+            enable_reranking=True,
         )
-        pipeline = HybridSearchPipeline(search_repo, pipeline_config)
+        pipeline = HybridSearchPipeline(
+            fts_repo,
+            vec_repo=vec_repo,
+            config=pipeline_config,
+            query_expander=query_expander,
+            reranker=reranker,
+            embedding_generator=embedding_generator,
+        )
 
-        results = pipeline.search(
+        results = await pipeline.search(
             args.query,
             limit=args.limit,
             collection_id=collection_id,
@@ -141,6 +212,8 @@ def handle_query(args, config: Config) -> None:
 
         _print_search_results(results, "Hybrid Search")
     finally:
+        if llm_provider:
+            await llm_provider.close()
         db.close()
 
 

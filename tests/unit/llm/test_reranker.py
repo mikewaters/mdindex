@@ -267,6 +267,89 @@ class TestDocumentRerankerCalculateConfidence:
         assert confidence == 0.5
 
 
+class TestDocumentRerankerGetRerankScores:
+    """Tests for DocumentReranker.get_rerank_scores method."""
+
+    @pytest.mark.asyncio
+    async def test_get_rerank_scores_empty_candidates(self, reranker):
+        """get_rerank_scores should return empty list for empty input."""
+        result = await reranker.get_rerank_scores("query", [])
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_get_rerank_scores_returns_rerank_document_results(
+        self, sample_ranked_results: list[RankedResult]
+    ):
+        """get_rerank_scores should return RerankDocumentResult objects."""
+        rerank_result = make_rerank_result_from_relevances(
+            ["doc1.md", "doc2.md", "doc3.md"], [True, False, True]
+        )
+        mock_provider = MockLLMProvider(rerank_result=rerank_result)
+        reranker = DocumentReranker(mock_provider)
+
+        result = await reranker.get_rerank_scores("query", sample_ranked_results)
+
+        assert len(result) == 3
+        assert all(isinstance(r, RerankDocumentResult) for r in result)
+
+    @pytest.mark.asyncio
+    async def test_get_rerank_scores_calls_llm(
+        self, sample_ranked_results: list[RankedResult], mock_llm_provider
+    ):
+        """get_rerank_scores should call LLM with documents."""
+        reranker = DocumentReranker(mock_llm_provider)
+
+        await reranker.get_rerank_scores("search query", sample_ranked_results)
+
+        assert len(mock_llm_provider.rerank_calls) == 1
+        query, docs, model = mock_llm_provider.rerank_calls[0]
+        assert query == "search query"
+        assert len(docs) == 3
+
+    @pytest.mark.asyncio
+    async def test_get_rerank_scores_no_blending(
+        self, sample_ranked_results: list[RankedResult]
+    ):
+        """get_rerank_scores should return raw scores without blending."""
+        rerank_result = make_rerank_result_from_relevances(
+            ["doc1.md", "doc2.md", "doc3.md"], [True, False, True]
+        )
+        mock_provider = MockLLMProvider(rerank_result=rerank_result)
+        reranker = DocumentReranker(mock_provider)
+
+        result = await reranker.get_rerank_scores("query", sample_ranked_results)
+
+        # Results should have the raw rerank scores, not blended
+        for r in result:
+            assert hasattr(r, "score")
+            assert hasattr(r, "relevant")
+
+    @pytest.mark.asyncio
+    async def test_get_rerank_scores_used_with_blend_scores(
+        self, sample_ranked_results: list[RankedResult]
+    ):
+        """get_rerank_scores should work with blend_scores from scoring module."""
+        from pmd.search.scoring import blend_scores
+
+        rerank_result = make_rerank_result_from_relevances(
+            ["doc1.md", "doc2.md", "doc3.md"], [True, False, True]
+        )
+        mock_provider = MockLLMProvider(rerank_result=rerank_result)
+        reranker = DocumentReranker(mock_provider)
+
+        rerank_scores = await reranker.get_rerank_scores("query", sample_ranked_results)
+        blended = blend_scores(sample_ranked_results, rerank_scores)
+
+        # Should return RankedResult objects with blended scores
+        assert len(blended) == 3
+        assert all(isinstance(r, RankedResult) for r in blended)
+        assert all(r.rerank_score is not None for r in blended)
+        # Should be sorted by blended score
+        scores = [r.score for r in blended]
+        assert scores == sorted(scores, reverse=True)
+
+
 class TestDocumentRerankerIntegration:
     """Integration tests for DocumentReranker."""
 
@@ -301,3 +384,52 @@ class TestDocumentRerankerIntegration:
         # Relevant doc should now be ranked first
         assert result[0].file == "relevant.md"
         assert result[0].rerank_score > result[1].rerank_score
+
+    @pytest.mark.asyncio
+    async def test_pipeline_style_usage(self):
+        """Test the recommended pipeline usage pattern with blend_scores."""
+        from pmd.search.scoring import blend_scores
+
+        candidates = [
+            RankedResult(
+                file="doc1.md",
+                display_path="doc1.md",
+                title="Document 1",
+                body="Content about machine learning.",
+                score=0.9,  # High RRF score
+            ),
+            RankedResult(
+                file="doc2.md",
+                display_path="doc2.md",
+                title="Document 2",
+                body="Content about cooking.",
+                score=0.8,
+            ),
+            RankedResult(
+                file="doc3.md",
+                display_path="doc3.md",
+                title="Document 3",
+                body="More machine learning content.",
+                score=0.5,  # Lower RRF score
+            ),
+        ]
+
+        # doc3 is actually more relevant according to LLM
+        rerank_result = make_rerank_result_from_relevances(
+            ["doc1.md", "doc2.md", "doc3.md"], [True, False, True]
+        )
+        mock_provider = MockLLMProvider(rerank_result=rerank_result)
+        reranker = DocumentReranker(mock_provider)
+
+        # Get raw scores (pipeline approach)
+        rerank_scores = await reranker.get_rerank_scores("machine learning", candidates)
+
+        # Apply position-aware blending
+        blended = blend_scores(candidates, rerank_scores)
+
+        # Results should be reordered based on blended scores
+        assert len(blended) == 3
+        # doc1 was rank 1 with 75% RRF weight, should still be high
+        # doc2 was rank 2 with 75% RRF weight but low rerank score
+        # doc3 was rank 3 with 75% RRF weight but high rerank score
+        assert all(r.rerank_score is not None for r in blended)

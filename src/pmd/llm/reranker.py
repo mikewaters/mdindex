@@ -1,11 +1,53 @@
-"""Document reranking using LLM for relevance judgment."""
+"""Document reranking using LLM for relevance judgment.
+
+This module provides LLM-based document reranking for search results. The reranker
+evaluates each candidate document's relevance to the query and returns relevance
+scores that can be blended with initial retrieval scores.
+
+Typical usage in a search pipeline:
+
+    from pmd.llm.reranker import DocumentReranker
+    from pmd.search.scoring import blend_scores
+
+    reranker = DocumentReranker(llm_provider)
+
+    # Get raw relevance scores from the LLM
+    rerank_scores = await reranker.get_rerank_scores(query, candidates)
+
+    # Blend with RRF scores using position-aware weighting
+    final_results = blend_scores(candidates, rerank_scores)
+
+The separation of scoring and blending allows the pipeline to use the
+position-aware blending strategy from `pmd.search.scoring.blend_scores`.
+
+See Also:
+    - `pmd.search.scoring.blend_scores`: Position-aware score blending
+    - `pmd.search.pipeline.HybridSearchPipeline`: Full search pipeline
+"""
 
 from ..core.types import RankedResult, RerankDocumentResult, RerankResult
 from .base import LLMProvider
 
 
 class DocumentReranker:
-    """Reranks search results using LLM for relevance judgment."""
+    """Reranks search results using LLM for relevance judgment.
+
+    The reranker evaluates candidate documents against the query using an LLM
+    to determine relevance. It provides two main methods:
+
+    - `get_rerank_scores()`: Returns raw LLM relevance scores for pipeline use
+    - `rerank()`: Convenience method that applies simple 60/40 score blending
+
+    For production pipelines, prefer `get_rerank_scores()` combined with
+    `pmd.search.scoring.blend_scores()` for position-aware blending.
+
+    Example:
+        >>> reranker = DocumentReranker(llm_provider)
+        >>> scores = await reranker.get_rerank_scores(query, candidates)
+        >>> # Use with blend_scores for position-aware blending
+        >>> from pmd.search.scoring import blend_scores
+        >>> blended = blend_scores(candidates, scores)
+    """
 
     def __init__(self, llm_provider: LLMProvider):
         """Initialize reranker.
@@ -16,21 +58,36 @@ class DocumentReranker:
         self.llm = llm_provider
         self.model = llm_provider.get_default_reranker_model()
 
-    async def rerank(
+    async def get_rerank_scores(
         self,
         query: str,
         candidates: list[RankedResult],
-        top_k: int | None = None,
-    ) -> list[RankedResult]:
-        """Rerank candidate documents by relevance to query.
+    ) -> list[RerankDocumentResult]:
+        """Get raw reranking scores from LLM without blending.
+
+        This method returns the raw LLM relevance scores for each candidate,
+        suitable for use with `pmd.search.scoring.blend_scores()` which applies
+        position-aware blending.
+
+        This is the preferred method for search pipelines as it separates
+        the concerns of scoring (LLM) and blending (pipeline).
 
         Args:
             query: Search query.
-            candidates: Initial ranked candidates.
-            top_k: Optional limit on results (default: return all).
+            candidates: Initial ranked candidates from retrieval.
 
         Returns:
-            Reranked results sorted by relevance.
+            List of RerankDocumentResult with relevance scores.
+            Results maintain the same order as candidates.
+
+        Example:
+            >>> scores = await reranker.get_rerank_scores(query, candidates)
+            >>> # Apply position-aware blending
+            >>> from pmd.search.scoring import blend_scores
+            >>> final = blend_scores(candidates, scores)
+
+        See Also:
+            - `pmd.search.scoring.blend_scores`: Position-aware score blending
         """
         if not candidates:
             return []
@@ -47,16 +104,54 @@ class DocumentReranker:
         # Get reranking scores from LLM
         rerank_result = await self.llm.rerank(query, docs, model=self.model)
 
-        # Create mapping of file -> rerank score
-        rerank_map = {r.file: r for r in rerank_result.results}
+        return rerank_result.results
 
-        # Update candidates with rerank scores
+    async def rerank(
+        self,
+        query: str,
+        candidates: list[RankedResult],
+        top_k: int | None = None,
+    ) -> list[RankedResult]:
+        """Rerank candidate documents with simple score blending.
+
+        This convenience method gets LLM relevance scores and applies a simple
+        60% RRF / 40% reranker blending. For position-aware blending, use
+        `get_rerank_scores()` with `pmd.search.scoring.blend_scores()`.
+
+        Args:
+            query: Search query.
+            candidates: Initial ranked candidates.
+            top_k: Optional limit on results (default: return all).
+
+        Returns:
+            Reranked results sorted by blended relevance score.
+
+        Note:
+            This method uses position-independent 60/40 blending.
+            For production pipelines, consider using `get_rerank_scores()`
+            with `blend_scores()` for position-aware blending that trusts
+            top results more and relies on the reranker for borderline cases.
+
+        See Also:
+            - `get_rerank_scores`: Raw scores for custom blending
+            - `pmd.search.scoring.blend_scores`: Position-aware blending
+        """
+        if not candidates:
+            return []
+
+        # Get raw rerank scores
+        rerank_results = await self.get_rerank_scores(query, candidates)
+
+        # Create mapping of file -> rerank score
+        rerank_map = {r.file: r for r in rerank_results}
+
+        # Update candidates with rerank scores using simple blending
         reranked = []
         for candidate in candidates:
             rerank_doc = rerank_map.get(candidate.file)
 
             if rerank_doc:
-                # Blend RRF score with reranker score
+                # Simple 60/40 blend (position-independent)
                 final_score = self._blend_scores(candidate.score, rerank_doc.score)
 
                 reranked.append(

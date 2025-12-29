@@ -1,10 +1,10 @@
-"""Tests for full-text search operations."""
+"""Tests for full-text and vector search operations."""
 
 import pytest
 from pathlib import Path
 
 from pmd.store.database import Database
-from pmd.store.search import FTS5SearchRepository, SearchRepository
+from pmd.store.search import FTS5SearchRepository, VectorSearchRepository, SearchRepository
 from pmd.store.embeddings import EmbeddingRepository
 from pmd.store.documents import DocumentRepository
 from pmd.store.collections import CollectionRepository
@@ -14,19 +14,23 @@ from pmd.core.types import SearchResult, SearchSource
 class TestSearchRepositoryInterface:
     """Tests for SearchRepository abstract interface."""
 
-    def test_fts5_implements_interface(self, search_repo: FTS5SearchRepository):
+    def test_fts5_implements_interface(self, fts_repo: FTS5SearchRepository):
         """FTS5SearchRepository should implement SearchRepository."""
-        assert isinstance(search_repo, SearchRepository)
+        assert isinstance(fts_repo, SearchRepository)
 
-    def test_has_search_fts_method(self, search_repo: FTS5SearchRepository):
-        """Should have search_fts method."""
-        assert hasattr(search_repo, "search_fts")
-        assert callable(search_repo.search_fts)
+    def test_vector_implements_interface(self, vec_repo: VectorSearchRepository):
+        """VectorSearchRepository should implement SearchRepository."""
+        assert isinstance(vec_repo, SearchRepository)
 
-    def test_has_search_vec_method(self, search_repo: FTS5SearchRepository):
-        """Should have search_vec method."""
-        assert hasattr(search_repo, "search_vec")
-        assert callable(search_repo.search_vec)
+    def test_fts5_has_search_method(self, fts_repo: FTS5SearchRepository):
+        """FTS5SearchRepository should have search method."""
+        assert hasattr(fts_repo, "search")
+        assert callable(fts_repo.search)
+
+    def test_vector_has_search_method(self, vec_repo: VectorSearchRepository):
+        """VectorSearchRepository should have search method."""
+        assert hasattr(vec_repo, "search")
+        assert callable(vec_repo.search)
 
 
 class TestFTS5Index:
@@ -34,7 +38,7 @@ class TestFTS5Index:
 
     def test_index_document(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
@@ -47,16 +51,16 @@ class TestFTS5Index:
         )
 
         # Index the document (using filepath as doc_id for now)
-        search_repo.index_document(1, doc.filepath, doc.body)
+        fts_repo.index_document(1, doc.filepath, doc.body)
 
         # Should be searchable
-        results = search_repo.search_fts("searchable")
+        results = fts_repo.search("searchable")
         assert len(results) > 0
 
     @pytest.mark.skip(reason="FTS5 contentless tables require special delete syntax")
     def test_index_document_updates_existing(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
@@ -69,17 +73,17 @@ class TestFTS5Index:
         )
 
         # Index twice with different content
-        search_repo.index_document(1, doc.filepath, "First version")
-        search_repo.index_document(1, doc.filepath, "Updated version")
+        fts_repo.index_document(1, doc.filepath, "First version")
+        fts_repo.index_document(1, doc.filepath, "Updated version")
 
         # Should find updated content
-        results = search_repo.search_fts("Updated")
+        results = fts_repo.search("Updated")
         assert len(results) > 0
 
     @pytest.mark.skip(reason="FTS5 contentless tables require special delete syntax")
     def test_remove_from_index(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
@@ -90,17 +94,17 @@ class TestFTS5Index:
             "Test",
             "Content to remove",
         )
-        search_repo.index_document(1, doc.filepath, doc.body)
+        fts_repo.index_document(1, doc.filepath, doc.body)
 
-        search_repo.remove_from_index(1)
+        fts_repo.remove_from_index(1)
 
-        results = search_repo.search_fts("remove")
+        results = fts_repo.search("remove")
         assert len(results) == 0
 
     @pytest.mark.skip(reason="FTS5 contentless tables require special delete syntax")
     def test_clear_index(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
@@ -113,12 +117,12 @@ class TestFTS5Index:
                 f"Doc {i}",
                 f"Content {i}",
             )
-            search_repo.index_document(i + 1, doc.filepath, doc.body)
+            fts_repo.index_document(i + 1, doc.filepath, doc.body)
 
-        search_repo.clear_index()
+        fts_repo.clear_index()
 
         # Should find nothing
-        results = search_repo.search_fts("Content")
+        results = fts_repo.search("Content")
         assert len(results) == 0
 
 
@@ -127,56 +131,56 @@ class TestFTS5Search:
 
     def test_search_returns_results(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
-        """search_fts should return matching documents."""
+        """search should return matching documents."""
         doc, _ = document_repo.add_or_update(
             sample_collection.id,
             "test.md",
             "Python Guide",
             "Learn Python programming language",
         )
-        search_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
 
-        results = search_repo.search_fts("Python")
+        results = fts_repo.search("Python")
 
         assert len(results) > 0
         assert isinstance(results[0], SearchResult)
 
     def test_search_result_has_correct_source(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
-        """search_fts results should have FTS source."""
+        """FTS5 search results should have FTS source."""
         doc, _ = document_repo.add_or_update(
             sample_collection.id,
             "test.md",
             "Test",
             "Searchable content",
         )
-        search_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
 
-        results = search_repo.search_fts("Searchable")
+        results = fts_repo.search("Searchable")
 
         assert results[0].source == SearchSource.FTS
 
-    def test_search_no_results(self, search_repo: FTS5SearchRepository):
-        """search_fts should return empty list when no matches."""
-        results = search_repo.search_fts("nonexistent_query_xyz")
+    def test_search_no_results(self, fts_repo: FTS5SearchRepository):
+        """search should return empty list when no matches."""
+        results = fts_repo.search("nonexistent_query_xyz")
 
         assert results == []
 
     def test_search_limit(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
-        """search_fts should respect limit parameter."""
+        """search should respect limit parameter."""
         # Add multiple documents
         for i in range(10):
             doc, _ = document_repo.add_or_update(
@@ -185,20 +189,20 @@ class TestFTS5Search:
                 f"Doc {i}",
                 f"Common keyword content {i}",
             )
-            search_repo.index_document(i + 1, doc.filepath, doc.body)
+            fts_repo.index_document(i + 1, doc.filepath, doc.body)
 
-        results = search_repo.search_fts("keyword", limit=3)
+        results = fts_repo.search("keyword", limit=3)
 
         assert len(results) <= 3
 
     def test_search_collection_filter(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         collection_repo: CollectionRepository,
         tmp_path: Path,
     ):
-        """search_fts should filter by collection_id."""
+        """search should filter by collection_id."""
         # Create two collections
         coll1 = collection_repo.create("coll1", str(tmp_path))
         coll2 = collection_repo.create("coll2", str(tmp_path))
@@ -207,32 +211,32 @@ class TestFTS5Search:
         doc1, _ = document_repo.add_or_update(coll1.id, "doc1.md", "Doc 1", "Target keyword")
         doc2, _ = document_repo.add_or_update(coll2.id, "doc2.md", "Doc 2", "Target keyword")
 
-        search_repo.index_document(doc1.collection_id, doc1.filepath, doc1.body)
-        search_repo.index_document(doc2.collection_id, doc2.filepath, doc2.body)
+        fts_repo.index_document(doc1.collection_id, doc1.filepath, doc1.body)
+        fts_repo.index_document(doc2.collection_id, doc2.filepath, doc2.body)
 
         # Search only in collection 1
-        results = search_repo.search_fts("Target", collection_id=coll1.id)
+        results = fts_repo.search("Target", collection_id=coll1.id)
 
         assert len(results) == 1
         assert results[0].collection_id == coll1.id
 
     def test_search_min_score_filter(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
-        """search_fts should filter by min_score."""
+        """search should filter by min_score."""
         doc, _ = document_repo.add_or_update(
             sample_collection.id,
             "test.md",
             "Test",
             "Searchable content",
         )
-        search_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
 
         # Very high min_score should return no results
-        results = search_repo.search_fts("Searchable", min_score=999.0)
+        results = fts_repo.search("Searchable", min_score=999.0)
 
         # Should be empty or all results above threshold
         for r in results:
@@ -244,31 +248,31 @@ class TestFTS5SearchScoring:
 
     def test_search_results_have_scores(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
-        """search_fts results should have score attribute."""
+        """search results should have score attribute."""
         doc, _ = document_repo.add_or_update(
             sample_collection.id,
             "test.md",
             "Test",
             "Searchable content",
         )
-        search_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
 
-        results = search_repo.search_fts("Searchable")
+        results = fts_repo.search("Searchable")
 
         assert hasattr(results[0], "score")
         assert isinstance(results[0].score, float)
 
     def test_search_results_ordered_by_relevance(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
-        """search_fts should return results ordered by relevance."""
+        """search should return results ordered by relevance."""
         # Doc with more keyword occurrences should rank higher
         doc1, _ = document_repo.add_or_update(
             sample_collection.id,
@@ -283,10 +287,10 @@ class TestFTS5SearchScoring:
             "keyword once",  # Fewer occurrences
         )
 
-        search_repo.index_document(1, doc1.filepath, doc1.body)
-        search_repo.index_document(2, doc2.filepath, doc2.body)
+        fts_repo.index_document(1, doc1.filepath, doc1.body)
+        fts_repo.index_document(2, doc2.filepath, doc2.body)
 
-        results = search_repo.search_fts("keyword")
+        results = fts_repo.search("keyword")
 
         if len(results) >= 2:
             # First result should have higher or equal score
@@ -298,7 +302,7 @@ class TestFTS5ReindexCollection:
 
     def test_reindex_collection(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
@@ -312,14 +316,14 @@ class TestFTS5ReindexCollection:
                 f"Content for doc {i}",
             )
 
-        count = search_repo.reindex_collection(sample_collection.id)
+        count = fts_repo.reindex_collection(sample_collection.id)
 
         assert count == 5
 
     @pytest.mark.skip(reason="FTS5 contentless tables require special delete syntax")
     def test_reindex_clears_existing(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
@@ -330,7 +334,7 @@ class TestFTS5ReindexCollection:
             "Test",
             "Original content",
         )
-        search_repo.index_document(1, doc.filepath, "Old indexed content")
+        fts_repo.index_document(1, doc.filepath, "Old indexed content")
 
         # Update document
         document_repo.add_or_update(
@@ -341,43 +345,39 @@ class TestFTS5ReindexCollection:
         )
 
         # Reindex
-        search_repo.reindex_collection(sample_collection.id)
+        fts_repo.reindex_collection(sample_collection.id)
 
         # Should find new content
-        results = search_repo.search_fts("New")
+        results = fts_repo.search("New")
         assert len(results) > 0
 
 
 class TestVectorSearch:
-    """Tests for vector similarity search."""
+    """Tests for vector similarity search using VectorSearchRepository."""
 
-    def test_search_vec_without_embedding_repo(self, db: Database):
-        """search_vec should return empty without embedding_repo."""
-        search_repo = FTS5SearchRepository(db, None)  # No embedding repo
-
-        results = search_repo.search_vec([0.1, 0.2], limit=5)
+    def test_search_empty_embedding(self, vec_repo: VectorSearchRepository):
+        """search should return empty for empty embedding."""
+        results = vec_repo.search([], limit=5)
 
         assert results == []
 
-    def test_search_vec_empty_embedding(self, search_repo: FTS5SearchRepository):
-        """search_vec should return empty for empty embedding."""
-        results = search_repo.search_vec([], limit=5)
-
-        assert results == []
-
-    def test_search_vec_delegates_to_embedding_repo(
+    def test_search_returns_empty_without_sqlite_vec(
         self,
-        search_repo: FTS5SearchRepository,
-        embedding_repo: EmbeddingRepository,
         db: Database,
+        embedding_repo: EmbeddingRepository,
     ):
-        """search_vec should delegate to embedding repository."""
-        # This is a basic test - full vector search requires sqlite-vec
-        results = search_repo.search_vec([0.1] * 768, limit=5)
+        """search should return empty when sqlite-vec unavailable."""
+        vec_repo = VectorSearchRepository(db, embedding_repo)
+
+        results = vec_repo.search([0.1] * 384, limit=5)
 
         # Without sqlite-vec, should return empty
         if not db.vec_available:
             assert results == []
+
+    def test_available_property(self, vec_repo: VectorSearchRepository, db: Database):
+        """available property should reflect sqlite-vec status."""
+        assert vec_repo.available == db.vec_available
 
 
 class TestFTS5QueryPreparation:
@@ -385,7 +385,7 @@ class TestFTS5QueryPreparation:
 
     def test_simple_query(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
@@ -396,15 +396,15 @@ class TestFTS5QueryPreparation:
             "Test",
             "Simple content here",
         )
-        search_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
 
-        results = search_repo.search_fts("simple")
+        results = fts_repo.search("simple")
 
         assert len(results) > 0
 
     def test_multi_word_query(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
@@ -415,15 +415,15 @@ class TestFTS5QueryPreparation:
             "Test",
             "Python programming tutorial content",
         )
-        search_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
 
-        results = search_repo.search_fts("Python programming")
+        results = fts_repo.search("Python programming")
 
         assert len(results) > 0
 
     def test_case_insensitive_search(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
@@ -434,11 +434,11 @@ class TestFTS5QueryPreparation:
             "Test",
             "UPPERCASE content lowercase",
         )
-        search_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
 
         # Both cases should find results
-        results_lower = search_repo.search_fts("uppercase")
-        results_upper = search_repo.search_fts("UPPERCASE")
+        results_lower = fts_repo.search("uppercase")
+        results_upper = fts_repo.search("UPPERCASE")
 
         assert len(results_lower) > 0
         assert len(results_upper) > 0
@@ -449,7 +449,7 @@ class TestSearchResultAttributes:
 
     def test_result_has_filepath(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
@@ -460,15 +460,15 @@ class TestSearchResultAttributes:
             "Test",
             "Content",
         )
-        search_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
 
-        results = search_repo.search_fts("Content")
+        results = fts_repo.search("Content")
 
         assert results[0].filepath == "my/path/doc.md"
 
     def test_result_has_title(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
@@ -479,15 +479,15 @@ class TestSearchResultAttributes:
             "My Title",
             "Content here",
         )
-        search_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
 
-        results = search_repo.search_fts("Content")
+        results = fts_repo.search("Content")
 
         assert results[0].title == "My Title"
 
     def test_result_has_collection_id(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
@@ -498,15 +498,15 @@ class TestSearchResultAttributes:
             "Test",
             "Content",
         )
-        search_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
 
-        results = search_repo.search_fts("Content")
+        results = fts_repo.search("Content")
 
         assert results[0].collection_id == sample_collection.id
 
     def test_result_has_hash(
         self,
-        search_repo: FTS5SearchRepository,
+        fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
         sample_collection,
     ):
@@ -517,8 +517,8 @@ class TestSearchResultAttributes:
             "Test",
             "Content",
         )
-        search_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
 
-        results = search_repo.search_fts("Content")
+        results = fts_repo.search("Content")
 
         assert results[0].hash == doc.hash

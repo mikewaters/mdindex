@@ -55,6 +55,32 @@ class TestCollectionCreation:
         assert collection.pwd == str(test_corpus_path)
         assert collection.glob_pattern == "**/*.md"
 
+    def test_create_and_index_collection_from_test_corpus(
+        self,
+        collection_repo: CollectionRepository,
+        document_repo: DocumentRepository,
+        search_repo: FTS5SearchRepository,
+        test_corpus_path: Path,
+    ):
+        """Should create a collection pointing to the test corpus."""
+        collection = collection_repo.create(
+            "my-corpus",
+            str(test_corpus_path),
+            "**/*.md",
+        )
+
+        index_result = collection_repo.index_documents(
+            collection.id,
+            document_repo,
+            search_repo,
+            force=False,
+        )
+        
+        assert index_result.indexed == 118
+        assert index_result.skipped == 0
+        assert index_result.errors == []
+
+
     def test_collection_can_be_retrieved_by_name(
         self,
         collection_repo: CollectionRepository,
@@ -285,7 +311,7 @@ class TestFullTextSearch:
     ):
         """FTS search should return results for common terms."""
         # Search for a common word that should appear in markdown docs
-        results = search_repo.search_fts(
+        results = search_repo.search(
             "the",
             limit=10,
             collection_id=test_corpus_collection.id,
@@ -301,7 +327,7 @@ class TestFullTextSearch:
         indexed_corpus: int,
     ):
         """FTS search should respect the limit parameter."""
-        results = search_repo.search_fts(
+        results = search_repo.search(
             "the",
             limit=3,
             collection_id=test_corpus_collection.id,
@@ -316,7 +342,7 @@ class TestFullTextSearch:
         indexed_corpus: int,
     ):
         """FTS search results should have BM25 scores."""
-        results = search_repo.search_fts(
+        results = search_repo.search(
             "markdown",
             limit=5,
             collection_id=test_corpus_collection.id,
@@ -336,7 +362,7 @@ class TestFullTextSearch:
         indexed_corpus: int,
     ):
         """FTS search should return empty for nonsense queries."""
-        results = search_repo.search_fts(
+        results = search_repo.search(
             "xyzzy123nonsensequery",
             limit=10,
             collection_id=test_corpus_collection.id,
@@ -374,14 +400,14 @@ class TestFullTextSearch:
         search_repo.index_document(doc_id, relative_path, content)
 
         # Search in collection 1 should find it
-        results1 = search_repo.search_fts(
+        results1 = search_repo.search(
             sample_file.stem,
             limit=10,
             collection_id=coll1.id,
         )
 
         # Search in collection 2 should not find it
-        results2 = search_repo.search_fts(
+        results2 = search_repo.search(
             sample_file.stem,
             limit=10,
             collection_id=coll2.id,
@@ -705,7 +731,7 @@ class TestCollectionIndexDocuments:
         )
 
         # Search for a common term
-        results = search_repo.search_fts(
+        results = search_repo.search(
             "the",
             limit=10,
             collection_id=test_corpus_collection.id,

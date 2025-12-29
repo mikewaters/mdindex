@@ -1,59 +1,105 @@
-"""Full-text and vector search implementation for PMD."""
+"""Full-text and vector search implementation for PMD.
+
+This module provides search functionality through separate repository classes:
+
+Classes:
+    SearchRepository: Abstract base class defining the search interface
+    FTS5SearchRepository: Full-text search using SQLite FTS5 with BM25 scoring
+    VectorSearchRepository: Vector similarity search using sqlite-vec
+
+The separation allows the search pipeline to compose different search strategies:
+
+    from pmd.store.search import FTS5SearchRepository, VectorSearchRepository
+
+    fts_repo = FTS5SearchRepository(db)
+    vec_repo = VectorSearchRepository(db, embedding_repo)
+
+    # Use in pipeline
+    fts_results = fts_repo.search("machine learning", limit=10)
+    vec_results = vec_repo.search(query_embedding, limit=10)
+
+See Also:
+    - `pmd.search.pipeline.HybridSearchPipeline`: Combines FTS and vector search
+    - `pmd.search.fusion.reciprocal_rank_fusion`: Merges ranked result lists
+    - `pmd.store.embeddings.EmbeddingRepository`: Vector storage and management
+"""
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 from ..core.types import SearchResult, SearchSource
 from .database import Database
 
+if TYPE_CHECKING:
+    from .embeddings import EmbeddingRepository
 
-class SearchRepository(ABC):
-    """Abstract interface for search operations."""
+# Type variable for query types
+QueryT = TypeVar("QueryT")
+
+
+class SearchRepository(ABC, Generic[QueryT]):
+    """Abstract base class for search operations.
+
+    This generic interface allows different search implementations to accept
+    different query types while maintaining a consistent API:
+
+    - `FTS5SearchRepository` accepts string queries for BM25 search
+    - `VectorSearchRepository` accepts embedding vectors for similarity search
+
+    Example:
+        >>> fts_repo: SearchRepository[str] = FTS5SearchRepository(db)
+        >>> vec_repo: SearchRepository[list[float]] = VectorSearchRepository(db, emb_repo)
+        >>>
+        >>> fts_results = fts_repo.search("python programming")
+        >>> vec_results = vec_repo.search(embedding_vector)
+    """
 
     @abstractmethod
-    def search_fts(
+    def search(
         self,
-        query: str,
+        query: QueryT,
         limit: int = 5,
         collection_id: int | None = None,
         min_score: float = 0.0,
     ) -> list[SearchResult]:
-        """Perform BM25 full-text search.
+        """Execute search and return results.
 
         Args:
-            query: Search query string.
+            query: Query in the format expected by the implementation.
+                   String for FTS5, embedding vector for vector search.
             limit: Maximum number of results to return.
             collection_id: Optional collection ID to limit search scope.
-            min_score: Minimum score threshold for results.
+            min_score: Minimum score threshold for results (0.0-1.0).
 
         Returns:
-            List of SearchResult objects sorted by relevance.
-        """
-        pass
-
-    @abstractmethod
-    def search_vec(
-        self,
-        query_embedding: list[float],
-        limit: int = 5,
-        collection_id: int | None = None,
-        min_score: float = 0.0,
-    ) -> list[SearchResult]:
-        """Perform vector similarity search.
-
-        Args:
-            query_embedding: Query embedding vector.
-            limit: Maximum number of results to return.
-            collection_id: Optional collection ID to limit search scope.
-            min_score: Minimum similarity score (0.0-1.0).
-
-        Returns:
-            List of SearchResult objects sorted by relevance.
+            List of SearchResult objects sorted by relevance (highest first).
         """
         pass
 
 
-class FTS5SearchRepository(SearchRepository):
-    """FTS5-based full-text search implementation."""
+class FTS5SearchRepository(SearchRepository[str]):
+    """Full-text search using SQLite FTS5 with BM25 scoring.
+
+    This repository provides BM25-based full-text search using SQLite's FTS5
+    extension. It also handles document indexing for the FTS5 index.
+
+    Features:
+        - BM25 relevance scoring with Porter stemming
+        - Score normalization to 0-1 range
+        - Collection-scoped search support
+        - Document indexing and reindexing
+
+    Example:
+        >>> repo = FTS5SearchRepository(db)
+        >>> results = repo.search("machine learning algorithms", limit=10)
+        >>> for r in results:
+        ...     print(f"{r.title}: {r.score:.3f}")
+
+    See Also:
+        - `search`: Execute BM25 full-text search
+        - `index_document`: Add document to FTS5 index
+        - `reindex_collection`: Rebuild index for a collection
+    """
 
     def __init__(self, db: Database):
         """Initialize with database connection.
@@ -63,7 +109,7 @@ class FTS5SearchRepository(SearchRepository):
         """
         self.db = db
 
-    def search_fts(
+    def search(
         self,
         query: str,
         limit: int = 5,
@@ -72,14 +118,23 @@ class FTS5SearchRepository(SearchRepository):
     ) -> list[SearchResult]:
         """Perform BM25 full-text search using FTS5.
 
+        Searches the FTS5 index using SQLite's BM25 ranking algorithm.
+        Scores are normalized to a 0-1 range based on the maximum score
+        in the result set.
+
         Args:
-            query: Search query string (supports FTS5 syntax).
+            query: Search query string (supports FTS5 syntax like AND, OR, NOT).
             limit: Maximum number of results to return.
             collection_id: Optional collection ID to limit search scope.
-            min_score: Minimum score threshold for results.
+            min_score: Minimum normalized score threshold (0.0-1.0).
 
         Returns:
-            List of SearchResult objects sorted by relevance (highest first).
+            List of SearchResult objects with source=SearchSource.FTS,
+            sorted by relevance (highest first).
+
+        Example:
+            >>> results = repo.search("python OR programming", limit=5)
+            >>> results = repo.search("machine learning", collection_id=1)
         """
         # Escape and prepare query for FTS5
         fts_query = self._prepare_fts_query(query)
@@ -163,10 +218,16 @@ class FTS5SearchRepository(SearchRepository):
     def index_document(self, doc_id: int, path: str, body: str) -> None:
         """Index a document in FTS5.
 
+        Adds or updates a document in the FTS5 full-text index.
+        The document must already exist in the documents table.
+
         Args:
-            doc_id: Document ID from documents table.
-            path: Document path.
-            body: Document content to index.
+            doc_id: Document ID from documents table (used as rowid).
+            path: Document path (indexed for path-based queries).
+            body: Document content to index for full-text search.
+
+        Example:
+            >>> repo.index_document(doc_id=1, path="notes/ml.md", body="...")
         """
         with self.db.transaction() as cursor:
             # Delete existing index entry if present
@@ -181,11 +242,18 @@ class FTS5SearchRepository(SearchRepository):
     def reindex_collection(self, collection_id: int) -> int:
         """Reindex all documents in a collection.
 
+        Rebuilds the FTS5 index for all active documents in the specified
+        collection. Useful after bulk imports or to fix index corruption.
+
         Args:
             collection_id: ID of collection to reindex.
 
         Returns:
             Number of documents indexed.
+
+        Example:
+            >>> count = repo.reindex_collection(collection_id=1)
+            >>> print(f"Reindexed {count} documents")
         """
         with self.db.transaction() as cursor:
             # Get all active documents in collection
@@ -222,40 +290,18 @@ class FTS5SearchRepository(SearchRepository):
         """Remove a document from FTS5 index.
 
         Args:
-            doc_id: Document ID to remove.
+            doc_id: Document ID to remove from the index.
         """
         with self.db.transaction() as cursor:
             cursor.execute("DELETE FROM documents_fts WHERE rowid = ?", (doc_id,))
 
     def clear_index(self) -> None:
-        """Clear all FTS5 index entries."""
+        """Clear all FTS5 index entries.
+
+        Warning: This removes all indexed content. Use with caution.
+        """
         with self.db.transaction() as cursor:
             cursor.execute("DELETE FROM documents_fts")
-
-    def search_vec(
-        self,
-        query_embedding: list[float],
-        limit: int = 5,
-        collection_id: int | None = None,
-        min_score: float = 0.0,
-    ) -> list[SearchResult]:
-        """Perform vector similarity search using sqlite-vec.
-
-        Note: This is a placeholder for Phase 2. Phase 3 will implement
-        actual cosine similarity search via sqlite-vec.
-
-        Args:
-            query_embedding: Query embedding vector.
-            limit: Maximum number of results to return.
-            collection_id: Optional collection ID to limit search scope.
-            min_score: Minimum similarity score (0.0-1.0).
-
-        Returns:
-            List of SearchResult objects sorted by relevance.
-        """
-        # Phase 2: Return empty list (vector search not yet implemented)
-        # Phase 3: Will query sqlite-vec for cosine similarity matches
-        return []
 
     @staticmethod
     def _prepare_fts_query(query: str) -> str:
@@ -273,3 +319,90 @@ class FTS5SearchRepository(SearchRepository):
         # More sophisticated query preparation (handling operators, etc.)
         # can be added as needed.
         return query
+
+
+class VectorSearchRepository(SearchRepository[list[float]]):
+    """Vector similarity search using sqlite-vec.
+
+    This repository provides semantic search using vector embeddings.
+    It searches the embedding vectors stored by EmbeddingRepository
+    and returns documents ranked by cosine similarity.
+
+    Features:
+        - L2 distance converted to similarity score (0-1)
+        - Deduplication (best chunk per document)
+        - Collection-scoped search support
+        - Graceful fallback when sqlite-vec unavailable
+
+    Example:
+        >>> repo = VectorSearchRepository(db, embedding_repo)
+        >>> embedding = await llm.embed("machine learning")
+        >>> results = repo.search(embedding.embedding, limit=10)
+        >>> for r in results:
+        ...     print(f"{r.title}: {r.score:.3f}")
+
+    Note:
+        Requires sqlite-vec extension to be loaded. Check `db.vec_available`
+        before using. Returns empty results if extension is unavailable.
+
+    See Also:
+        - `pmd.store.embeddings.EmbeddingRepository`: Stores embeddings
+        - `pmd.llm.embeddings.EmbeddingGenerator`: Generates query embeddings
+    """
+
+    def __init__(self, db: Database, embedding_repo: "EmbeddingRepository"):
+        """Initialize with database and embedding repository.
+
+        Args:
+            db: Database instance to use for operations.
+            embedding_repo: EmbeddingRepository for accessing stored vectors.
+        """
+        self.db = db
+        self.embedding_repo = embedding_repo
+
+    def search(
+        self,
+        query: list[float],
+        limit: int = 5,
+        collection_id: int | None = None,
+        min_score: float = 0.0,
+    ) -> list[SearchResult]:
+        """Perform vector similarity search using sqlite-vec.
+
+        Searches stored embeddings using L2 distance and converts to
+        similarity scores. Returns the best-matching chunk for each
+        unique document.
+
+        Args:
+            query: Query embedding vector (must match stored embedding dimensions).
+            limit: Maximum number of results to return.
+            collection_id: Optional collection ID to limit search scope.
+            min_score: Minimum similarity score threshold (0.0-1.0).
+
+        Returns:
+            List of SearchResult objects with source=SearchSource.VECTOR,
+            sorted by similarity (highest first). Returns empty list if
+            sqlite-vec is unavailable or query is empty.
+
+        Example:
+            >>> embedding = [0.1, 0.2, ...]  # 384-dimensional vector
+            >>> results = repo.search(embedding, limit=5, min_score=0.5)
+        """
+        if not self.db.vec_available or not query:
+            return []
+
+        return self.embedding_repo.search_vectors(
+            query,
+            limit=limit,
+            collection_id=collection_id,
+            min_score=min_score,
+        )
+
+    @property
+    def available(self) -> bool:
+        """Check if vector search is available.
+
+        Returns:
+            True if sqlite-vec extension is loaded, False otherwise.
+        """
+        return self.db.vec_available
