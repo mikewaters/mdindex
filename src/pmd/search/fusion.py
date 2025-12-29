@@ -1,8 +1,28 @@
 """Reciprocal Rank Fusion (RRF) for combining multiple ranked lists."""
 
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Optional
 
-from ..core.types import RankedResult, SearchResult
+from loguru import logger
+
+from ..core.types import RankedResult, SearchResult, SearchSource
+
+
+@dataclass
+class _DocProvenance:
+    """Internal tracking of document provenance during fusion."""
+
+    doc: SearchResult
+    fts_score: Optional[float] = None
+    vec_score: Optional[float] = None
+    fts_rank: Optional[int] = None
+    vec_rank: Optional[int] = None
+    sources: set = None  # type: ignore
+
+    def __post_init__(self):
+        if self.sources is None:
+            self.sources = set()
 
 
 def reciprocal_rank_fusion(
@@ -24,6 +44,8 @@ def reciprocal_rank_fusion(
 
     Args:
         result_lists: List of ranked result lists to fuse.
+            Expected order: [fts1, vec1, fts2, vec2, ...] where odd indices are FTS,
+            even indices are vector results.
         k: Smoothing constant (default 60, prevents score explosion).
         original_query_weight: Extra weight for original query results.
         weights: Optional per-list weights. If None, uses [original_query_weight,
@@ -31,9 +53,10 @@ def reciprocal_rank_fusion(
 
     Returns:
         List of RankedResult objects sorted by fused score (highest first).
+        Includes provenance fields: fts_rank, vec_rank, sources_count.
     """
     scores: dict[str, float] = defaultdict(float)
-    docs: dict[str, SearchResult] = {}
+    provenance: dict[str, _DocProvenance] = {}
 
     if weights is None:
         # Default: first two lists (original query FTS and vector) get higher weight
@@ -58,28 +81,71 @@ def reciprocal_rank_fusion(
             # Accumulate score for this document (key by filepath)
             scores[result.filepath] += rrf_score
 
+            # Track provenance
+            if result.filepath not in provenance:
+                provenance[result.filepath] = _DocProvenance(doc=result)
+
+            prov = provenance[result.filepath]
+
+            # Determine source from the result's source attribute
+            is_fts = result.source == SearchSource.FTS
+
+            if is_fts:
+                prov.sources.add("fts")
+                # Keep best FTS score and first (best) rank
+                if prov.fts_rank is None or rank < prov.fts_rank:
+                    prov.fts_rank = rank
+                if prov.fts_score is None or result.score > prov.fts_score:
+                    prov.fts_score = result.score
+            else:
+                prov.sources.add("vec")
+                # Keep best vector score and first (best) rank
+                if prov.vec_rank is None or rank < prov.vec_rank:
+                    prov.vec_rank = rank
+                if prov.vec_score is None or result.score > prov.vec_score:
+                    prov.vec_score = result.score
+
             # Keep the result with highest individual score per document
-            if result.filepath not in docs or result.score > docs[result.filepath].score:
-                docs[result.filepath] = result
+            if result.score > prov.doc.score:
+                prov.doc = result
 
     # Sort documents by fused score (highest first)
     sorted_files = sorted(scores.keys(), key=lambda f: scores[f], reverse=True)
 
-    # Convert to RankedResult objects with fused scores
+    # Convert to RankedResult objects with fused scores and provenance
     ranked_results = []
     for filepath in sorted_files:
-        doc = docs[filepath]
-        ranked_results.append(
-            RankedResult(
-                file=doc.filepath,
-                display_path=doc.display_path,
-                title=doc.title,
-                body=doc.body or "",
-                score=scores[filepath],
-                fts_score=(doc.score if doc.source.value == "fts" else None),
-                vec_score=(doc.score if doc.source.value == "vec" else None),
-                rerank_score=None,
-            )
+        prov = provenance[filepath]
+        doc = prov.doc
+
+        result = RankedResult(
+            file=doc.filepath,
+            display_path=doc.display_path,
+            title=doc.title,
+            body=doc.body or "",
+            score=scores[filepath],
+            fts_score=prov.fts_score,
+            vec_score=prov.vec_score,
+            rerank_score=None,
+            fts_rank=prov.fts_rank,
+            vec_rank=prov.vec_rank,
+            sources_count=len(prov.sources),
+        )
+        ranked_results.append(result)
+
+        # Debug logging for full diagnostics
+        sources_str = "+".join(sorted(prov.sources))
+        ranks_str = []
+        if prov.fts_rank is not None:
+            ranks_str.append(f"FTS#{prov.fts_rank + 1}")
+        if prov.vec_rank is not None:
+            ranks_str.append(f"VEC#{prov.vec_rank + 1}")
+        fts_str = f"{prov.fts_score:.3f}" if prov.fts_score is not None else "N/A"
+        vec_str = f"{prov.vec_score:.3f}" if prov.vec_score is not None else "N/A"
+        logger.debug(
+            f"RRF: {doc.title[:40]!r} | rrf={scores[filepath]:.4f} | "
+            f"sources={sources_str} | ranks={','.join(ranks_str)} | "
+            f"fts={fts_str} | vec={vec_str}"
         )
 
     return ranked_results

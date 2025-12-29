@@ -233,6 +233,22 @@ def _print_search_results(results, title: str) -> None:
         print(f"{rank}. {result.title} [{score_display}]")
         print(f"   File: {result.display_path}")
 
+        # Source provenance (for hybrid search)
+        sources = []
+        ranks = []
+        if hasattr(result, "fts_rank") and result.fts_rank is not None:
+            sources.append("FTS")
+            ranks.append(f"FTS#{result.fts_rank + 1}")
+        if hasattr(result, "vec_rank") and result.vec_rank is not None:
+            sources.append("VEC")
+            ranks.append(f"VEC#{result.vec_rank + 1}")
+
+        if sources:
+            sources_str = "+".join(sources)
+            ranks_str = ", ".join(ranks)
+            print(f"   Sources: {sources_str} ({ranks_str})")
+
+        # Scores breakdown
         if hasattr(result, "fts_score") and result.fts_score is not None:
             print(f"   FTS Score: {result.fts_score:.3f}")
 
@@ -240,6 +256,23 @@ def _print_search_results(results, title: str) -> None:
             print(f"   Vector Score: {result.vec_score:.3f}")
 
         if hasattr(result, "rerank_score") and result.rerank_score is not None:
-            print(f"   Rerank Score: {result.rerank_score:.3f}")
+            rerank_str = f"Rerank: {result.rerank_score:.3f}"
+
+            # Add relevance judgment if available
+            if hasattr(result, "relevant") and result.relevant is not None:
+                rel_str = "Yes" if result.relevant else "No"
+                rerank_str += f" ({rel_str})"
+
+            # Add confidence if available
+            if hasattr(result, "rerank_confidence") and result.rerank_confidence is not None:
+                rerank_str += f" conf={result.rerank_confidence:.2f}"
+
+            print(f"   {rerank_str}")
+
+        # Blend weight if available (shows position-aware weighting)
+        if hasattr(result, "blend_weight") and result.blend_weight is not None:
+            rrf_pct = int(result.blend_weight * 100)
+            rerank_pct = 100 - rrf_pct
+            print(f"   Blend: {rrf_pct}% RRF + {rerank_pct}% rerank")
 
         print()

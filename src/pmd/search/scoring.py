@@ -52,6 +52,8 @@ See Also:
     - `pmd.search.fusion.reciprocal_rank_fusion`: Produces RRF scores for blending
 """
 
+from loguru import logger
+
 from ..core.types import RankedResult, RerankDocumentResult
 
 
@@ -100,6 +102,15 @@ def normalize_scores(results: list[RankedResult]) -> list[RankedResult]:
                 fts_score=result.fts_score,
                 vec_score=result.vec_score,
                 rerank_score=result.rerank_score,
+                # Preserve provenance fields
+                fts_rank=result.fts_rank,
+                vec_rank=result.vec_rank,
+                sources_count=result.sources_count,
+                # Preserve reranker details
+                relevant=result.relevant,
+                rerank_confidence=result.rerank_confidence,
+                rerank_raw_token=result.rerank_raw_token,
+                blend_weight=result.blend_weight,
             )
         )
 
@@ -139,7 +150,8 @@ def blend_scores(
     Returns:
         New list of RankedResult objects with blended scores, sorted by
         the new blended score (highest first). Each result includes the
-        rerank_score field populated from the reranker output.
+        rerank_score field populated from the reranker output, plus
+        reranker details (relevant, confidence, raw_token) and blend_weight.
 
     Example:
         >>> from pmd.llm.reranker import DocumentReranker
@@ -159,13 +171,25 @@ def blend_scores(
         - `DocumentReranker.get_rerank_scores`: Provides rerank_results
         - `reciprocal_rank_fusion`: Provides rrf_results
     """
-    # Create mapping of filepath -> rerank score
-    rerank_map = {r.file: r.score for r in rerank_results}
+    # Create mapping of filepath -> full rerank result for provenance
+    rerank_map = {r.file: r for r in rerank_results}
 
     blended = []
     for rank, result in enumerate(rrf_results):
         rrf_score = result.score
-        rerank_score = rerank_map.get(result.file, 0.5)  # Default to neutral 0.5
+        rerank_result = rerank_map.get(result.file)
+
+        # Extract reranker details
+        if rerank_result:
+            rerank_score = rerank_result.score
+            relevant = rerank_result.relevant
+            confidence = rerank_result.confidence
+            raw_token = rerank_result.raw_token
+        else:
+            rerank_score = 0.5  # Default to neutral
+            relevant = None
+            confidence = None
+            raw_token = None
 
         # Determine position-based weight
         if rank < 3:
@@ -191,7 +215,25 @@ def blend_scores(
                 fts_score=result.fts_score,
                 vec_score=result.vec_score,
                 rerank_score=rerank_score,
+                # Preserve fusion provenance
+                fts_rank=result.fts_rank,
+                vec_rank=result.vec_rank,
+                sources_count=result.sources_count,
+                # Reranker details
+                relevant=relevant,
+                rerank_confidence=confidence,
+                rerank_raw_token=raw_token,
+                blend_weight=rrf_weight,
             )
+        )
+
+        # Debug logging for full diagnostics
+        rel_str = "Yes" if relevant else ("No" if relevant is False else "?")
+        conf_str = f"{confidence:.2f}" if confidence is not None else "N/A"
+        logger.debug(
+            f"Blend: rank={rank + 1} | {result.title[:35]!r} | "
+            f"rrf={rrf_score:.4f} | rerank={rerank_score:.3f} ({rel_str}, conf={conf_str}) | "
+            f"weight={rrf_weight:.0%} RRF | final={final_score:.4f}"
         )
 
     # Re-sort by blended score
