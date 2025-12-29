@@ -7,7 +7,7 @@ from loguru import logger
 from ..core.config import Config
 from ..core.types import Chunk
 from ..search.chunking import chunk_document
-from ..search.text import normalize_content
+from ..search.text import is_indexable
 from ..store.database import Database
 from ..store.embeddings import EmbeddingRepository
 from .base import LLMProvider
@@ -58,19 +58,17 @@ class EmbeddingGenerator:
             logger.debug(f"Document already embedded, skipping: hash={hash_value[:12]}...")
             return 0
 
-        # Normalize content to detect title-only docs
-        normalized = normalize_content(content)
-        if not normalized.embeddable_body:
-            # Title-only doc: skip embeddings, clean up any existing
+        # Check document quality - skip low-quality docs
+        if not is_indexable(content):
             self.embedding_repo.delete_embeddings(hash_value)
-            logger.debug(f"Skipping embeddings for title-only doc: hash={hash_value[:12]}...")
+            logger.debug(f"Skipping embeddings for low-quality doc: hash={hash_value[:12]}...")
             return 0
 
         # Clear existing embeddings for this hash
         self.embedding_repo.delete_embeddings(hash_value)
 
-        # Chunk the embeddable body (not raw content)
-        chunking_result = chunk_document(normalized.embeddable_body, self.config.chunk)
+        # Chunk the document
+        chunking_result = chunk_document(content, self.config.chunk)
         logger.debug(f"Document chunked: {len(chunking_result.chunks)} chunks")
 
         embedded_count = 0

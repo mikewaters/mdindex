@@ -10,7 +10,7 @@ from loguru import logger
 
 from ..core.exceptions import CollectionExistsError, CollectionNotFoundError
 from ..core.types import Collection
-from ..search.text import normalize_content
+from ..search.text import is_indexable
 from .database import Database
 
 if TYPE_CHECKING:
@@ -344,12 +344,10 @@ class CollectionRepository:
                 content,
             )
 
-            # Get the document ID for FTS5 indexing
-            # Use normalized fts_body so title-only docs remain searchable
+            # Index in FTS5 only if document has sufficient quality
             doc_id = self._get_document_id(collection_id, relative_path)
-            if doc_id is not None:
-                normalized = normalize_content(content)
-                search_repo.index_document(doc_id, relative_path, normalized.fts_body)
+            if doc_id is not None and is_indexable(content):
+                search_repo.index_document(doc_id, relative_path, content)
 
             indexed_count += 1
             logger.debug(f"Indexed: {relative_path} ({len(content)} chars)")
