@@ -45,7 +45,7 @@ def handle_index_collection(args, config: Config) -> None:
         coll_repo = CollectionRepository(db)
         doc_repo = DocumentRepository(db)
         embedding_repo = EmbeddingRepository(db)
-        search_repo = FTS5SearchRepository(db, embedding_repo)
+        search_repo = FTS5SearchRepository(db)
 
         # Get collection
         collection = coll_repo.get_by_name(args.collection)
@@ -211,7 +211,7 @@ def handle_update_all(args, config: Config) -> None:
         coll_repo = CollectionRepository(db)
         doc_repo = DocumentRepository(db)
         embedding_repo = EmbeddingRepository(db)
-        search_repo = FTS5SearchRepository(db, embedding_repo)
+        search_repo = FTS5SearchRepository(db)
 
         collections = coll_repo.list_all()
         total = 0

@@ -24,8 +24,8 @@ class PMDMCPServer:
         """
         self.config = config
         self.db = Database(config.db_path)
-        self.search_repo = FTS5SearchRepository(self.db)
         self.embedding_repo = EmbeddingRepository(self.db)
+        self.search_repo = FTS5SearchRepository(self.db)
         self.doc_repo = DocumentRepository(self.db)
 
         # Initialize LLM provider
@@ -54,6 +54,7 @@ class PMDMCPServer:
             pipeline_config,
             query_expander=self.query_expander,
             reranker=self.reranker,
+            embedding_generator=self.embedding_generator,
         )
 
     async def initialize(self) -> None:
