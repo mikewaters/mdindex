@@ -35,12 +35,20 @@ def mock_mlx_lm():
     mock_tokenizer.apply_chat_template.return_value = "formatted prompt"
 
     mock_embedding_model = MagicMock()
-    # Mock embedding result as numpy-like array
-    import numpy as np
-    mock_embedding_result = np.array([[0.1] * 384])  # Typical small embedding
+    mock_embedding_tokenizer = MagicMock()
+
+    # Mock embedding result with pooler_output attribute
+    mock_embedding_result = MagicMock()
+    mock_embedding_result.pooler_output = MagicMock()
+    mock_embedding_result.pooler_output.tolist.return_value = [[0.1] * 384]
+
+    # Create mock for sample_utils submodule
+    mock_sample_utils = MagicMock()
+    mock_sample_utils.make_sampler.return_value = MagicMock()
 
     with patch.dict("sys.modules", {
         "mlx_lm": MagicMock(),
+        "mlx_lm.sample_utils": mock_sample_utils,
         "mlx_embeddings": MagicMock(),
     }):
         import sys
@@ -49,8 +57,10 @@ def mock_mlx_lm():
         mock_lm_module.generate.return_value = "Generated response"
 
         mock_embed_module = sys.modules["mlx_embeddings"]
-        mock_embed_module.load.return_value = mock_embedding_model
-        mock_embed_module.embed.return_value = mock_embedding_result
+        # load() returns (model, tokenizer) tuple
+        mock_embed_module.load.return_value = (mock_embedding_model, mock_embedding_tokenizer)
+        # Uses generate() not embed()
+        mock_embed_module.generate.return_value = mock_embedding_result
 
         yield mock_lm_module, mock_embed_module, mock_model, mock_tokenizer, mock_embedding_model
 
@@ -152,9 +162,9 @@ class TestMLXProviderEmbed:
 
         await provider.embed("search terms", is_query=True)
 
-        # Check that embed was called with query prefix
-        call_args = mock_embed_module.embed.call_args
-        assert "query:" in call_args[0][1]
+        # Check that generate was called with query prefix
+        call_args = mock_embed_module.generate.call_args
+        assert "query:" in call_args[0][2]
 
     @pytest.mark.asyncio
     async def test_embed_formats_passage_text(self, mlx_config, mock_mlx_lm):
@@ -166,9 +176,9 @@ class TestMLXProviderEmbed:
 
         await provider.embed("document content", is_query=False)
 
-        # Check that embed was called with passage prefix
-        call_args = mock_embed_module.embed.call_args
-        assert "passage:" in call_args[0][1]
+        # Check that generate was called with passage prefix
+        call_args = mock_embed_module.generate.call_args
+        assert "passage:" in call_args[0][2]
 
     @pytest.mark.asyncio
     async def test_embed_returns_none_on_error(self, mlx_config, mock_mlx_lm):
@@ -176,7 +186,7 @@ class TestMLXProviderEmbed:
         from pmd.llm.mlx_provider import MLXProvider
 
         _, mock_embed_module, _, _, _ = mock_mlx_lm
-        mock_embed_module.embed.side_effect = Exception("Model error")
+        mock_embed_module.generate.side_effect = Exception("Model error")
 
         provider = MLXProvider(mlx_config)
         result = await provider.embed("test")
@@ -524,10 +534,10 @@ class TestMLXProviderHuggingFaceToken:
         with patch.object(provider, "_get_hf_token", return_value="embed-token"):
             provider._ensure_embedding_model_loaded()
 
-        # Check that load was called with token
+        # Check that load was called with tokenizer_config containing token
         mock_embed_module.load.assert_called_once()
         call_kwargs = mock_embed_module.load.call_args
-        assert call_kwargs[1].get("token") == "embed-token"
+        assert call_kwargs[1].get("tokenizer_config", {}).get("token") == "embed-token"
 
     def test_embedding_model_load_without_token(self, mlx_config, mock_mlx_lm):
         """Embedding model load should work without token."""
@@ -539,8 +549,11 @@ class TestMLXProviderHuggingFaceToken:
         with patch.object(provider, "_get_hf_token", return_value=None):
             provider._ensure_embedding_model_loaded()
 
-        # Check that load was called with just the model name
-        mock_embed_module.load.assert_called_once_with(mlx_config.embedding_model)
+        # Check that load was called with model and empty tokenizer_config
+        mock_embed_module.load.assert_called_once()
+        call_args = mock_embed_module.load.call_args
+        assert call_args[0][0] == mlx_config.embedding_model
+        assert call_args[1].get("tokenizer_config", {}) == {}
 
 
 class TestMLXProviderFactoryIntegration:

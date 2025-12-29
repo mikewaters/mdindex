@@ -221,6 +221,7 @@ class MLXProvider(LLMProvider):
             self._ensure_model_loaded()
 
             from mlx_lm import generate
+            from mlx_lm.sample_utils import make_sampler
 
             # Format as chat message for instruction-tuned models
             messages = [{"role": "user", "content": prompt}]
@@ -235,12 +236,15 @@ class MLXProvider(LLMProvider):
             else:
                 formatted_prompt = prompt
 
+            # Create sampler with temperature settings
+            sampler = make_sampler(temp=temperature)
+
             response = generate(
                 self._model,
                 self._tokenizer,
                 prompt=formatted_prompt,
                 max_tokens=max_tokens,
-                temp=temperature,
+                sampler=sampler,
                 verbose=False,
             )
 
