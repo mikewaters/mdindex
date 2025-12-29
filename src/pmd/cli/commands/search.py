@@ -14,7 +14,7 @@ from ...llm.embeddings import EmbeddingGenerator
 from ...search.pipeline import HybridSearchPipeline, SearchPipelineConfig
 from ...store.database import Database
 from ...store.embeddings import EmbeddingRepository
-from ...store.search import FTS5SearchRepository, VectorSearchRepository
+from ...store.search import FTS5SearchRepository
 
 
 def add_search_arguments(parser) -> None:
@@ -83,7 +83,7 @@ def handle_search(args, config: Config) -> None:
 def handle_vsearch(args, config: Config) -> None:
     """Handle vsearch command (vector search).
 
-    Uses VectorSearchRepository for semantic similarity search.
+    Uses EmbeddingRepository for semantic similarity search.
 
     Args:
         args: Parsed command arguments.
@@ -105,10 +105,9 @@ async def _handle_vsearch_async(args, config: Config) -> None:
     llm_provider = None
     try:
         embedding_repo = EmbeddingRepository(db)
-        vec_repo = VectorSearchRepository(db, embedding_repo)
 
         # Check if vector search is available
-        if not vec_repo.available:
+        if not db.vec_available:
             raise RuntimeError("Vector search not available (sqlite-vec extension not loaded)")
 
         # Get collection ID if specified
@@ -128,8 +127,8 @@ async def _handle_vsearch_async(args, config: Config) -> None:
             print("Failed to generate query embedding (is LLM provider running?)")
             return
 
-        # Perform vector search using the unified search() method
-        results = vec_repo.search(
+        # Perform vector search via EmbeddingRepository
+        results = embedding_repo.search_vectors(
             query_embedding,
             limit=args.limit,
             collection_id=collection_id,
@@ -146,7 +145,7 @@ async def _handle_vsearch_async(args, config: Config) -> None:
 def handle_query(args, config: Config) -> None:
     """Handle query command (hybrid search).
 
-    Uses HybridSearchPipeline with separate FTS5 and Vector repositories.
+    Uses HybridSearchPipeline with FTS5 and EmbeddingRepository for vector search.
 
     Args:
         args: Parsed command arguments.
@@ -167,10 +166,9 @@ async def _handle_query_async(args, config: Config) -> None:
 
     llm_provider = None
     try:
-        # Create separate repositories for FTS and vector search
+        # Create repositories for FTS and embeddings
         embedding_repo = EmbeddingRepository(db)
         fts_repo = FTS5SearchRepository(db)
-        vec_repo = VectorSearchRepository(db, embedding_repo) if db.vec_available else None
 
         # Get collection ID if specified
         collection_id = None
@@ -185,7 +183,7 @@ async def _handle_query_async(args, config: Config) -> None:
         reranker = DocumentReranker(llm_provider)
         embedding_generator = EmbeddingGenerator(llm_provider, embedding_repo, config)
 
-        # Run hybrid search pipeline with separate repositories
+        # Run hybrid search pipeline (embedding_generator provides vector search)
         pipeline_config = SearchPipelineConfig(
             fts_weight=config.search.fts_weight,
             vec_weight=config.search.vec_weight,
@@ -196,7 +194,6 @@ async def _handle_query_async(args, config: Config) -> None:
         )
         pipeline = HybridSearchPipeline(
             fts_repo,
-            vec_repo=vec_repo,
             config=pipeline_config,
             query_expander=query_expander,
             reranker=reranker,

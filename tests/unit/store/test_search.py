@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 
 from pmd.store.database import Database
-from pmd.store.search import FTS5SearchRepository, VectorSearchRepository, SearchRepository
+from pmd.store.search import FTS5SearchRepository, SearchRepository
 from pmd.store.embeddings import EmbeddingRepository
 from pmd.store.documents import DocumentRepository
 from pmd.store.collections import CollectionRepository
@@ -18,19 +18,10 @@ class TestSearchRepositoryInterface:
         """FTS5SearchRepository should implement SearchRepository."""
         assert isinstance(fts_repo, SearchRepository)
 
-    def test_vector_implements_interface(self, vec_repo: VectorSearchRepository):
-        """VectorSearchRepository should implement SearchRepository."""
-        assert isinstance(vec_repo, SearchRepository)
-
     def test_fts5_has_search_method(self, fts_repo: FTS5SearchRepository):
         """FTS5SearchRepository should have search method."""
         assert hasattr(fts_repo, "search")
         assert callable(fts_repo.search)
-
-    def test_vector_has_search_method(self, vec_repo: VectorSearchRepository):
-        """VectorSearchRepository should have search method."""
-        assert hasattr(vec_repo, "search")
-        assert callable(vec_repo.search)
 
 
 class TestFTS5Index:
@@ -350,34 +341,6 @@ class TestFTS5ReindexCollection:
         # Should find new content
         results = fts_repo.search("New")
         assert len(results) > 0
-
-
-class TestVectorSearch:
-    """Tests for vector similarity search using VectorSearchRepository."""
-
-    def test_search_empty_embedding(self, vec_repo: VectorSearchRepository):
-        """search should return empty for empty embedding."""
-        results = vec_repo.search([], limit=5)
-
-        assert results == []
-
-    def test_search_returns_empty_without_sqlite_vec(
-        self,
-        db: Database,
-        embedding_repo: EmbeddingRepository,
-    ):
-        """search should return empty when sqlite-vec unavailable."""
-        vec_repo = VectorSearchRepository(db, embedding_repo)
-
-        results = vec_repo.search([0.1] * 384, limit=5)
-
-        # Without sqlite-vec, should return empty
-        if not db.vec_available:
-            assert results == []
-
-    def test_available_property(self, vec_repo: VectorSearchRepository, db: Database):
-        """available property should reflect sqlite-vec status."""
-        assert vec_repo.available == db.vec_available
 
 
 class TestFTS5QueryPreparation:

@@ -7,7 +7,7 @@ from pmd.store.database import Database
 from pmd.store.collections import CollectionRepository
 from pmd.store.documents import DocumentRepository
 from pmd.store.embeddings import EmbeddingRepository
-from pmd.store.search import FTS5SearchRepository, VectorSearchRepository
+from pmd.store.search import FTS5SearchRepository
 
 
 @pytest.fixture
@@ -53,12 +53,6 @@ def embedding_repo(db: Database) -> EmbeddingRepository:
 def fts_repo(db: Database) -> FTS5SearchRepository:
     """Provide a FTS5SearchRepository instance."""
     return FTS5SearchRepository(db)
-
-
-@pytest.fixture
-def vec_repo(db: Database, embedding_repo: EmbeddingRepository) -> VectorSearchRepository:
-    """Provide a VectorSearchRepository instance."""
-    return VectorSearchRepository(db, embedding_repo)
 
 
 # Legacy alias for backwards compatibility with existing tests

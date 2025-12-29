@@ -1,37 +1,37 @@
-"""Full-text and vector search implementation for PMD.
+"""Full-text search implementation for PMD.
 
-This module provides search functionality through separate repository classes:
+This module provides FTS5-based full-text search:
 
 Classes:
     SearchRepository: Abstract base class defining the search interface
     FTS5SearchRepository: Full-text search using SQLite FTS5 with BM25 scoring
-    VectorSearchRepository: Vector similarity search using sqlite-vec
 
-The separation allows the search pipeline to compose different search strategies:
+For vector similarity search, use EmbeddingRepository.search_vectors() directly.
 
-    from pmd.store.search import FTS5SearchRepository, VectorSearchRepository
+Example:
+    from pmd.store.search import FTS5SearchRepository
+    from pmd.store.embeddings import EmbeddingRepository
 
     fts_repo = FTS5SearchRepository(db)
-    vec_repo = VectorSearchRepository(db, embedding_repo)
+    embedding_repo = EmbeddingRepository(db)
 
-    # Use in pipeline
+    # FTS search
     fts_results = fts_repo.search("machine learning", limit=10)
-    vec_results = vec_repo.search(query_embedding, limit=10)
+
+    # Vector search (via EmbeddingRepository)
+    vec_results = embedding_repo.search_vectors(query_embedding, limit=10)
 
 See Also:
     - `pmd.search.pipeline.HybridSearchPipeline`: Combines FTS and vector search
     - `pmd.search.fusion.reciprocal_rank_fusion`: Merges ranked result lists
-    - `pmd.store.embeddings.EmbeddingRepository`: Vector storage and management
+    - `pmd.store.embeddings.EmbeddingRepository`: Vector storage and search
 """
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import Generic, TypeVar
 
 from ..core.types import SearchResult, SearchSource
 from .database import Database
-
-if TYPE_CHECKING:
-    from .embeddings import EmbeddingRepository
 
 # Type variable for query types
 QueryT = TypeVar("QueryT")
@@ -41,17 +41,14 @@ class SearchRepository(ABC, Generic[QueryT]):
     """Abstract base class for search operations.
 
     This generic interface allows different search implementations to accept
-    different query types while maintaining a consistent API:
+    different query types while maintaining a consistent API.
 
-    - `FTS5SearchRepository` accepts string queries for BM25 search
-    - `VectorSearchRepository` accepts embedding vectors for similarity search
+    Currently only FTS5SearchRepository implements this interface.
+    For vector search, use EmbeddingRepository.search_vectors() directly.
 
     Example:
         >>> fts_repo: SearchRepository[str] = FTS5SearchRepository(db)
-        >>> vec_repo: SearchRepository[list[float]] = VectorSearchRepository(db, emb_repo)
-        >>>
         >>> fts_results = fts_repo.search("python programming")
-        >>> vec_results = vec_repo.search(embedding_vector)
     """
 
     @abstractmethod
@@ -321,88 +318,3 @@ class FTS5SearchRepository(SearchRepository[str]):
         return query
 
 
-class VectorSearchRepository(SearchRepository[list[float]]):
-    """Vector similarity search using sqlite-vec.
-
-    This repository provides semantic search using vector embeddings.
-    It searches the embedding vectors stored by EmbeddingRepository
-    and returns documents ranked by cosine similarity.
-
-    Features:
-        - L2 distance converted to similarity score (0-1)
-        - Deduplication (best chunk per document)
-        - Collection-scoped search support
-        - Graceful fallback when sqlite-vec unavailable
-
-    Example:
-        >>> repo = VectorSearchRepository(db, embedding_repo)
-        >>> embedding = await llm.embed("machine learning")
-        >>> results = repo.search(embedding.embedding, limit=10)
-        >>> for r in results:
-        ...     print(f"{r.title}: {r.score:.3f}")
-
-    Note:
-        Requires sqlite-vec extension to be loaded. Check `db.vec_available`
-        before using. Returns empty results if extension is unavailable.
-
-    See Also:
-        - `pmd.store.embeddings.EmbeddingRepository`: Stores embeddings
-        - `pmd.llm.embeddings.EmbeddingGenerator`: Generates query embeddings
-    """
-
-    def __init__(self, db: Database, embedding_repo: "EmbeddingRepository"):
-        """Initialize with database and embedding repository.
-
-        Args:
-            db: Database instance to use for operations.
-            embedding_repo: EmbeddingRepository for accessing stored vectors.
-        """
-        self.db = db
-        self.embedding_repo = embedding_repo
-
-    def search(
-        self,
-        query: list[float],
-        limit: int = 5,
-        collection_id: int | None = None,
-        min_score: float = 0.0,
-    ) -> list[SearchResult]:
-        """Perform vector similarity search using sqlite-vec.
-
-        Searches stored embeddings using L2 distance and converts to
-        similarity scores. Returns the best-matching chunk for each
-        unique document.
-
-        Args:
-            query: Query embedding vector (must match stored embedding dimensions).
-            limit: Maximum number of results to return.
-            collection_id: Optional collection ID to limit search scope.
-            min_score: Minimum similarity score threshold (0.0-1.0).
-
-        Returns:
-            List of SearchResult objects with source=SearchSource.VECTOR,
-            sorted by similarity (highest first). Returns empty list if
-            sqlite-vec is unavailable or query is empty.
-
-        Example:
-            >>> embedding = [0.1, 0.2, ...]  # 384-dimensional vector
-            >>> results = repo.search(embedding, limit=5, min_score=0.5)
-        """
-        if not self.db.vec_available or not query:
-            return []
-
-        return self.embedding_repo.search_vectors(
-            query,
-            limit=limit,
-            collection_id=collection_id,
-            min_score=min_score,
-        )
-
-    @property
-    def available(self) -> bool:
-        """Check if vector search is available.
-
-        Returns:
-            True if sqlite-vec extension is loaded, False otherwise.
-        """
-        return self.db.vec_available

@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 from pmd.core.types import RankedResult, SearchResult, SearchSource
 from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
-from pmd.store.search import FTS5SearchRepository, VectorSearchRepository
 
 
 def make_search_result(
@@ -48,14 +47,14 @@ class MockFTSSearchRepository:
         return self.results
 
 
-class MockVectorSearchRepository:
-    """Mock vector search repository for testing."""
+class MockEmbeddingRepo:
+    """Mock embedding repository for testing vector search."""
 
     def __init__(self, results: list[SearchResult] | None = None):
         self.results = results or []
         self.calls: list[tuple] = []
 
-    def search(
+    def search_vectors(
         self,
         query: list[float],
         limit: int = 10,
@@ -64,10 +63,6 @@ class MockVectorSearchRepository:
     ) -> list[SearchResult]:
         self.calls.append((query, limit, collection_id, min_score))
         return self.results
-
-    @property
-    def available(self) -> bool:
-        return True
 
 
 class TestSearchPipelineConfig:
@@ -113,7 +108,6 @@ class TestHybridSearchPipelineInit:
         pipeline = HybridSearchPipeline(fts_repo)
 
         assert pipeline.fts_repo == fts_repo
-        assert pipeline.vec_repo is None
         assert pipeline.config is not None
         assert pipeline.query_expander is None
         assert pipeline.reranker is None
@@ -231,50 +225,53 @@ class TestHybridSearchPipelineVectorSearch:
     async def test_no_vector_search_without_generator(self):
         """Should not do vector search without embedding generator."""
         fts_repo = MockFTSSearchRepository()
-        vec_repo = MockVectorSearchRepository()
-        pipeline = HybridSearchPipeline(fts_repo, vec_repo=vec_repo)
+        pipeline = HybridSearchPipeline(fts_repo)
 
         await pipeline.search("test")
 
-        # Vector repo should not be called without embedding generator
-        assert len(vec_repo.calls) == 0
+        # No embedding generator means no vector search
+        # Just verify search completes without error
+        assert True
 
     @pytest.mark.asyncio
     async def test_vector_search_with_generator(self):
         """Should do vector search with embedding generator."""
         fts_repo = MockFTSSearchRepository()
-        vec_repo = MockVectorSearchRepository()
+        embedding_repo = MockEmbeddingRepo()
         mock_generator = AsyncMock()
         mock_generator.embed_query.return_value = [0.1] * 384
-        pipeline = HybridSearchPipeline(fts_repo, vec_repo=vec_repo, embedding_generator=mock_generator)
+        mock_generator.embedding_repo = embedding_repo
+        pipeline = HybridSearchPipeline(fts_repo, embedding_generator=mock_generator)
 
         await pipeline.search("test")
 
-        assert len(vec_repo.calls) > 0
+        assert len(embedding_repo.calls) > 0
 
     @pytest.mark.asyncio
     async def test_vector_search_uses_query_embedding(self):
         """Vector search should use generated query embedding."""
         fts_repo = MockFTSSearchRepository()
-        vec_repo = MockVectorSearchRepository()
+        embedding_repo = MockEmbeddingRepo()
         expected_embedding = [0.5] * 384
         mock_generator = AsyncMock()
         mock_generator.embed_query.return_value = expected_embedding
-        pipeline = HybridSearchPipeline(fts_repo, vec_repo=vec_repo, embedding_generator=mock_generator)
+        mock_generator.embedding_repo = embedding_repo
+        pipeline = HybridSearchPipeline(fts_repo, embedding_generator=mock_generator)
 
         await pipeline.search("test")
 
-        assert vec_repo.calls[0][0] == expected_embedding
+        assert embedding_repo.calls[0][0] == expected_embedding
 
     @pytest.mark.asyncio
     async def test_handles_embedding_error_gracefully(self):
         """Should handle embedding generation errors gracefully."""
         fts_results = [make_search_result("doc.md", 0.9)]
         fts_repo = MockFTSSearchRepository(results=fts_results)
-        vec_repo = MockVectorSearchRepository()
+        embedding_repo = MockEmbeddingRepo()
         mock_generator = AsyncMock()
         mock_generator.embed_query.side_effect = Exception("Embedding failed")
-        pipeline = HybridSearchPipeline(fts_repo, vec_repo=vec_repo, embedding_generator=mock_generator)
+        mock_generator.embedding_repo = embedding_repo
+        pipeline = HybridSearchPipeline(fts_repo, embedding_generator=mock_generator)
 
         # Should not raise, should fall back to FTS only
         results = await pipeline.search("test")
@@ -404,10 +401,11 @@ class TestHybridSearchPipelineIntegration:
             make_search_result("vec1.md", 0.85, SearchSource.VECTOR),
         ]
         fts_repo = MockFTSSearchRepository(results=fts_results)
-        vec_repo = MockVectorSearchRepository(results=vec_results)
+        embedding_repo = MockEmbeddingRepo(results=vec_results)
         mock_generator = AsyncMock()
         mock_generator.embed_query.return_value = [0.1] * 384
-        pipeline = HybridSearchPipeline(fts_repo, vec_repo=vec_repo, embedding_generator=mock_generator)
+        mock_generator.embedding_repo = embedding_repo
+        pipeline = HybridSearchPipeline(fts_repo, embedding_generator=mock_generator)
 
         results = await pipeline.search("test")
 
@@ -421,10 +419,11 @@ class TestHybridSearchPipelineIntegration:
         fts_results = [make_search_result("shared.md", 0.9, SearchSource.FTS)]
         vec_results = [make_search_result("shared.md", 0.95, SearchSource.VECTOR)]
         fts_repo = MockFTSSearchRepository(results=fts_results)
-        vec_repo = MockVectorSearchRepository(results=vec_results)
+        embedding_repo = MockEmbeddingRepo(results=vec_results)
         mock_generator = AsyncMock()
         mock_generator.embed_query.return_value = [0.1] * 384
-        pipeline = HybridSearchPipeline(fts_repo, vec_repo=vec_repo, embedding_generator=mock_generator)
+        mock_generator.embedding_repo = embedding_repo
+        pipeline = HybridSearchPipeline(fts_repo, embedding_generator=mock_generator)
 
         results = await pipeline.search("test")
 

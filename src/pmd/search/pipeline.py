@@ -13,10 +13,9 @@ position-aware blending via `pmd.search.scoring.blend_scores`.
 Typical usage:
 
     from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
-    from pmd.store.search import FTS5SearchRepository, VectorSearchRepository
+    from pmd.store.search import FTS5SearchRepository
 
     fts_repo = FTS5SearchRepository(db)
-    vec_repo = VectorSearchRepository(db, embedding_repo)
 
     config = SearchPipelineConfig(
         enable_query_expansion=True,
@@ -24,11 +23,10 @@ Typical usage:
     )
     pipeline = HybridSearchPipeline(
         fts_repo,
-        vec_repo=vec_repo,
         config=config,
         query_expander=expander,
         reranker=reranker,
-        embedding_generator=embedder,
+        embedding_generator=embedder,  # provides vector search via embedding_repo
     )
 
     results = await pipeline.search("machine learning clustering", limit=10)
@@ -37,14 +35,15 @@ See Also:
     - `pmd.search.scoring`: Score normalization and blending functions
     - `pmd.search.fusion`: Reciprocal Rank Fusion implementation
     - `pmd.llm.reranker`: LLM-based document reranking
-    - `pmd.store.search`: FTS5SearchRepository and VectorSearchRepository
+    - `pmd.store.search`: FTS5SearchRepository
+    - `pmd.store.embeddings`: EmbeddingRepository for vector search
 """
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..core.types import RankedResult, SearchResult
-from ..store.search import FTS5SearchRepository, VectorSearchRepository
+from ..store.search import FTS5SearchRepository
 from .fusion import reciprocal_rank_fusion
 from .scoring import blend_scores, normalize_scores
 
@@ -99,10 +98,9 @@ class HybridSearchPipeline:
     - Rank 11+: 40% RRF + 60% reranker (trust reranker for borderline cases)
 
     Example:
-        >>> from pmd.store.search import FTS5SearchRepository, VectorSearchRepository
+        >>> from pmd.store.search import FTS5SearchRepository
         >>> fts_repo = FTS5SearchRepository(db)
-        >>> vec_repo = VectorSearchRepository(db, embedding_repo)
-        >>> pipeline = HybridSearchPipeline(fts_repo, vec_repo, config, reranker=reranker)
+        >>> pipeline = HybridSearchPipeline(fts_repo, config, embedding_generator=embedder)
         >>> results = await pipeline.search("graph database neo4j", limit=5)
         >>> for r in results:
         ...     print(f"{r.title}: {r.score:.3f} (rerank: {r.rerank_score})")
@@ -112,13 +110,12 @@ class HybridSearchPipeline:
         - `pmd.search.scoring.normalize_scores`: Score normalization
         - `pmd.llm.reranker.DocumentReranker`: LLM reranking
         - `pmd.store.search.FTS5SearchRepository`: Full-text search
-        - `pmd.store.search.VectorSearchRepository`: Vector similarity search
+        - `pmd.store.embeddings.EmbeddingRepository`: Vector similarity search
     """
 
     def __init__(
         self,
         fts_repo: FTS5SearchRepository,
-        vec_repo: VectorSearchRepository | None = None,
         config: SearchPipelineConfig | None = None,
         query_expander: "QueryExpander | None" = None,
         reranker: "DocumentReranker | None" = None,
@@ -128,16 +125,13 @@ class HybridSearchPipeline:
 
         Args:
             fts_repo: FTS5SearchRepository for full-text search.
-            vec_repo: Optional VectorSearchRepository for semantic search.
-                      If None, only FTS results will be used.
             config: Optional SearchPipelineConfig (uses defaults if None).
             query_expander: Optional QueryExpander for query variations.
             reranker: Optional DocumentReranker for relevance scoring.
             embedding_generator: Optional EmbeddingGenerator for query embeddings.
-                                Required if vec_repo is provided.
+                                Provides vector search via its embedding_repo.
         """
         self.fts_repo = fts_repo
-        self.vec_repo = vec_repo
         self.config = config or SearchPipelineConfig()
         self.query_expander = query_expander
         self.reranker = reranker
@@ -245,8 +239,8 @@ class HybridSearchPipeline:
     ) -> list[list[SearchResult]]:
         """Run FTS5 and vector search in parallel for all queries.
 
-        Uses separate FTS5SearchRepository and VectorSearchRepository
-        for each type of search.
+        Uses FTS5SearchRepository for text search and EmbeddingRepository
+        for vector similarity search.
 
         Args:
             queries: List of query strings to search.
@@ -267,13 +261,13 @@ class HybridSearchPipeline:
             )
             results.append(fts_results)
 
-            # Vector search with query embedding using dedicated repository
+            # Vector search with query embedding via EmbeddingRepository
             vec_results: list[SearchResult] = []
-            if self.vec_repo and self.embedding_generator:
+            if self.embedding_generator:
                 try:
                     query_embedding = await self.embedding_generator.embed_query(query)
                     if query_embedding:
-                        vec_results = self.vec_repo.search(
+                        vec_results = self.embedding_generator.embedding_repo.search_vectors(
                             query_embedding,
                             limit,
                             collection_id,

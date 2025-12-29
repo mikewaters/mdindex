@@ -20,7 +20,7 @@ from pmd.store.database import Database
 from pmd.store.collections import CollectionRepository
 from pmd.store.documents import DocumentRepository
 from pmd.store.embeddings import EmbeddingRepository
-from pmd.store.search import FTS5SearchRepository, VectorSearchRepository
+from pmd.store.search import FTS5SearchRepository
 
 
 # Skip all tests in this module if not on macOS
@@ -97,13 +97,6 @@ class TestVectorSearchBasics:
         return FTS5SearchRepository(vector_db)
 
     @pytest.fixture
-    def vec_repo(
-        self, vector_db: Database, embedding_repo: EmbeddingRepository
-    ) -> VectorSearchRepository:
-        """Provide a vector search repository."""
-        return VectorSearchRepository(vector_db, embedding_repo)
-
-    @pytest.fixture
     def collection_repo(self, vector_db: Database) -> CollectionRepository:
         """Provide a CollectionRepository instance."""
         return CollectionRepository(vector_db)
@@ -119,7 +112,6 @@ class TestVectorSearchBasics:
         mlx_provider,
         vector_db: Database,
         embedding_repo: EmbeddingRepository,
-        vec_repo: VectorSearchRepository,
         collection_repo: CollectionRepository,
         document_repo: DocumentRepository,
         tmp_path: Path,
@@ -167,7 +159,7 @@ class TestVectorSearchBasics:
         query_emb = await mlx_provider.embed("coding and software development", is_query=True)
         assert query_emb is not None
 
-        results = vec_repo.search(query_emb.embedding, limit=5)
+        results = embedding_repo.search_vectors(query_emb.embedding, limit=5)
 
         assert len(results) >= 1
         # Python doc should be more relevant to coding query
@@ -179,7 +171,6 @@ class TestVectorSearchBasics:
         mlx_provider,
         vector_db: Database,
         embedding_repo: EmbeddingRepository,
-        vec_repo: VectorSearchRepository,
         collection_repo: CollectionRepository,
         document_repo: DocumentRepository,
         tmp_path: Path,
@@ -226,7 +217,7 @@ class TestVectorSearchBasics:
         assert query_emb is not None
 
         # Search only collection 1
-        results = vec_repo.search(
+        results = embedding_repo.search_vectors(
             query_emb.embedding, limit=5, collection_id=coll1.id
         )
 
@@ -240,7 +231,6 @@ class TestVectorSearchBasics:
         mlx_provider,
         vector_db: Database,
         embedding_repo: EmbeddingRepository,
-        vec_repo: VectorSearchRepository,
         collection_repo: CollectionRepository,
         document_repo: DocumentRepository,
         tmp_path: Path,
@@ -272,7 +262,7 @@ class TestVectorSearchBasics:
         )
         assert query_emb is not None
 
-        results = vec_repo.search(query_emb.embedding, limit=3)
+        results = embedding_repo.search_vectors(query_emb.embedding, limit=3)
 
         assert len(results) == 3
         # ML document should be first (most relevant)
@@ -288,7 +278,6 @@ class TestVectorSearchBasics:
         mlx_provider,
         vector_db: Database,
         embedding_repo: EmbeddingRepository,
-        vec_repo: VectorSearchRepository,
         collection_repo: CollectionRepository,
         document_repo: DocumentRepository,
         tmp_path: Path,
@@ -358,7 +347,7 @@ class TestVectorSearchBasics:
             query_emb = await mlx_provider.embed(query, is_query=True)
             assert query_emb is not None
 
-            results = vec_repo.search(query_emb.embedding, limit=10)
+            results = embedding_repo.search_vectors(query_emb.embedding, limit=10)
             print(results)
 
             # Should find results
@@ -511,13 +500,6 @@ class TestHybridSearchPipeline:
         return FTS5SearchRepository(vector_db)
 
     @pytest.fixture
-    def vec_repo(
-        self, vector_db: Database, embedding_repo: EmbeddingRepository
-    ) -> VectorSearchRepository:
-        """Provide a vector search repository."""
-        return VectorSearchRepository(vector_db, embedding_repo)
-
-    @pytest.fixture
     def collection_repo(self, vector_db: Database) -> CollectionRepository:
         """Provide a CollectionRepository instance."""
         return CollectionRepository(vector_db)
@@ -535,7 +517,6 @@ class TestHybridSearchPipeline:
         config: Config,
         embedding_repo: EmbeddingRepository,
         fts_repo: FTS5SearchRepository,
-        vec_repo: VectorSearchRepository,
         collection_repo: CollectionRepository,
         document_repo: DocumentRepository,
         tmp_path: Path,
@@ -578,7 +559,6 @@ class TestHybridSearchPipeline:
 
         pipeline = HybridSearchPipeline(
             fts_repo,
-            vec_repo=vec_repo,
             config=pipeline_config,
             embedding_generator=embedding_generator,
         )
@@ -721,11 +701,9 @@ class TestVectorSearchWithChunking:
         from pmd.llm.embeddings import EmbeddingGenerator
         from pmd.store.collections import CollectionRepository
         from pmd.store.documents import DocumentRepository
-        from pmd.store.search import FTS5SearchRepository, VectorSearchRepository
 
         collection_repo = CollectionRepository(vector_db)
         document_repo = DocumentRepository(vector_db)
-        vec_repo = VectorSearchRepository(vector_db, embedding_repo)
 
         collection = collection_repo.create("chunking", str(tmp_path), "**/*.md")
 
@@ -756,7 +734,7 @@ Pasta should be cooked al dente for best texture.
         query_emb = await mlx_provider.embed("neural networks deep learning", is_query=True)
         assert query_emb is not None
 
-        results = vec_repo.search(query_emb.embedding, limit=1)
+        results = embedding_repo.search_vectors(query_emb.embedding, limit=1)
 
         assert len(results) == 1
         assert results[0].filepath == "mixed.md"

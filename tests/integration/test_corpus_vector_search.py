@@ -22,7 +22,7 @@ from pmd.store.database import Database
 from pmd.store.collections import CollectionRepository
 from pmd.store.documents import DocumentRepository
 from pmd.store.embeddings import EmbeddingRepository
-from pmd.store.search import FTS5SearchRepository, VectorSearchRepository
+from pmd.store.search import FTS5SearchRepository
 from pmd.llm.embeddings import EmbeddingGenerator
 
 
@@ -84,7 +84,6 @@ def indexed_corpus(mlx_provider, tmp_path_factory):
     document_repo = DocumentRepository(db)
     embedding_repo = EmbeddingRepository(db)
     fts_repo = FTS5SearchRepository(db)
-    vec_repo = VectorSearchRepository(db, embedding_repo)
 
     # Create collection for corpus
     collection = collection_repo.create(
@@ -157,7 +156,6 @@ def indexed_corpus(mlx_provider, tmp_path_factory):
         "document_repo": document_repo,
         "embedding_repo": embedding_repo,
         "fts_repo": fts_repo,
-        "vec_repo": vec_repo,
         "embedding_generator": embedding_generator,
         "indexed_count": indexed_count,
     }
@@ -191,7 +189,7 @@ class TestVectorSearchAccuracy:
         query_emb = await mlx_provider.embed(query, is_query=True)
         assert query_emb is not None
 
-        results = indexed_corpus["vec_repo"].search(
+        results = indexed_corpus["embedding_repo"].search_vectors(
             query_emb.embedding, limit=10
         )
 
@@ -210,7 +208,7 @@ class TestVectorSearchAccuracy:
         query_emb = await mlx_provider.embed(query, is_query=True)
         assert query_emb is not None
 
-        results = indexed_corpus["vec_repo"].search(
+        results = indexed_corpus["embedding_repo"].search_vectors(
             query_emb.embedding, limit=10
         )
 
@@ -227,7 +225,7 @@ class TestVectorSearchAccuracy:
         query_emb = await mlx_provider.embed(query, is_query=True)
         assert query_emb is not None
 
-        results = indexed_corpus["vec_repo"].search(
+        results = indexed_corpus["embedding_repo"].search_vectors(
             query_emb.embedding, limit=10
         )
 
@@ -244,7 +242,7 @@ class TestVectorSearchAccuracy:
         query_emb = await mlx_provider.embed(query, is_query=True)
         assert query_emb is not None
 
-        results = indexed_corpus["vec_repo"].search(
+        results = indexed_corpus["embedding_repo"].search_vectors(
             query_emb.embedding, limit=10
         )
 
@@ -261,7 +259,7 @@ class TestVectorSearchAccuracy:
         query_emb = await mlx_provider.embed(query, is_query=True)
         assert query_emb is not None
 
-        results = indexed_corpus["vec_repo"].search(
+        results = indexed_corpus["embedding_repo"].search_vectors(
             query_emb.embedding, limit=10
         )
 
@@ -278,7 +276,7 @@ class TestVectorSearchAccuracy:
         query_emb = await mlx_provider.embed(query, is_query=True)
         assert query_emb is not None
 
-        results = indexed_corpus["vec_repo"].search(
+        results = indexed_corpus["embedding_repo"].search_vectors(
             query_emb.embedding, limit=10
         )
 
@@ -300,7 +298,7 @@ class TestSemanticRelevance:
         query_emb = await mlx_provider.embed(query, is_query=True)
         assert query_emb is not None
 
-        results = indexed_corpus["vec_repo"].search(
+        results = indexed_corpus["embedding_repo"].search_vectors(
             query_emb.embedding, limit=10
         )
 
@@ -317,7 +315,7 @@ class TestSemanticRelevance:
         query_emb = await mlx_provider.embed(query, is_query=True)
         assert query_emb is not None
 
-        results = indexed_corpus["vec_repo"].search(
+        results = indexed_corpus["embedding_repo"].search_vectors(
             query_emb.embedding, limit=10
         )
 
@@ -334,10 +332,10 @@ class TestSemanticRelevance:
         relevant_emb = await mlx_provider.embed(relevant_query, is_query=True)
         irrelevant_emb = await mlx_provider.embed(irrelevant_query, is_query=True)
 
-        relevant_results = indexed_corpus["vec_repo"].search(
+        relevant_results = indexed_corpus["embedding_repo"].search_vectors(
             relevant_emb.embedding, limit=5
         )
-        irrelevant_results = indexed_corpus["vec_repo"].search(
+        irrelevant_results = indexed_corpus["embedding_repo"].search_vectors(
             irrelevant_emb.embedding, limit=5
         )
 
@@ -361,7 +359,7 @@ class TestVectorSearchRanking:
         query_emb = await mlx_provider.embed(query, is_query=True)
         assert query_emb is not None
 
-        results = indexed_corpus["vec_repo"].search(
+        results = indexed_corpus["embedding_repo"].search_vectors(
             query_emb.embedding, limit=20
         )
 
@@ -384,7 +382,7 @@ class TestVectorSearchRanking:
         query_emb = await mlx_provider.embed(query, is_query=True)
         assert query_emb is not None
 
-        results = indexed_corpus["vec_repo"].search(
+        results = indexed_corpus["embedding_repo"].search_vectors(
             query_emb.embedding, limit=5
         )
 
@@ -402,7 +400,6 @@ class TestHybridSearchWithCorpus:
         from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
 
         fts_repo = indexed_corpus["fts_repo"]
-        vec_repo = indexed_corpus["vec_repo"]
         embedding_generator = indexed_corpus["embedding_generator"]
 
         config = SearchPipelineConfig(
@@ -412,7 +409,6 @@ class TestHybridSearchWithCorpus:
 
         pipeline = HybridSearchPipeline(
             fts_repo,
-            vec_repo=vec_repo,
             config=config,
             embedding_generator=embedding_generator,
         )
@@ -437,7 +433,6 @@ class TestHybridSearchWithCorpus:
         from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
 
         fts_repo = indexed_corpus["fts_repo"]
-        vec_repo = indexed_corpus["vec_repo"]
         embedding_generator = indexed_corpus["embedding_generator"]
         collection = indexed_corpus["collection"]
 
@@ -448,7 +443,6 @@ class TestHybridSearchWithCorpus:
 
         pipeline = HybridSearchPipeline(
             fts_repo,
-            vec_repo=vec_repo,
             config=config,
             embedding_generator=embedding_generator,
         )
