@@ -15,13 +15,16 @@ from .schema import get_schema, get_vector_schema
 class Database:
     """SQLite database connection manager."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, embedding_dimension: int | None = None):
         """Initialize database with path.
 
         Args:
             path: Path to the SQLite database file.
+            embedding_dimension: Vector embedding dimension for schema.
+                If None, uses the default from schema.py.
         """
         self.path = path
+        self.embedding_dimension = embedding_dimension
         self._connection: sqlite3.Connection | None = None
         self._vec_available: bool = False
 
@@ -68,12 +71,12 @@ class Database:
 
         cursor = self._connection.cursor()
         start_time = time.perf_counter()
-        logger.debug("Transaction started")
+        #logger.debug("Transaction started")
         try:
             yield cursor
             self._connection.commit()
-            elapsed = (time.perf_counter() - start_time) * 1000
-            logger.debug(f"Transaction committed ({elapsed:.2f}ms)")
+            #elapsed = (time.perf_counter() - start_time) * 1000
+            #logger.debug(f"Transaction committed ({elapsed:.2f}ms)")
         except Exception as e:
             self._connection.rollback()
             elapsed = (time.perf_counter() - start_time) * 1000
@@ -172,7 +175,12 @@ class Database:
 
             # Create vector table if sqlite-vec is available
             if self._vec_available:
-                vec_schema = get_vector_schema()
+                # Use configured dimension or default
+                if self.embedding_dimension:
+                    vec_schema = get_vector_schema(dimension=self.embedding_dimension)
+                    logger.debug(f"Using embedding dimension: {self.embedding_dimension}")
+                else:
+                    vec_schema = get_vector_schema()
                 self.executescript(vec_schema)
                 logger.debug("Vector schema initialized")
         except Exception as e:

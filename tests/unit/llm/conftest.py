@@ -94,6 +94,10 @@ class MockLLMProvider(LLMProvider):
     def get_default_reranker_model(self) -> str:
         return "mock-reranker-model"
 
+    async def close(self) -> None:
+        """Close the provider (no-op for mock)."""
+        pass
+
 
 @pytest.fixture
 def mock_llm_provider() -> MockLLMProvider:

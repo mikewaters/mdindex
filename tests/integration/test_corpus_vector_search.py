@@ -41,7 +41,10 @@ CORPUS_PATH = Path(__file__).parent.parent / "fixtures" / "test_corpus"
 def mlx_config() -> MLXConfig:
     """Provide MLX configuration for corpus tests."""
     return MLXConfig(
-        embedding_model="mlx-community/multilingual-e5-small-mlx",
+        embedding_model="mlx-community/nomicai-modernbert-embed-base-4bit",
+        embedding_dimension=768,
+        query_prefix="search_query: ",
+        document_prefix="search_document: ",
         lazy_load=True,
     )
 
@@ -60,7 +63,7 @@ def mlx_provider(mlx_config: MLXConfig):
 
 
 @pytest.fixture(scope="module")
-def indexed_corpus(mlx_provider, tmp_path_factory):
+def indexed_corpus(mlx_provider, mlx_config, tmp_path_factory):
     """Index the test corpus and return database components.
 
     This fixture indexes all documents in the test corpus with embeddings,
@@ -72,8 +75,8 @@ def indexed_corpus(mlx_provider, tmp_path_factory):
     tmp_path = tmp_path_factory.mktemp("corpus_test")
     db_path = tmp_path / "corpus.db"
 
-    # Set up database
-    db = Database(db_path)
+    # Set up database with embedding dimension from config
+    db = Database(db_path, embedding_dimension=mlx_config.embedding_dimension)
     db.connect()
 
     if not db.vec_available:

@@ -3,9 +3,9 @@
 SCHEMA_VERSION = 1
 
 # Default embedding dimension
-# - nomic-embed-text uses 768
+# - nomic/modernbert-embed-base uses 768 (default)
 # - multilingual-e5-small uses 384
-EMBEDDING_DIMENSION = 384
+EMBEDDING_DIMENSION = 768
 
 SCHEMA_SQL = """\
 -- Content-addressable storage

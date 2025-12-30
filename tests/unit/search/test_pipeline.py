@@ -239,7 +239,7 @@ class TestHybridSearchPipelineVectorSearch:
         fts_repo = MockFTSSearchRepository()
         embedding_repo = MockEmbeddingRepo()
         mock_generator = AsyncMock()
-        mock_generator.embed_query.return_value = [0.1] * 384
+        mock_generator.embed_query.return_value = [0.1] * 768
         mock_generator.embedding_repo = embedding_repo
         pipeline = HybridSearchPipeline(fts_repo, embedding_generator=mock_generator)
 
@@ -252,7 +252,7 @@ class TestHybridSearchPipelineVectorSearch:
         """Vector search should use generated query embedding."""
         fts_repo = MockFTSSearchRepository()
         embedding_repo = MockEmbeddingRepo()
-        expected_embedding = [0.5] * 384
+        expected_embedding = [0.5] * 768
         mock_generator = AsyncMock()
         mock_generator.embed_query.return_value = expected_embedding
         mock_generator.embedding_repo = embedding_repo
@@ -403,7 +403,7 @@ class TestHybridSearchPipelineIntegration:
         fts_repo = MockFTSSearchRepository(results=fts_results)
         embedding_repo = MockEmbeddingRepo(results=vec_results)
         mock_generator = AsyncMock()
-        mock_generator.embed_query.return_value = [0.1] * 384
+        mock_generator.embed_query.return_value = [0.1] * 768
         mock_generator.embedding_repo = embedding_repo
         pipeline = HybridSearchPipeline(fts_repo, embedding_generator=mock_generator)
 
@@ -421,7 +421,7 @@ class TestHybridSearchPipelineIntegration:
         fts_repo = MockFTSSearchRepository(results=fts_results)
         embedding_repo = MockEmbeddingRepo(results=vec_results)
         mock_generator = AsyncMock()
-        mock_generator.embed_query.return_value = [0.1] * 384
+        mock_generator.embed_query.return_value = [0.1] * 768
         mock_generator.embedding_repo = embedding_repo
         pipeline = HybridSearchPipeline(fts_repo, embedding_generator=mock_generator)
 

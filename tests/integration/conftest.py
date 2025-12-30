@@ -3,12 +3,13 @@
 import pytest
 from pathlib import Path
 
-from pmd.store.database import Database
+from pmd.core.config import Config
+from pmd.services import ServiceContainer
 from pmd.store.collections import CollectionRepository
+from pmd.store.database import Database
 from pmd.store.documents import DocumentRepository
 from pmd.store.embeddings import EmbeddingRepository
 from pmd.store.search import FTS5SearchRepository
-from pmd.core.config import Config
 
 
 @pytest.fixture
@@ -79,3 +80,10 @@ def test_corpus_collection(
     """Create a collection pointing to the test corpus."""
     from pmd.core.types import Collection
     return collection_repo.create("test-corpus", str(test_corpus_path), "**/*.md")
+
+
+@pytest.fixture
+async def services(config: Config):
+    """Provide a ServiceContainer instance for integration tests."""
+    async with ServiceContainer(config) as svc:
+        yield svc

@@ -158,29 +158,50 @@ class MLXProvider(LLMProvider):
 
             from mlx_embeddings import generate as generate_embeddings
 
-            # Some embedding models (like E5) expect query/passage prefixes
+            # Apply model-specific prefixes from config
+            # - nomic/modernbert: "search_query: " / "search_document: "
+            # - e5 models: "query: " / "passage: "
             if is_query:
-                formatted_text = f"query: {text}"
+                formatted_text = f"{self.config.query_prefix}{text}"
             else:
-                formatted_text = f"passage: {text}"
+                formatted_text = f"{self.config.document_prefix}{text}"
 
             # Generate embedding using mlx_embeddings.generate
-            # Returns a BaseModelOutput with pooler_output for sentence embedding
+            # Returns a BaseModelOutput with various embedding attributes
             result = generate_embeddings(
                 self._embedding_model,
                 self._embedding_tokenizer,
                 formatted_text,
             )
 
-            # Extract sentence embedding from pooler_output
-            # Shape is (batch_size, embedding_dim), we take first element
-            if hasattr(result, "pooler_output"):
-                embedding = result.pooler_output.tolist()[0]
-            elif hasattr(result, "text_embeds"):
+            # Log available attributes for debugging
+            available_attrs = [
+                attr for attr in ["text_embeds", "pooler_output", "last_hidden_state"]
+                if hasattr(result, attr) and getattr(result, attr) is not None
+            ]
+            logger.debug(f"Model output attributes available: {available_attrs}")
+
+            # Extract sentence embedding - different models use different output attributes
+            # Priority: text_embeds (normalized, pooled) > pooler_output > last_hidden_state
+            embedding = None
+
+            # text_embeds: mean-pooled and normalized embeddings (best for similarity)
+            if hasattr(result, "text_embeds") and result.text_embeds is not None:
                 embedding = result.text_embeds.tolist()[0]
-            else:
-                # Fallback: try last_hidden_state mean pooling
+                logger.debug("Using text_embeds for embedding")
+            # pooler_output: CLS token output (used by some BERT variants)
+            elif hasattr(result, "pooler_output") and result.pooler_output is not None:
+                embedding = result.pooler_output.tolist()[0]
+                logger.debug("Using pooler_output for embedding")
+            # Fallback: mean pooling over last_hidden_state
+            elif hasattr(result, "last_hidden_state") and result.last_hidden_state is not None:
                 embedding = result.last_hidden_state.mean(axis=1).tolist()[0]
+                logger.debug("Using mean-pooled last_hidden_state for embedding")
+            else:
+                raise ValueError(f"Could not extract embedding from model output: {type(result)}, available: {available_attrs}")
+
+            if embedding is None:
+                raise ValueError("Embedding extraction returned None")
 
             elapsed = (time.perf_counter() - start_time) * 1000
             logger.debug(f"Embedding generated: dim={len(embedding)}, {elapsed:.1f}ms")

@@ -1,30 +1,13 @@
 """Collection CRUD operations for PMD."""
 
-import time
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from ..core.exceptions import CollectionExistsError, CollectionNotFoundError
 from ..core.types import Collection
-from ..search.text import is_indexable
 from .database import Database
-
-if TYPE_CHECKING:
-    from .documents import DocumentRepository
-    from .search import FTS5SearchRepository
-
-
-@dataclass
-class IndexResult:
-    """Result of indexing a collection."""
-
-    indexed: int
-    skipped: int
-    errors: list[tuple[str, str]]
 
 
 class CollectionRepository:
@@ -248,137 +231,4 @@ class CollectionRepository:
             glob_pattern=row["glob_pattern"],  # type: ignore
             created_at=row["created_at"],  # type: ignore
             updated_at=row["updated_at"],  # type: ignore
-        ) 
-
-    def _get_document_id(self, collection_id: int, path: str) -> int | None:
-        """Get the database ID for a document by path.
-
-        Args:
-            collectio   n_id: Collection ID.
-            path: Document path relative to collection.
-
-        Returns:
-            Document ID (integer primary key) or None if not found.
-        """
-        cursor = self.db.execute(
-            "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
-            (collection_id, path),
         )
-        row = cursor.fetchone()
-        return row["id"] if row else None
-
-    def index_documents(
-        self,
-        collection_id: int,
-        doc_repo: "DocumentRepository",
-        search_repo: "FTS5SearchRepository",
-        force: bool = False,
-    ) -> IndexResult:
-        """Index all documents in a collection from the filesystem.
-
-        Scans the collection's directory using its glob pattern, reads matching
-        files, and stores them in the database with FTS5 indexing.
-
-        Args:
-            collection_id: ID of the collection to index.
-            doc_repo: DocumentRepository for storing documents.
-            search_repo: FTS5SearchRepository for full-text indexing.
-            force: If True, reindex all documents even if unchanged.
-
-        Returns:
-            IndexResult with counts of indexed, skipped, and errored files.
-
-        Raises:
-            CollectionNotFoundError: If collection does not exist.
-            ValueError: If collection path does not exist on filesystem.
-        """
-        collection = self.get_by_id(collection_id)
-        if not collection:
-            raise CollectionNotFoundError(f"Collection {collection_id} not found")
-
-        collection_path = Path(collection.pwd)
-        if not collection_path.exists():
-            raise ValueError(f"Collection path does not exist: {collection_path}")
-
-        logger.info(f"Indexing collection: name={collection.name!r}, path={collection_path}, force={force}")
-        start_time = time.perf_counter()
-
-        indexed_count = 0
-        skipped_count = 0
-        errors: list[tuple[str, str]] = []
-
-        glob_pattern = collection.glob_pattern or "**/*.md"
-
-        for file_path in collection_path.glob(glob_pattern):
-
-            if not file_path.is_file():
-                continue
-
-            relative_path = str(file_path.relative_to(collection_path))
-
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-            except (UnicodeDecodeError, IOError) as e:
-                errors.append((relative_path, str(e)))
-                logger.warning(f"Failed to read file: {relative_path}: {e}")
-                continue
-
-            # Extract title from first markdown heading or use filename
-            title = self._extract_title(content, file_path.stem)
-
-            # Check if document has been modified (skip if unchanged and not forcing)
-            if not force:
-                from ..utils.hashing import sha256_hash
-
-                content_hash = sha256_hash(content)
-                if not doc_repo.check_if_modified(collection_id, relative_path, content_hash):
-                    skipped_count += 1
-                    continue
-
-            # Store document in database
-            doc_result, _ = doc_repo.add_or_update(
-                collection_id,
-                relative_path,
-                title,
-                content,
-            )
-
-            # Index in FTS5 only if document has sufficient quality
-            doc_id = self._get_document_id(collection_id, relative_path)
-            if doc_id is not None and is_indexable(content):
-                search_repo.index_document(doc_id, relative_path, content)
-
-            indexed_count += 1
-            logger.debug(f"Indexed: {relative_path} ({len(content)} chars)")
-
-        elapsed = (time.perf_counter() - start_time) * 1000
-        logger.info(
-            f"Indexing complete: name={collection.name!r}, indexed={indexed_count}, "
-            f"skipped={skipped_count}, errors={len(errors)}, {elapsed:.1f}ms"
-        )
-
-        return IndexResult(
-            indexed=indexed_count,
-            skipped=skipped_count,
-            errors=errors,
-        )
-
-    @staticmethod
-    def _extract_title(content: str, fallback: str) -> str:
-        """Extract title from markdown content.
-
-        Looks for the first line starting with '# ' and uses that as the title.
-        Falls back to the provided fallback (typically the filename stem).
-
-        Args:
-            content: Markdown content to extract title from.
-            fallback: Fallback title if no heading found.
-
-        Returns:
-            Extracted or fallback title.
-        """
-        for line in content.split("\n"):
-            if line.startswith("# "):
-                return line[2:].strip()
-        return fallback

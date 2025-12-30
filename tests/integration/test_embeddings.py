@@ -27,11 +27,14 @@ pytestmark = pytest.mark.skipif(
 def mlx_config() -> MLXConfig:
     """Provide MLX configuration for embeddings.
 
-    Uses a small, fast embedding model for testing.
+    Uses nomic/modernbert-embed-base for high-quality embeddings.
     """
     return MLXConfig(
-        embedding_model="mlx-community/multilingual-e5-small-mlx",
-        lazy_load=True,  # Don't load until needed
+        embedding_model="mlx-community/nomicai-modernbert-embed-base-4bit",
+        embedding_dimension=768,
+        query_prefix="search_query: ",
+        document_prefix="search_document: ",
+        lazy_load=True,
     )
 
 
@@ -61,8 +64,8 @@ class TestMLXEmbeddingGeneration:
         assert isinstance(result, EmbeddingResult)
         assert isinstance(result.embedding, list)
         assert len(result.embedding) > 0
-        # E5-small has 384 dimensions
-        assert len(result.embedding) == 384
+        # ModernBERT-embed-base has 768 dimensions
+        assert len(result.embedding) == 768
 
     @pytest.mark.asyncio
     async def test_embed_returns_floats(self, mlx_provider):
@@ -124,7 +127,7 @@ class TestMLXEmbeddingGeneration:
         result = await mlx_provider.embed(long_text)
 
         assert result is not None
-        assert len(result.embedding) == 384
+        assert len(result.embedding) == 768
 
     @pytest.mark.asyncio
     async def test_embed_unicode_text(self, mlx_provider):
@@ -132,17 +135,17 @@ class TestMLXEmbeddingGeneration:
         result = await mlx_provider.embed("日本語のテスト 🎉 emoji test")
 
         assert result is not None
-        assert len(result.embedding) == 384
+        assert len(result.embedding) == 768
 
 
 class TestEmbeddingStorage:
     """Tests for storing and retrieving embeddings."""
 
     @pytest.fixture
-    def integration_db(self, tmp_path: Path) -> Database:
+    def integration_db(self, tmp_path: Path, mlx_config: MLXConfig) -> Database:
         """Provide a connected database for embedding tests."""
         db_path = tmp_path / "embedding_test.db"
-        database = Database(db_path)
+        database = Database(db_path, embedding_dimension=mlx_config.embedding_dimension)
         database.connect()
         yield database
         database.close()

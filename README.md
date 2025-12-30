@@ -264,6 +264,27 @@ async def generate_embeddings(content: str, hash_value: str):
 asyncio.run(generate_embeddings("Document content...", "abc123hash"))
 ```
 
+### Vector Search Backend (Polymorphic)
+
+```python
+from pmd.core.config import Config
+from pmd.store.database import Database
+from pmd.store.embeddings import EmbeddingRepository
+from pmd.store.vector_search import VectorSearchRepository
+
+config = Config.from_env()
+db = Database(config.db_path)
+db.connect()
+
+embedding_repo = EmbeddingRepository(db)
+vector_search = VectorSearchRepository(embedding_repo)
+
+query_embedding = [0.1] * 384  # Example embedding
+results = vector_search.search(query_embedding, limit=5)
+
+db.close()
+```
+
 ### MCP Server Integration
 
 ```python

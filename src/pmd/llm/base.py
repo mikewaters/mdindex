@@ -114,3 +114,11 @@ class LLMProvider(ABC):
             Model name.
         """
         pass
+
+    @abstractmethod
+    async def close(self) -> None:
+        """Close the provider and release any resources.
+
+        Should be called when the provider is no longer needed.
+        """
+        pass

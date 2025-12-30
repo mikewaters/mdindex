@@ -268,12 +268,12 @@ class TestEmbeddingVectorSearch:
             content,
         )
 
-        # Store embedding (768 dimensions for nomic-embed-text)
-        embedding = [0.1] * 768
+        # Store embedding (384 dimensions for e5-small)
+        embedding = [0.1] * 384
         embedding_repo.store_embedding(doc.hash, 0, 0, embedding, "nomic-embed-text")
 
         # Search with similar embedding
-        query = [0.1] * 768
+        query = [0.1] * 384
         results = embedding_repo.search_vectors(query, limit=5)
 
         assert len(results) > 0

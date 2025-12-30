@@ -35,7 +35,19 @@ class MLXConfig:
     # Model to use for text generation (query expansion, reranking)
     model: str = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
     # Model to use for embeddings (via mlx-embeddings)
-    embedding_model: str = "mlx-community/multilingual-e5-small-mlx"
+    embedding_model: str = "mlx-community/nomicai-modernbert-embed-base-4bit"
+    # Embedding vector dimension (must match model output)
+    # - nomic/modernbert-embed-base: 768
+    # - multilingual-e5-small: 384
+    embedding_dimension: int = 768
+    # Prefix to add for query embeddings (model-specific)
+    # - nomic/modernbert: "search_query: "
+    # - e5 models: "query: "
+    query_prefix: str = "search_query: "
+    # Prefix to add for document embeddings (model-specific)
+    # - nomic/modernbert: "search_document: "
+    # - e5 models: "passage: "
+    document_prefix: str = "search_document: "
     # Maximum tokens to generate
     max_tokens: int = 256
     # Sampling temperature

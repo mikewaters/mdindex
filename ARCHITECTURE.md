@@ -51,7 +51,8 @@ src/pmd/
 │   ├── collections.py       # Collection CRUD operations
 │   ├── documents.py         # Document storage
 │   ├── embeddings.py        # Vector storage
-│   └── search.py            # FTS5 and vector search
+│   ├── search.py            # FTS5 search
+│   └── vector_search.py     # Vector search adapter
 │
 ├── llm/                     # LLM abstraction layer
 │   ├── __init__.py
@@ -496,7 +497,7 @@ CREATE INDEX idx_path_contexts_collection ON path_contexts(collection_id);
 
 ### Adding a New Search Strategy
 
-1. Extend `SearchRepository` in `store/search.py`
+1. Extend `SearchRepository` in `store/search.py` (or add an adapter like `store/vector_search.py`)
 2. Add fusion logic in `search/fusion.py`
 3. Integrate in `search/pipeline.py`
 

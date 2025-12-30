@@ -37,10 +37,14 @@ def mock_mlx_lm():
     mock_embedding_model = MagicMock()
     mock_embedding_tokenizer = MagicMock()
 
-    # Mock embedding result with pooler_output attribute
+    # Mock embedding result with text_embeds attribute (primary for ModernBERT)
     mock_embedding_result = MagicMock()
-    mock_embedding_result.pooler_output = MagicMock()
-    mock_embedding_result.pooler_output.tolist.return_value = [[0.1] * 384]
+    # text_embeds is the primary attribute for normalized embeddings
+    mock_embedding_result.text_embeds = MagicMock()
+    mock_embedding_result.text_embeds.tolist.return_value = [[0.1] * 768]
+    # Set other attributes to None to simulate ModernBERT behavior
+    mock_embedding_result.pooler_output = None
+    mock_embedding_result.last_hidden_state = None
 
     # Create mock for sample_utils submodule
     mock_sample_utils = MagicMock()
@@ -135,7 +139,7 @@ class TestMLXProviderEmbed:
 
         assert result is not None
         assert isinstance(result, EmbeddingResult)
-        assert len(result.embedding) == 384  # Size from mock
+        assert len(result.embedding) == 768  # Size from mock
 
     @pytest.mark.asyncio
     async def test_embed_loads_model_on_first_call(self, mlx_config, mock_mlx_lm):
@@ -162,13 +166,13 @@ class TestMLXProviderEmbed:
 
         await provider.embed("search terms", is_query=True)
 
-        # Check that generate was called with query prefix
+        # Check that generate was called with query prefix (from config)
         call_args = mock_embed_module.generate.call_args
-        assert "query:" in call_args[0][2]
+        assert mlx_config.query_prefix in call_args[0][2]
 
     @pytest.mark.asyncio
     async def test_embed_formats_passage_text(self, mlx_config, mock_mlx_lm):
-        """embed should add 'passage:' prefix for documents."""
+        """embed should add document prefix for documents."""
         from pmd.llm.mlx_provider import MLXProvider
 
         _, mock_embed_module, _, _, _ = mock_mlx_lm
@@ -176,9 +180,9 @@ class TestMLXProviderEmbed:
 
         await provider.embed("document content", is_query=False)
 
-        # Check that generate was called with passage prefix
+        # Check that generate was called with document prefix (from config)
         call_args = mock_embed_module.generate.call_args
-        assert "passage:" in call_args[0][2]
+        assert mlx_config.document_prefix in call_args[0][2]
 
     @pytest.mark.asyncio
     async def test_embed_returns_none_on_error(self, mlx_config, mock_mlx_lm):

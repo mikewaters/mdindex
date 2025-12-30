@@ -55,7 +55,10 @@ def get_document_id(db: Database, collection_id: int, path: str) -> int:
 def mlx_config() -> MLXConfig:
     """Provide MLX configuration for vector search tests."""
     return MLXConfig(
-        embedding_model="mlx-community/multilingual-e5-small-mlx",
+        embedding_model="mlx-community/nomicai-modernbert-embed-base-4bit",
+        embedding_dimension=768,
+        query_prefix="search_query: ",
+        document_prefix="search_document: ",
         lazy_load=True,
     )
 
@@ -78,10 +81,10 @@ class TestVectorSearchBasics:
     """Tests for basic vector search functionality."""
 
     @pytest.fixture
-    def vector_db(self, tmp_path: Path) -> Database:
+    def vector_db(self, tmp_path: Path, mlx_config: MLXConfig) -> Database:
         """Provide a connected database with vector support."""
         db_path = tmp_path / "vector_test.db"
-        database = Database(db_path)
+        database = Database(db_path, embedding_dimension=mlx_config.embedding_dimension)
         database.connect()
         yield database
         database.close()
@@ -398,7 +401,7 @@ class TestEmbeddingGenerator:
 
         assert embedding is not None
         assert isinstance(embedding, list)
-        assert len(embedding) == 384  # e5-small dimension
+        assert len(embedding) == 768  # modernbert-embed-base dimension
         assert all(isinstance(x, float) for x in embedding)
 
     @pytest.mark.asyncio

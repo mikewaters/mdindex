@@ -1,20 +1,25 @@
 """MCP server for PMD."""
 
-import asyncio
-import json
-
 from ..core.config import Config
-from ..llm import QueryExpander, DocumentReranker, create_llm_provider
-from ..llm.embeddings import EmbeddingGenerator
-from ..search.pipeline import HybridSearchPipeline, SearchPipelineConfig
-from ..store.database import Database
-from ..store.documents import DocumentRepository
-from ..store.embeddings import EmbeddingRepository
-from ..store.search import FTS5SearchRepository
+from ..services import ServiceContainer
 
 
 class PMDMCPServer:
-    """MCP server exposing PMD search functionality."""
+    """MCP server exposing PMD search functionality.
+
+    Uses ServiceContainer for all operations, providing a clean interface
+    for MCP clients to search documents and retrieve content.
+
+    Example:
+
+        server = PMDMCPServer(config)
+        await server.initialize()
+        try:
+            results = await server.search("machine learning", limit=5)
+            status = await server.get_status()
+        finally:
+            await server.shutdown()
+    """
 
     def __init__(self, config: Config):
         """Initialize MCP server.
@@ -23,48 +28,29 @@ class PMDMCPServer:
             config: Application configuration.
         """
         self.config = config
-        self.db = Database(config.db_path)
-        self.embedding_repo = EmbeddingRepository(self.db)
-        self.search_repo = FTS5SearchRepository(self.db)
-        self.doc_repo = DocumentRepository(self.db)
-
-        # Initialize LLM provider
-        self.llm_provider = create_llm_provider(config)
-
-        # Initialize LLM components
-        self.embedding_generator = EmbeddingGenerator(
-            self.llm_provider,
-            self.embedding_repo,
-            config,
-        )
-        self.query_expander = QueryExpander(self.llm_provider)
-        self.reranker = DocumentReranker(self.llm_provider)
-
-        # Initialize search pipeline with LLM components
-        pipeline_config = SearchPipelineConfig(
-            fts_weight=config.search.fts_weight,
-            vec_weight=config.search.vec_weight,
-            rrf_k=config.search.rrf_k,
-            rerank_candidates=config.search.rerank_candidates,
-            enable_query_expansion=True,
-            enable_reranking=True,
-        )
-        self.pipeline = HybridSearchPipeline(
-            self.search_repo,
-            pipeline_config,
-            query_expander=self.query_expander,
-            reranker=self.reranker,
-            embedding_generator=self.embedding_generator,
-        )
+        self._services: ServiceContainer | None = None
 
     async def initialize(self) -> None:
-        """Initialize the server (connect to database)."""
-        self.db.connect()
+        """Initialize the server (connect to database and services)."""
+        self._services = ServiceContainer(self.config)
+        self._services.connect()
 
     async def shutdown(self) -> None:
         """Shutdown the server (close connections)."""
-        await self.llm_provider.close()
-        self.db.close()
+        if self._services:
+            await self._services.close()
+            self._services = None
+
+    @property
+    def services(self) -> ServiceContainer:
+        """Get the service container.
+
+        Raises:
+            RuntimeError: If server not initialized.
+        """
+        if self._services is None:
+            raise RuntimeError("Server not initialized. Call initialize() first.")
+        return self._services
 
     async def search(
         self,
@@ -82,21 +68,15 @@ class PMDMCPServer:
         Returns:
             Search results as dictionary.
         """
-        # Get collection ID if specified
-        collection_id = None
-        if collection:
-            from ..store.collections import CollectionRepository
+        # Check if LLM is available for enhanced search
+        llm_available = await self.services.is_llm_available()
 
-            repo = CollectionRepository(self.db)
-            coll = repo.get_by_name(collection)
-            if coll:
-                collection_id = coll.id
-
-        # Execute search
-        results = await self.pipeline.search(
+        results = await self.services.search.hybrid_search(
             query,
             limit=limit,
-            collection_id=collection_id,
+            collection_name=collection,
+            enable_query_expansion=llm_available,
+            enable_reranking=llm_available,
         )
 
         return {
@@ -130,15 +110,12 @@ class PMDMCPServer:
         Returns:
             Document content and metadata.
         """
-        from ..store.collections import CollectionRepository
-
-        repo = CollectionRepository(self.db)
-        coll = repo.get_by_name(collection)
+        coll = self.services.collection_repo.get_by_name(collection)
 
         if not coll:
             return {"error": f"Collection '{collection}' not found"}
 
-        doc = self.doc_repo.get(coll.id, path)
+        doc = self.services.document_repo.get(coll.id, path)
 
         if not doc:
             return {"error": f"Document '{path}' not found in collection '{collection}'"}
@@ -157,10 +134,7 @@ class PMDMCPServer:
         Returns:
             List of collections.
         """
-        from ..store.collections import CollectionRepository
-
-        repo = CollectionRepository(self.db)
-        collections = repo.list_all()
+        collections = self.services.collection_repo.list_all()
 
         return {
             "collections_count": len(collections),
@@ -180,19 +154,62 @@ class PMDMCPServer:
         Returns:
             Status information.
         """
-        llm_available = await self.llm_provider.is_available()
+        return await self.services.status.get_full_status()
 
-        cursor = self.db.execute("SELECT COUNT(*) as count FROM documents WHERE active = 1")
-        doc_count = cursor.fetchone()["count"]
+    async def index_collection(
+        self,
+        collection: str,
+        force: bool = False,
+    ) -> dict:
+        """Index a collection.
 
-        cursor = self.db.execute("SELECT COUNT(*) as count FROM content_vectors")
-        embedding_count = cursor.fetchone()["count"]
+        Args:
+            collection: Collection name.
+            force: Force reindex all documents.
 
-        return {
-            "status": "ready",
-            "database_path": str(self.config.db_path),
-            "llm_provider": self.config.llm_provider,
-            "llm_available": llm_available,
-            "documents_indexed": doc_count,
-            "embeddings_stored": embedding_count,
-        }
+        Returns:
+            Indexing result.
+        """
+        try:
+            result = await self.services.indexing.index_collection(collection, force)
+            return {
+                "success": True,
+                "collection": collection,
+                "indexed": result.indexed,
+                "skipped": result.skipped,
+                "errors": len(result.errors),
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+    async def embed_collection(
+        self,
+        collection: str,
+        force: bool = False,
+    ) -> dict:
+        """Generate embeddings for a collection.
+
+        Args:
+            collection: Collection name.
+            force: Force regenerate all embeddings.
+
+        Returns:
+            Embedding result.
+        """
+        try:
+            result = await self.services.indexing.embed_collection(collection, force)
+            return {
+                "success": True,
+                "collection": collection,
+                "embedded": result.embedded,
+                "skipped": result.skipped,
+                "chunks": result.chunks_total,
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+            }

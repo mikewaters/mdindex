@@ -7,13 +7,14 @@ that collections can be created, documents indexed, and searched correctly.
 import pytest
 from pathlib import Path
 
+from pmd.core.exceptions import CollectionNotFoundError
+from pmd.core.types import SearchSource
+from pmd.services import IndexResult, ServiceContainer
+from pmd.store.collections import CollectionRepository
 from pmd.store.database import Database
-from pmd.store.collections import CollectionRepository, IndexResult
 from pmd.store.documents import DocumentRepository
 from pmd.store.embeddings import EmbeddingRepository
 from pmd.store.search import FTS5SearchRepository
-from pmd.core.types import SearchSource
-from pmd.core.exceptions import CollectionNotFoundError
 
 
 def get_document_id(db: Database, collection_id: int, path: str) -> int:
@@ -55,30 +56,28 @@ class TestCollectionCreation:
         assert collection.pwd == str(test_corpus_path)
         assert collection.glob_pattern == "**/*.md"
 
-    def test_create_and_index_collection_from_test_corpus(
+    @pytest.mark.asyncio
+    async def test_create_and_index_collection_from_test_corpus(
         self,
-        collection_repo: CollectionRepository,
-        document_repo: DocumentRepository,
-        search_repo: FTS5SearchRepository,
+        config,
         test_corpus_path: Path,
     ):
-        """Should create a collection pointing to the test corpus."""
-        collection = collection_repo.create(
-            "my-corpus",
-            str(test_corpus_path),
-            "**/*.md",
-        )
+        """Should create a collection and index it via IndexingService."""
+        async with ServiceContainer(config) as services:
+            collection = services.collection_repo.create(
+                "my-corpus",
+                str(test_corpus_path),
+                "**/*.md",
+            )
 
-        index_result = collection_repo.index_documents(
-            collection.id,
-            document_repo,
-            search_repo,
-            force=False,
-        )
-        
-        assert index_result.indexed == 118
-        assert index_result.skipped == 0
-        assert index_result.errors == []
+            index_result = await services.indexing.index_collection(
+                "my-corpus",
+                force=False,
+            )
+
+            assert index_result.indexed == 118
+            assert index_result.skipped == 0
+            assert index_result.errors == []
 
 
     def test_collection_can_be_retrieved_by_name(
@@ -615,206 +614,193 @@ class TestBulkIndexing:
         assert reindexed_count == 10
 
 
-class TestCollectionIndexDocuments:
-    """Tests for CollectionRepository.index_documents method."""
+class TestIndexingService:
+    """Tests for IndexingService.index_collection method."""
 
-    def test_index_documents_indexes_all_matching_files(
+    @pytest.mark.asyncio
+    async def test_index_collection_indexes_all_matching_files(
         self,
-        test_corpus_collection,
-        collection_repo: CollectionRepository,
-        document_repo: DocumentRepository,
-        search_repo: FTS5SearchRepository,
+        config,
         test_corpus_path: Path,
     ):
-        """index_documents should index all files matching the glob pattern."""
-        result = collection_repo.index_documents(
-            test_corpus_collection.id,
-            document_repo,
-            search_repo,
-            force=True,
-        )
-
-        assert isinstance(result, IndexResult)
-        assert result.indexed > 100  # Test corpus has 118 files
-        assert result.errors == []
-
-    def test_index_documents_returns_index_result(
-        self,
-        test_corpus_collection,
-        collection_repo: CollectionRepository,
-        document_repo: DocumentRepository,
-        search_repo: FTS5SearchRepository,
-    ):
-        """index_documents should return an IndexResult with correct fields."""
-        result = collection_repo.index_documents(
-            test_corpus_collection.id,
-            document_repo,
-            search_repo,
-            force=True,
-        )
-
-        assert hasattr(result, "indexed")
-        assert hasattr(result, "skipped")
-        assert hasattr(result, "errors")
-        assert isinstance(result.indexed, int)
-        assert isinstance(result.skipped, int)
-        assert isinstance(result.errors, list)
-
-    def test_index_documents_skips_unchanged_files(
-        self,
-        test_corpus_collection,
-        collection_repo: CollectionRepository,
-        document_repo: DocumentRepository,
-        search_repo: FTS5SearchRepository,
-    ):
-        """index_documents should skip unchanged files when force=False."""
-        # First index
-        result1 = collection_repo.index_documents(
-            test_corpus_collection.id,
-            document_repo,
-            search_repo,
-            force=True,
-        )
-
-        # Second index without force - should skip all
-        result2 = collection_repo.index_documents(
-            test_corpus_collection.id,
-            document_repo,
-            search_repo,
-            force=False,
-        )
-
-        assert result1.indexed > 0
-        assert result2.indexed == 0
-        assert result2.skipped == result1.indexed
-
-    def test_index_documents_force_reindexes_all(
-        self,
-        test_corpus_collection,
-        collection_repo: CollectionRepository,
-        document_repo: DocumentRepository,
-        search_repo: FTS5SearchRepository,
-    ):
-        """index_documents with force=True should reindex all documents."""
-        # First index
-        result1 = collection_repo.index_documents(
-            test_corpus_collection.id,
-            document_repo,
-            search_repo,
-            force=True,
-        )
-
-        # Second index with force - should reindex all
-        result2 = collection_repo.index_documents(
-            test_corpus_collection.id,
-            document_repo,
-            search_repo,
-            force=True,
-        )
-
-        assert result1.indexed == result2.indexed
-        assert result2.skipped == 0
-
-    def test_index_documents_makes_files_searchable(
-        self,
-        test_corpus_collection,
-        collection_repo: CollectionRepository,
-        document_repo: DocumentRepository,
-        search_repo: FTS5SearchRepository,
-    ):
-        """Documents indexed via index_documents should be searchable via FTS."""
-        collection_repo.index_documents(
-            test_corpus_collection.id,
-            document_repo,
-            search_repo,
-            force=True,
-        )
-
-        # Search for a common term
-        results = search_repo.search(
-            "the",
-            limit=10,
-            collection_id=test_corpus_collection.id,
-        )
-
-        assert len(results) > 0
-
-    def test_index_documents_raises_for_nonexistent_collection(
-        self,
-        collection_repo: CollectionRepository,
-        document_repo: DocumentRepository,
-        search_repo: FTS5SearchRepository,
-    ):
-        """index_documents should raise CollectionNotFoundError for invalid ID."""
-        with pytest.raises(CollectionNotFoundError):
-            collection_repo.index_documents(
-                99999,  # Non-existent ID
-                document_repo,
-                search_repo,
+        """index_collection should index all files matching the glob pattern."""
+        async with ServiceContainer(config) as services:
+            services.collection_repo.create(
+                "test-corpus",
+                str(test_corpus_path),
+                "**/*.md",
             )
 
-    def test_index_documents_raises_for_nonexistent_path(
-        self,
-        collection_repo: CollectionRepository,
-        document_repo: DocumentRepository,
-        search_repo: FTS5SearchRepository,
-    ):
-        """index_documents should raise ValueError if collection path doesn't exist."""
-        # Create collection with non-existent path
-        collection = collection_repo.create(
-            "nonexistent",
-            "/nonexistent/path/that/does/not/exist",
-            "**/*.md",
-        )
+            result = await services.indexing.index_collection("test-corpus", force=True)
 
-        with pytest.raises(ValueError, match="does not exist"):
-            collection_repo.index_documents(
-                collection.id,
-                document_repo,
-                search_repo,
-            )
+            assert isinstance(result, IndexResult)
+            assert result.indexed > 100  # Test corpus has 118 files
+            assert result.errors == []
 
-    def test_index_documents_extracts_titles_from_headings(
+    @pytest.mark.asyncio
+    async def test_index_collection_returns_index_result(
         self,
-        test_corpus_collection,
-        collection_repo: CollectionRepository,
-        document_repo: DocumentRepository,
-        search_repo: FTS5SearchRepository,
+        config,
         test_corpus_path: Path,
     ):
-        """index_documents should extract titles from markdown headings."""
-        collection_repo.index_documents(
-            test_corpus_collection.id,
-            document_repo,
-            search_repo,
-            force=True,
-        )
+        """index_collection should return an IndexResult with correct fields."""
+        async with ServiceContainer(config) as services:
+            services.collection_repo.create(
+                "test-corpus",
+                str(test_corpus_path),
+                "**/*.md",
+            )
 
-        # Check a document that should have a heading-based title
-        documents = document_repo.list_by_collection(test_corpus_collection.id)
+            result = await services.indexing.index_collection("test-corpus", force=True)
 
-        # At least some documents should have titles different from filename
-        titles_from_headings = [
-            doc for doc in documents
-            if doc.title != Path(doc.filepath).stem
-        ]
-        assert len(titles_from_headings) > 0
+            assert hasattr(result, "indexed")
+            assert hasattr(result, "skipped")
+            assert hasattr(result, "errors")
+            assert isinstance(result.indexed, int)
+            assert isinstance(result.skipped, int)
+            assert isinstance(result.errors, list)
 
-    def test_index_documents_stores_document_count(
+    @pytest.mark.asyncio
+    async def test_index_collection_skips_unchanged_files(
         self,
-        test_corpus_collection,
-        collection_repo: CollectionRepository,
-        document_repo: DocumentRepository,
-        search_repo: FTS5SearchRepository,
+        config,
+        test_corpus_path: Path,
     ):
-        """index_documents should correctly store all documents in database."""
-        result = collection_repo.index_documents(
-            test_corpus_collection.id,
-            document_repo,
-            search_repo,
-            force=True,
-        )
+        """index_collection should skip unchanged files when force=False."""
+        async with ServiceContainer(config) as services:
+            services.collection_repo.create(
+                "test-corpus",
+                str(test_corpus_path),
+                "**/*.md",
+            )
 
-        # Count should match what's stored
-        stored_count = document_repo.count_by_collection(test_corpus_collection.id)
-        assert stored_count == result.indexed
+            # First index
+            result1 = await services.indexing.index_collection("test-corpus", force=True)
+
+            # Second index without force - should skip all
+            result2 = await services.indexing.index_collection("test-corpus", force=False)
+
+            assert result1.indexed > 0
+            assert result2.indexed == 0
+            assert result2.skipped == result1.indexed
+
+    @pytest.mark.asyncio
+    async def test_index_collection_force_reindexes_all(
+        self,
+        config,
+        test_corpus_path: Path,
+    ):
+        """index_collection with force=True should reindex all documents."""
+        async with ServiceContainer(config) as services:
+            services.collection_repo.create(
+                "test-corpus",
+                str(test_corpus_path),
+                "**/*.md",
+            )
+
+            # First index
+            result1 = await services.indexing.index_collection("test-corpus", force=True)
+
+            # Second index with force - should reindex all
+            result2 = await services.indexing.index_collection("test-corpus", force=True)
+
+            assert result1.indexed == result2.indexed
+            assert result2.skipped == 0
+
+    @pytest.mark.asyncio
+    async def test_index_collection_makes_files_searchable(
+        self,
+        config,
+        test_corpus_path: Path,
+    ):
+        """Documents indexed via index_collection should be searchable via FTS."""
+        async with ServiceContainer(config) as services:
+            collection = services.collection_repo.create(
+                "test-corpus",
+                str(test_corpus_path),
+                "**/*.md",
+            )
+
+            await services.indexing.index_collection("test-corpus", force=True)
+
+            # Search for a common term
+            results = services.fts_repo.search(
+                "the",
+                limit=10,
+                collection_id=collection.id,
+            )
+
+            assert len(results) > 0
+
+    @pytest.mark.asyncio
+    async def test_index_collection_raises_for_nonexistent_collection(
+        self,
+        config,
+    ):
+        """index_collection should raise CollectionNotFoundError for unknown name."""
+        async with ServiceContainer(config) as services:
+            with pytest.raises(CollectionNotFoundError):
+                await services.indexing.index_collection("nonexistent-collection")
+
+    @pytest.mark.asyncio
+    async def test_index_collection_raises_for_nonexistent_path(
+        self,
+        config,
+    ):
+        """index_collection should raise ValueError if collection path doesn't exist."""
+        async with ServiceContainer(config) as services:
+            # Create collection with non-existent path
+            services.collection_repo.create(
+                "nonexistent",
+                "/nonexistent/path/that/does/not/exist",
+                "**/*.md",
+            )
+
+            with pytest.raises(ValueError, match="does not exist"):
+                await services.indexing.index_collection("nonexistent")
+
+    @pytest.mark.asyncio
+    async def test_index_collection_extracts_titles_from_headings(
+        self,
+        config,
+        test_corpus_path: Path,
+    ):
+        """index_collection should extract titles from markdown headings."""
+        async with ServiceContainer(config) as services:
+            collection = services.collection_repo.create(
+                "test-corpus",
+                str(test_corpus_path),
+                "**/*.md",
+            )
+
+            await services.indexing.index_collection("test-corpus", force=True)
+
+            # Check a document that should have a heading-based title
+            documents = services.document_repo.list_by_collection(collection.id)
+
+            # At least some documents should have titles different from filename
+            titles_from_headings = [
+                doc for doc in documents
+                if doc.title != Path(doc.filepath).stem
+            ]
+            assert len(titles_from_headings) > 0
+
+    @pytest.mark.asyncio
+    async def test_index_collection_stores_document_count(
+        self,
+        config,
+        test_corpus_path: Path,
+    ):
+        """index_collection should correctly store all documents in database."""
+        async with ServiceContainer(config) as services:
+            collection = services.collection_repo.create(
+                "test-corpus",
+                str(test_corpus_path),
+                "**/*.md",
+            )
+
+            result = await services.indexing.index_collection("test-corpus", force=True)
+
+            # Count should match what's stored
+            stored_count = services.document_repo.count_by_collection(collection.id)
+            assert stored_count == result.indexed

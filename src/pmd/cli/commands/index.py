@@ -4,13 +4,7 @@ import asyncio
 
 from ...core.config import Config
 from ...core.exceptions import CollectionNotFoundError
-from ...llm import create_llm_provider
-from ...llm.embeddings import EmbeddingGenerator
-from ...store.collections import CollectionRepository
-from ...store.database import Database
-from ...store.documents import DocumentRepository
-from ...store.embeddings import EmbeddingRepository
-from ...store.search import FTS5SearchRepository
+from ...services import ServiceContainer
 
 
 def add_index_arguments(parser) -> None:
@@ -38,37 +32,34 @@ def handle_index_collection(args, config: Config) -> None:
         args: Parsed command arguments.
         config: Application configuration.
     """
-    db = Database(config.db_path)
-    db.connect()
+    asyncio.run(_handle_index_async(args, config))
 
-    try:
-        coll_repo = CollectionRepository(db)
-        doc_repo = DocumentRepository(db)
-        embedding_repo = EmbeddingRepository(db)
-        search_repo = FTS5SearchRepository(db)
 
-        # Get collection
-        collection = coll_repo.get_by_name(args.collection)
-        if not collection:
-            raise CollectionNotFoundError(f"Collection '{args.collection}' not found")
+async def _handle_index_async(args, config: Config) -> None:
+    """Async handler for indexing.
 
-        # Index documents from filesystem using repository method
-        result = coll_repo.index_documents(
-            collection.id,
-            doc_repo,
-            search_repo,
-            args.force,
-        )
+    Args:
+        args: Parsed command arguments.
+        config: Application configuration.
+    """
+    async with ServiceContainer(config) as services:
+        try:
+            result = await services.indexing.index_collection(
+                args.collection,
+                force=args.force,
+            )
 
-        print(f"✓ Indexed {result.indexed} documents in '{args.collection}'")
-        if result.skipped > 0:
-            print(f"  Skipped {result.skipped} unchanged documents")
-        if result.errors:
-            print(f"  Errors: {len(result.errors)}")
-            for path, error in result.errors[:5]:  # Show first 5 errors
-                print(f"    {path}: {error}")
-    finally:
-        db.close()
+            print(f"✓ Indexed {result.indexed} documents in '{args.collection}'")
+            if result.skipped > 0:
+                print(f"  Skipped {result.skipped} unchanged documents")
+            if result.errors:
+                print(f"  Errors: {len(result.errors)}")
+                for path, error in result.errors[:5]:  # Show first 5 errors
+                    print(f"    {path}: {error}")
+
+        except CollectionNotFoundError as e:
+            print(f"Error: {e}")
+            raise SystemExit(1)
 
 
 def handle_embed(args, config: Config) -> None:
@@ -88,71 +79,30 @@ async def _handle_embed_async(args, config: Config) -> None:
         args: Parsed command arguments.
         config: Application configuration.
     """
-    db = Database(config.db_path)
-    db.connect()
-
-    llm_provider = None
-    try:
+    async with ServiceContainer(config) as services:
         # Check if sqlite-vec is available
-        if not db.vec_available:
+        if not services.vec_available:
             print("Vector storage not available (sqlite-vec extension not loaded)")
             return
 
-        coll_repo = CollectionRepository(db)
-        doc_repo = DocumentRepository(db)
-        embedding_repo = EmbeddingRepository(db)
-
-        # Get collection
-        collection = coll_repo.get_by_name(args.collection)
-        if not collection:
-            raise CollectionNotFoundError(f"Collection '{args.collection}' not found")
-
-        # Initialize LLM provider for embeddings
-        llm_provider = create_llm_provider(config)
-
         # Check if LLM is available
-        if not await llm_provider.is_available():
+        if not await services.is_llm_available():
             print("LLM provider not available (is it running?)")
             return
 
-        embedding_generator = EmbeddingGenerator(llm_provider, embedding_repo, config)
-
-        # Get all documents in collection
-        cursor = db.execute(
-            """
-            SELECT d.path, d.hash, c.doc
-            FROM documents d
-            JOIN content c ON d.hash = c.hash
-            WHERE d.collection_id = ? AND d.active = 1
-            """,
-            (collection.id,),
-        )
-        documents = cursor.fetchall()
-
-        embedded_count = 0
-        skipped_count = 0
-
-        for doc in documents:
-            # Check if already embedded (unless force)
-            if not args.force and embedding_repo.has_embeddings(doc["hash"]):
-                skipped_count += 1
-                continue
-
-            # Generate and store embeddings
-            chunks_embedded = await embedding_generator.embed_document(
-                doc["hash"],
-                doc["doc"],
+        try:
+            result = await services.indexing.embed_collection(
+                args.collection,
+                force=args.force,
             )
 
-            if chunks_embedded > 0:
-                embedded_count += 1
-                print(f"  Embedded: {doc['path']} ({chunks_embedded} chunks)")
+            print(f"✓ Embedded {result.embedded} documents ({result.skipped} skipped)")
+            if result.chunks_total > 0:
+                print(f"  Total chunks: {result.chunks_total}")
 
-        print(f"✓ Embedded {embedded_count} documents ({skipped_count} skipped)")
-    finally:
-        if llm_provider:
-            await llm_provider.close()
-        db.close()
+        except CollectionNotFoundError as e:
+            print(f"Error: {e}")
+            raise SystemExit(1)
 
 
 def handle_cleanup(args, config: Config) -> None:
@@ -162,39 +112,22 @@ def handle_cleanup(args, config: Config) -> None:
         args: Parsed command arguments.
         config: Application configuration.
     """
-    db = Database(config.db_path)
-    db.connect()
+    asyncio.run(_handle_cleanup_async(args, config))
 
-    try:
-        coll_repo = CollectionRepository(db)
 
-        # Find orphaned hashes (referenced by no documents)
-        cursor = db.execute(
-            """
-            SELECT COUNT(*) as count FROM content
-            WHERE hash NOT IN (SELECT DISTINCT hash FROM documents WHERE active = 1)
-            """
-        )
-        orphaned_count = cursor.fetchone()["count"]
+async def _handle_cleanup_async(args, config: Config) -> None:
+    """Async handler for cleanup.
 
-        if orphaned_count > 0:
-            cursor = db.execute(
-                """
-                SELECT hash FROM content
-                WHERE hash NOT IN (SELECT DISTINCT hash FROM documents WHERE active = 1)
-                """
-            )
+    Args:
+        args: Parsed command arguments.
+        config: Application configuration.
+    """
+    async with ServiceContainer(config) as services:
+        result = await services.indexing.cleanup_orphans()
 
-            with db.transaction() as cursor:
-                for row in cursor.fetchall():
-                    cursor.execute("DELETE FROM content WHERE hash = ?", (row["hash"],))
-                    cursor.execute(
-                        "DELETE FROM content_vectors WHERE hash = ?", (row["hash"],)
-                    )
-
-        print(f"✓ Cleaned up {orphaned_count} orphaned hashes")
-    finally:
-        db.close()
+        print(f"✓ Cleaned up {result.orphaned_content} orphaned content hashes")
+        if result.orphaned_embeddings > 0:
+            print(f"  Removed {result.orphaned_embeddings} orphaned embeddings")
 
 
 def handle_update_all(args, config: Config) -> None:
@@ -204,30 +137,21 @@ def handle_update_all(args, config: Config) -> None:
         args: Parsed command arguments.
         config: Application configuration.
     """
-    db = Database(config.db_path)
-    db.connect()
-
-    try:
-        coll_repo = CollectionRepository(db)
-        doc_repo = DocumentRepository(db)
-        embedding_repo = EmbeddingRepository(db)
-        search_repo = FTS5SearchRepository(db)
-
-        collections = coll_repo.list_all()
-        total = 0
-
-        for collection in collections:
-            result = coll_repo.index_documents(
-                collection.id,
-                doc_repo,
-                search_repo,
-                force=False,
-            )
-            print(f"  {collection.name}: {result.indexed} indexed, {result.skipped} skipped")
-            total += result.indexed
-
-        print(f"✓ Updated {len(collections)} collections ({total} documents indexed)")
-    finally:
-        db.close()
+    asyncio.run(_handle_update_all_async(args, config))
 
 
+async def _handle_update_all_async(args, config: Config) -> None:
+    """Async handler for update all.
+
+    Args:
+        args: Parsed command arguments.
+        config: Application configuration.
+    """
+    async with ServiceContainer(config) as services:
+        results = await services.indexing.update_all_collections()
+
+        total = sum(r.indexed for r in results.values())
+        for name, result in results.items():
+            print(f"  {name}: {result.indexed} indexed, {result.skipped} skipped")
+
+        print(f"✓ Updated {len(results)} collections ({total} documents indexed)")
