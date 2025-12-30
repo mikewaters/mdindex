@@ -47,6 +47,11 @@ def create_parser() -> argparse.ArgumentParser:
         default="WARNING",
         help="Set logging level (default: WARNING)",
     )
+    parser.add_argument(
+        "-c",
+        "--config",
+        help="Path to TOML configuration file",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=False)
 
@@ -59,16 +64,45 @@ def create_parser() -> argparse.ArgumentParser:
     # collection add
     add_parser = coll_subparsers.add_parser("add", help="Add a collection")
     add_parser.add_argument("name", help="Collection name")
-    add_parser.add_argument("path", help="Directory path to index")
+    add_parser.add_argument("path", help="Directory path or URL to index")
     add_parser.add_argument(
         "-g",
         "--glob",
         default="**/*.md",
-        help="File glob pattern (default: **/*.md)",
+        help="File glob pattern for filesystem sources (default: **/*.md)",
+    )
+    add_parser.add_argument(
+        "-s",
+        "--source",
+        choices=["filesystem", "http", "entity"],
+        default="filesystem",
+        help="Source type (default: filesystem)",
+    )
+    add_parser.add_argument(
+        "--sitemap",
+        help="Sitemap URL for HTTP sources",
+    )
+    add_parser.add_argument(
+        "--auth-type",
+        choices=["none", "bearer", "basic", "api_key"],
+        default="none",
+        help="Authentication type for remote sources",
+    )
+    add_parser.add_argument(
+        "--auth-token",
+        help="Auth token/password (or $ENV:VAR_NAME reference)",
+    )
+    add_parser.add_argument(
+        "--username",
+        help="Username for basic auth",
     )
 
     # collection list
     coll_subparsers.add_parser("list", help="List all collections")
+
+    # collection show
+    show_parser = coll_subparsers.add_parser("show", help="Show collection details")
+    show_parser.add_argument("name", help="Collection name")
 
     # collection remove
     remove_parser = coll_subparsers.add_parser("remove", help="Remove a collection")
@@ -90,7 +124,12 @@ def create_parser() -> argparse.ArgumentParser:
     commands.add_search_arguments(query_parser)
 
     # Indexing commands
-    subparsers.add_parser("update-all", help="Update all collections")
+    update_all_parser = subparsers.add_parser("update-all", help="Update all collections")
+    update_all_parser.add_argument(
+        "--embed",
+        action="store_true",
+        help="Generate embeddings after indexing",
+    )
 
     embed_parser = subparsers.add_parser("embed", help="Generate embeddings")
     commands.add_index_arguments(embed_parser)
@@ -101,7 +140,8 @@ def create_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("cleanup", help="Clean cache and orphaned data")
 
     # Status command
-    subparsers.add_parser("status", help="Show index status")
+    status_parser = subparsers.add_parser("status", help="Show index status")
+    commands.add_status_arguments(status_parser)
 
     return parser
 
@@ -114,8 +154,8 @@ def main() -> NoReturn:
     # Configure logging before anything else
     configure_logging(args.log_level)
 
-    config = Config.from_env()
-    logger.debug(f"Loaded config from environment, db_path={config.db_path}")
+    config = Config.from_env_or_file(args.config)
+    logger.debug(f"Loaded config, db_path={config.db_path}")
 
     try:
         if args.command == "collection":

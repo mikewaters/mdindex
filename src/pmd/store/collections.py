@@ -1,7 +1,9 @@
 """Collection CRUD operations for PMD."""
 
+import json
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
@@ -57,14 +59,21 @@ class CollectionRepository:
         return self._row_to_collection(row) if row else None
 
     def create(
-        self, name: str, pwd: str, glob_pattern: str = "**/*.md"
+        self,
+        name: str,
+        pwd: str,
+        glob_pattern: str = "**/*.md",
+        source_type: str = "filesystem",
+        source_config: dict[str, Any] | None = None,
     ) -> Collection:
         """Create a new collection.
 
         Args:
             name: Unique name for the collection.
-            pwd: Base directory path to index.
+            pwd: Base directory path (filesystem) or base URI (other sources).
             glob_pattern: File pattern to match (default: **/*.md).
+            source_type: Type of source ('filesystem', 'http', 'entity').
+            source_config: Source-specific configuration as JSON-serializable dict.
 
         Returns:
             Created Collection object.
@@ -72,30 +81,37 @@ class CollectionRepository:
         Raises:
             CollectionExistsError: If collection with this name already exists.
         """
-        logger.debug(f"Creating collection: name={name!r}, pwd={pwd!r}, pattern={glob_pattern!r}")
+        logger.debug(
+            f"Creating collection: name={name!r}, pwd={pwd!r}, "
+            f"pattern={glob_pattern!r}, source_type={source_type!r}"
+        )
 
         if self.get_by_name(name):
             raise CollectionExistsError(f"Collection '{name}' already exists")
 
         now = datetime.utcnow().isoformat()
+        source_config_json = json.dumps(source_config) if source_config else None
 
         with self.db.transaction() as cursor:
             cursor.execute(
                 """
-                INSERT INTO collections (name, pwd, glob_pattern, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO collections
+                (name, pwd, glob_pattern, source_type, source_config, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (name, pwd, glob_pattern, now, now),
+                (name, pwd, glob_pattern, source_type, source_config_json, now, now),
             )
             collection_id = cursor.lastrowid
 
-        logger.info(f"Collection created: id={collection_id}, name={name!r}")
+        logger.info(f"Collection created: id={collection_id}, name={name!r}, type={source_type!r}")
 
         return Collection(
             id=collection_id,  # type: ignore
             name=name,
             pwd=pwd,
             glob_pattern=glob_pattern,
+            source_type=source_type,
+            source_config=source_config,
             created_at=now,
             updated_at=now,
         )
@@ -215,7 +231,7 @@ class CollectionRepository:
         logger.info(f"Collection path updated: name={collection.name!r}")
 
     @staticmethod
-    def _row_to_collection(row: tuple) -> Collection:
+    def _row_to_collection(row) -> Collection:
         """Convert database row to Collection object.
 
         Args:
@@ -224,11 +240,20 @@ class CollectionRepository:
         Returns:
             Collection object.
         """
+        # Handle source_config JSON parsing
+        source_config_json = row["source_config"] if "source_config" in row.keys() else None
+        source_config = json.loads(source_config_json) if source_config_json else None
+
+        # Handle source_type with default for backward compatibility
+        source_type = row["source_type"] if "source_type" in row.keys() else "filesystem"
+
         return Collection(
-            id=row["id"],  # type: ignore
-            name=row["name"],  # type: ignore
-            pwd=row["pwd"],  # type: ignore
-            glob_pattern=row["glob_pattern"],  # type: ignore
-            created_at=row["created_at"],  # type: ignore
-            updated_at=row["updated_at"],  # type: ignore
+            id=row["id"],
+            name=row["name"],
+            pwd=row["pwd"],
+            glob_pattern=row["glob_pattern"],
+            source_type=source_type or "filesystem",
+            source_config=source_config,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )

@@ -2,11 +2,13 @@
 
 import pytest
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 from pmd.core.config import Config
 from pmd.core.exceptions import CollectionNotFoundError
 from pmd.services import IndexResult, CleanupResult, ServiceContainer
 from pmd.services.indexing import IndexingService
+from pmd.sources import SourceListError
 
 
 class TestIndexingServiceInit:
@@ -37,7 +39,7 @@ class TestIndexingServiceIndexCollection:
                 "bad-path", "/nonexistent/path/does/not/exist", "**/*.md"
             )
 
-            with pytest.raises(ValueError, match="does not exist"):
+            with pytest.raises(SourceListError, match="does not exist"):
                 await services.indexing.index_collection("bad-path")
 
     @pytest.mark.asyncio
@@ -157,6 +159,49 @@ class TestIndexingServiceIndexCollection:
 
             doc = services.document_repo.get(collection.id, "doc.md")
             assert doc.title == "doc"  # filename stem
+
+    @pytest.mark.asyncio
+    async def test_index_collection_removes_fts_for_non_indexable(
+        self, config: Config, tmp_path: Path
+    ):
+        """index_collection should remove FTS entries when content is non-indexable."""
+        doc_path = tmp_path / "doc.md"
+        doc_path.write_text("# Document\n\nBody content.")
+
+        async with ServiceContainer(config) as services:
+            services.collection_repo.create("docs", str(tmp_path), "**/*.md")
+
+            await services.indexing.index_collection("docs", force=True)
+
+            # Ensure FTS row exists
+            cursor = services.db.execute("SELECT COUNT(*) as count FROM documents_fts")
+            assert cursor.fetchone()["count"] == 1
+
+            # Make document title-only and reindex
+            doc_path.write_text("# Document")
+            await services.indexing.index_collection("docs", force=True)
+
+            cursor = services.db.execute("SELECT COUNT(*) as count FROM documents_fts")
+            assert cursor.fetchone()["count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_index_collection_with_embed_triggers_embedding(
+        self, config: Config, tmp_path: Path
+    ):
+        """index_collection should call embed_collection when embed=True."""
+        (tmp_path / "doc.md").write_text("# Document\n\nContent.")
+
+        async with ServiceContainer(config) as services:
+            services.collection_repo.create("docs", str(tmp_path), "**/*.md")
+
+            services.indexing.embed_collection = AsyncMock()
+
+            await services.indexing.index_collection("docs", force=True, embed=True)
+
+            services.indexing.embed_collection.assert_called_once_with(
+                "docs",
+                force=True,
+            )
 
 
 class TestIndexingServiceUpdateAllCollections:

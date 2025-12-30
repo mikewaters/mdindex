@@ -4,13 +4,24 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from ..core.exceptions import CollectionNotFoundError
+from ..core.types import Collection
 from ..search.text import is_indexable
+from ..sources import (
+    DocumentReference,
+    DocumentSource,
+    SourceConfig,
+    SourceFetchError,
+    SourceListError,
+    get_default_registry,
+)
+from ..store.source_metadata import SourceMetadata
 
 if TYPE_CHECKING:
     from .container import ServiceContainer
@@ -87,34 +98,35 @@ class IndexingService:
         self,
         collection_name: str,
         force: bool = False,
+        embed: bool = False,
     ) -> IndexResult:
-        """Index all documents in a collection from the filesystem.
+        """Index all documents in a collection from its configured source.
 
-        Scans the collection's directory using its glob pattern, reads matching
-        files, and stores them in the database with FTS5 indexing.
+        Enumerates documents from the collection's source (filesystem, HTTP, etc.),
+        fetches their content, and stores them in the database with FTS5 indexing.
 
         Args:
             collection_name: Name of the collection to index.
             force: If True, reindex all documents even if unchanged.
+            embed: If True, trigger embedding generation after indexing.
 
         Returns:
             IndexResult with counts of indexed, skipped, and errored files.
 
         Raises:
             CollectionNotFoundError: If collection does not exist.
-            ValueError: If collection path does not exist on filesystem.
+            SourceListError: If the source cannot enumerate documents.
         """
         collection = self._container.collection_repo.get_by_name(collection_name)
         if not collection:
             raise CollectionNotFoundError(f"Collection '{collection_name}' not found")
 
-        collection_path = Path(collection.pwd)
-        if not collection_path.exists():
-            raise ValueError(f"Collection path does not exist: {collection_path}")
+        # Create document source from collection configuration
+        source = self._create_source(collection)
 
         logger.info(
             f"Indexing collection: name={collection.name!r}, "
-            f"path={collection_path}, force={force}"
+            f"source_type={collection.source_type!r}, force={force}"
         )
         start_time = time.perf_counter()
 
@@ -122,51 +134,34 @@ class IndexingService:
         skipped_count = 0
         errors: list[tuple[str, str]] = []
 
-        glob_pattern = collection.glob_pattern or "**/*.md"
+        # Get source metadata repository for tracking fetch info
+        from ..store.source_metadata import SourceMetadataRepository
+        metadata_repo = SourceMetadataRepository(self._container.db)
 
-        for file_path in collection_path.glob(glob_pattern):
-            if not file_path.is_file():
-                continue
+        try:
+            for ref in source.list_documents():
+                try:
+                    result = await self._index_document(
+                        collection=collection,
+                        source=source,
+                        ref=ref,
+                        metadata_repo=metadata_repo,
+                        force=force,
+                    )
+                    if result == "indexed":
+                        indexed_count += 1
+                    elif result == "skipped":
+                        skipped_count += 1
+                except SourceFetchError as e:
+                    errors.append((ref.path, str(e)))
+                    logger.warning(f"Failed to fetch document: {ref.path}: {e}")
+                except Exception as e:
+                    errors.append((ref.path, str(e)))
+                    logger.warning(f"Failed to index document: {ref.path}: {e}")
 
-            relative_path = str(file_path.relative_to(collection_path))
-
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-            except (UnicodeDecodeError, IOError) as e:
-                errors.append((relative_path, str(e)))
-                logger.warning(f"Failed to read file: {relative_path}: {e}")
-                continue
-
-            # Extract title from first markdown heading or use filename
-            title = self._extract_title(content, file_path.stem)
-
-            # Check if document has been modified (skip if unchanged and not forcing)
-            if not force:
-                from ..utils.hashing import sha256_hash
-
-                content_hash = sha256_hash(content)
-                if not self._container.document_repo.check_if_modified(
-                    collection.id, relative_path, content_hash
-                ):
-                    skipped_count += 1
-                    continue
-
-            # Store document in database
-            self._container.document_repo.add_or_update(
-                collection.id,
-                relative_path,
-                title,
-                content,
-            )
-
-            # Index in FTS5 only if document has sufficient quality
-            doc_id = self._get_document_id(collection.id, relative_path)
-            if doc_id is not None and is_indexable(content):
-                self._container.fts_repo.index_document(doc_id, relative_path, content)
-
-            indexed_count += 1
-            logger.debug(f"Indexed: {relative_path} ({len(content)} chars)")
+        except SourceListError as e:
+            logger.error(f"Failed to list documents from source: {e}")
+            raise
 
         elapsed = (time.perf_counter() - start_time) * 1000
         logger.info(
@@ -174,11 +169,151 @@ class IndexingService:
             f"skipped={skipped_count}, errors={len(errors)}, {elapsed:.1f}ms"
         )
 
+        if embed:
+            await self.embed_collection(collection.name, force=force)
+
         return IndexResult(
             indexed=indexed_count,
             skipped=skipped_count,
             errors=errors,
         )
+
+    async def _index_document(
+        self,
+        collection: Collection,
+        source: DocumentSource,
+        ref: DocumentReference,
+        metadata_repo: "SourceMetadataRepository",
+        force: bool,
+    ) -> str:
+        """Index a single document from a source.
+
+        Args:
+            collection: The collection being indexed.
+            source: Document source to fetch from.
+            ref: Reference to the document.
+            metadata_repo: Repository for source metadata.
+            force: If True, reindex even if unchanged.
+
+        Returns:
+            "indexed" if document was indexed, "skipped" if unchanged.
+        """
+        from ..store.source_metadata import SourceMetadataRepository
+        from ..utils.hashing import sha256_hash
+
+        # Get existing document and metadata for change detection
+        existing_doc = self._container.document_repo.get(collection.id, ref.path)
+        doc_id = self._get_document_id(collection.id, ref.path) if existing_doc else None
+        stored_metadata = {}
+
+        if doc_id and not force:
+            meta = metadata_repo.get_by_document(doc_id)
+            if meta:
+                stored_metadata = meta.extra.copy()
+                stored_metadata["etag"] = meta.etag
+                stored_metadata["last_modified"] = meta.last_modified
+
+            # Check if source says document is modified
+            if not await source.check_modified(ref, stored_metadata):
+                return "skipped"
+
+        # Fetch content
+        fetch_start = time.perf_counter()
+        fetch_result = await source.fetch_content(ref)
+        fetch_duration_ms = int((time.perf_counter() - fetch_start) * 1000)
+
+        content = fetch_result.content
+
+        # Check content hash if we have existing document
+        if existing_doc and not force:
+            content_hash = sha256_hash(content)
+            if existing_doc.hash == content_hash:
+                # Content unchanged, but update metadata
+                if doc_id:
+                    self._update_source_metadata(
+                        metadata_repo, doc_id, ref, fetch_result, fetch_duration_ms
+                    )
+                return "skipped"
+
+        # Extract title
+        title = ref.title or self._extract_title(content, Path(ref.path).stem)
+
+        # Store document
+        doc_result, is_new = self._container.document_repo.add_or_update(
+            collection.id,
+            ref.path,
+            title,
+            content,
+        )
+
+        # Get document ID for FTS indexing
+        doc_id = self._get_document_id(collection.id, ref.path)
+
+        # Index in FTS5 if document has sufficient quality
+        if doc_id is not None:
+            if is_indexable(content):
+                self._container.fts_repo.index_document(doc_id, ref.path, content)
+            else:
+                self._container.fts_repo.remove_from_index(doc_id)
+
+            # Store source metadata for remote sources
+            self._update_source_metadata(
+                metadata_repo, doc_id, ref, fetch_result, fetch_duration_ms
+            )
+
+        logger.debug(f"Indexed: {ref.path} ({len(content)} chars)")
+        return "indexed"
+
+    def _create_source(self, collection: Collection) -> DocumentSource:
+        """Create a document source from collection configuration.
+
+        Args:
+            collection: Collection to create source for.
+
+        Returns:
+            DocumentSource instance.
+        """
+        registry = get_default_registry()
+
+        # Build source config from collection
+        source_uri = collection.get_source_uri()
+        extra = collection.get_source_config_dict()
+
+        config = SourceConfig(uri=source_uri, extra=extra)
+
+        return registry.resolve(source_uri, config)
+
+    def _update_source_metadata(
+        self,
+        metadata_repo: "SourceMetadataRepository",
+        doc_id: int,
+        ref: DocumentReference,
+        fetch_result: "FetchResult",
+        fetch_duration_ms: int,
+    ) -> None:
+        """Update source metadata after fetching a document.
+
+        Args:
+            metadata_repo: Repository for source metadata.
+            doc_id: Document ID.
+            ref: Document reference.
+            fetch_result: Result from fetching content.
+            fetch_duration_ms: How long the fetch took.
+        """
+        from ..sources import FetchResult
+
+        metadata = SourceMetadata(
+            document_id=doc_id,
+            source_uri=ref.uri,
+            last_fetched_at=datetime.utcnow().isoformat(),
+            etag=fetch_result.metadata.get("etag"),
+            last_modified=fetch_result.metadata.get("last_modified"),
+            fetch_duration_ms=fetch_duration_ms,
+            http_status=fetch_result.metadata.get("http_status"),
+            content_type=fetch_result.content_type,
+            extra=fetch_result.metadata,
+        )
+        metadata_repo.upsert(metadata)
 
     async def embed_collection(
         self,
@@ -262,8 +397,11 @@ class IndexingService:
             chunks_total=chunks_total,
         )
 
-    async def update_all_collections(self) -> dict[str, IndexResult]:
+    async def update_all_collections(self, embed: bool = False) -> dict[str, IndexResult]:
         """Update all collections by reindexing modified documents.
+
+        Args:
+            embed: If True, trigger embedding generation after indexing.
 
         Returns:
             Dictionary mapping collection name to IndexResult.
@@ -276,7 +414,11 @@ class IndexingService:
 
         for collection in collections:
             try:
-                result = await self.index_collection(collection.name, force=False)
+                result = await self.index_collection(
+                    collection.name,
+                    force=False,
+                    embed=embed,
+                )
                 results[collection.name] = result
             except Exception as e:
                 logger.error(f"Failed to update collection {collection.name}: {e}")

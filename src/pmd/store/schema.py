@@ -15,12 +15,14 @@ CREATE TABLE IF NOT EXISTS content (
     created_at TEXT NOT NULL
 );
 
--- Collections (indexed directories)
+-- Collections (indexed directories or remote sources)
 CREATE TABLE IF NOT EXISTS collections (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     pwd TEXT NOT NULL,
     glob_pattern TEXT NOT NULL DEFAULT '**/*.md',
+    source_type TEXT NOT NULL DEFAULT 'filesystem',
+    source_config TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -70,11 +72,26 @@ CREATE TABLE IF NOT EXISTS ollama_cache (
     created_at TEXT NOT NULL
 );
 
+-- Source metadata for remote documents
+CREATE TABLE IF NOT EXISTS source_metadata (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL UNIQUE REFERENCES documents(id),
+    source_uri TEXT NOT NULL,
+    etag TEXT,
+    last_modified TEXT,
+    last_fetched_at TEXT NOT NULL,
+    fetch_duration_ms INTEGER,
+    http_status INTEGER,
+    content_type TEXT,
+    extra_metadata TEXT
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection_id);
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
 CREATE INDEX IF NOT EXISTS idx_content_vectors_hash ON content_vectors(hash);
 CREATE INDEX IF NOT EXISTS idx_path_contexts_collection ON path_contexts(collection_id);
+CREATE INDEX IF NOT EXISTS idx_source_metadata_uri ON source_metadata(source_uri);
 """
 
 # Vector storage table (requires sqlite-vec extension)

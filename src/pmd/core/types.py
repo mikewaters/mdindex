@@ -38,14 +38,64 @@ class VirtualPath:
 
 @dataclass
 class Collection:
-    """Represents an indexed collection (directory)."""
+    """Represents an indexed collection.
+
+    Collections can source documents from different backends:
+    - filesystem: Local directory with glob pattern (default)
+    - http: Remote HTTP/HTTPS endpoint
+    - entity: Custom entity URI with pluggable resolvers
+
+    Attributes:
+        id: Unique collection ID.
+        name: Human-readable collection name.
+        pwd: Base directory path (for filesystem sources).
+        glob_pattern: File pattern to match (for filesystem sources).
+        source_type: Type of source ('filesystem', 'http', 'entity').
+        source_config: JSON config for non-filesystem sources.
+        created_at: When the collection was created.
+        updated_at: When the collection was last modified.
+    """
 
     id: int
     name: str
-    pwd: str  # Base directory path
+    pwd: str  # Base directory path (filesystem) or base URI (other)
     glob_pattern: str
     created_at: str
     updated_at: str
+    source_type: str = "filesystem"
+    source_config: Optional[dict] = None
+
+    def get_source_uri(self) -> str:
+        """Get the source URI for this collection.
+
+        Returns:
+            URI string appropriate for the source type.
+        """
+        if self.source_type == "filesystem":
+            from pathlib import Path
+            return Path(self.pwd).as_uri()
+        elif self.source_type in ("http", "https"):
+            return self.source_config.get("base_url", self.pwd) if self.source_config else self.pwd
+        elif self.source_type == "entity":
+            return self.source_config.get("uri", self.pwd) if self.source_config else self.pwd
+        else:
+            return self.pwd
+
+    def get_source_config_dict(self) -> dict:
+        """Get source configuration as a dictionary.
+
+        Returns:
+            Configuration dict including type-specific settings.
+        """
+        base = {
+            "source_type": self.source_type,
+            "uri": self.get_source_uri(),
+        }
+        if self.source_type == "filesystem":
+            base["glob_pattern"] = self.glob_pattern
+        if self.source_config:
+            base.update(self.source_config)
+        return base
 
 
 @dataclass

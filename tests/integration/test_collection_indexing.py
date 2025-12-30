@@ -10,6 +10,7 @@ from pathlib import Path
 from pmd.core.exceptions import CollectionNotFoundError
 from pmd.core.types import SearchSource
 from pmd.services import IndexResult, ServiceContainer
+from pmd.sources import SourceListError
 from pmd.store.collections import CollectionRepository
 from pmd.store.database import Database
 from pmd.store.documents import DocumentRepository
@@ -747,7 +748,7 @@ class TestIndexingService:
         self,
         config,
     ):
-        """index_collection should raise ValueError if collection path doesn't exist."""
+        """index_collection should raise SourceListError if collection path doesn't exist."""
         async with ServiceContainer(config) as services:
             # Create collection with non-existent path
             services.collection_repo.create(
@@ -756,7 +757,7 @@ class TestIndexingService:
                 "**/*.md",
             )
 
-            with pytest.raises(ValueError, match="does not exist"):
+            with pytest.raises(SourceListError, match="does not exist"):
                 await services.indexing.index_collection("nonexistent")
 
     @pytest.mark.asyncio
