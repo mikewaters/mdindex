@@ -178,6 +178,140 @@ class TestSearchServiceVectorSearch:
             with pytest.raises(RuntimeError, match="Vector search not available"):
                 await services.search.vector_search("test query")
 
+    @pytest.mark.asyncio
+    async def test_vector_search_returns_list(
+        self, config: Config, mock_embedding_generator
+    ):
+        """vector_search should return a list of SearchResult."""
+        from unittest.mock import MagicMock
+
+        async with ServiceContainer(config) as services:
+            services._vec_available = True
+            services._embedding_generator = mock_embedding_generator
+            services.embedding_repo.search_vectors = MagicMock(return_value=[])
+
+            results = await services.search.vector_search("test query")
+
+            assert isinstance(results, list)
+
+    @pytest.mark.asyncio
+    async def test_vector_search_calls_embed_query(
+        self, config: Config, mock_embedding_generator
+    ):
+        """vector_search should call embed_query on the query."""
+        from unittest.mock import MagicMock
+
+        async with ServiceContainer(config) as services:
+            services._vec_available = True
+            services._embedding_generator = mock_embedding_generator
+            services.embedding_repo.search_vectors = MagicMock(return_value=[])
+
+            await services.search.vector_search("my search query")
+
+            mock_embedding_generator.embed_query.assert_called_once_with("my search query")
+
+    @pytest.mark.asyncio
+    async def test_vector_search_calls_search_vectors(
+        self, config: Config, mock_embedding_generator
+    ):
+        """vector_search should call embedding_repo.search_vectors."""
+        from unittest.mock import MagicMock
+
+        async with ServiceContainer(config) as services:
+            services._vec_available = True
+            services._embedding_generator = mock_embedding_generator
+            mock_search = MagicMock(return_value=[])
+            services.embedding_repo.search_vectors = mock_search
+
+            await services.search.vector_search("query", limit=10, min_score=0.5)
+
+            mock_search.assert_called_once()
+            call_args = mock_search.call_args
+            assert call_args.kwargs["limit"] == 10
+            assert call_args.kwargs["min_score"] == 0.5
+
+    @pytest.mark.asyncio
+    async def test_vector_search_returns_empty_on_embed_failure(
+        self, config: Config
+    ):
+        """vector_search should return empty list if embedding fails."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        async with ServiceContainer(config) as services:
+            services._vec_available = True
+
+            # Mock embedding generator that returns None (failure)
+            mock_gen = AsyncMock()
+            mock_gen.embed_query = AsyncMock(return_value=None)
+            services._embedding_generator = mock_gen
+            services.embedding_repo.search_vectors = MagicMock(return_value=[])
+
+            results = await services.search.vector_search("query")
+
+            assert results == []
+            # search_vectors should NOT be called if embedding failed
+            services.embedding_repo.search_vectors.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_vector_search_passes_collection_id(
+        self, config: Config, tmp_path: Path, mock_embedding_generator
+    ):
+        """vector_search should pass collection_id when filtering."""
+        from unittest.mock import MagicMock
+
+        async with ServiceContainer(config) as services:
+            services._vec_available = True
+            services._embedding_generator = mock_embedding_generator
+
+            # Create a collection
+            collection = services.collection_repo.create(
+                "test", str(tmp_path), "**/*.md"
+            )
+
+            mock_search = MagicMock(return_value=[])
+            services.embedding_repo.search_vectors = mock_search
+
+            await services.search.vector_search("query", collection_name="test")
+
+            mock_search.assert_called_once()
+            call_args = mock_search.call_args
+            assert call_args.kwargs["collection_id"] == collection.id
+
+    @pytest.mark.asyncio
+    async def test_vector_search_returns_results(
+        self, config: Config, mock_embedding_generator
+    ):
+        """vector_search should return results from search_vectors."""
+        from unittest.mock import MagicMock
+
+        # Create mock search result
+        mock_result = SearchResult(
+            filepath="doc.md",
+            display_path="doc.md",
+            title="Document",
+            context=None,
+            hash="abc123",
+            collection_id=1,
+            modified_at="2024-01-01",
+            body_length=100,
+            body=None,
+            score=0.85,
+            source=SearchSource.VECTOR,
+            chunk_pos=0,
+        )
+
+        async with ServiceContainer(config) as services:
+            services._vec_available = True
+            services._embedding_generator = mock_embedding_generator
+            services.embedding_repo.search_vectors = MagicMock(return_value=[mock_result])
+
+            results = await services.search.vector_search("query")
+
+            assert len(results) == 1
+            assert results[0].filepath == "doc.md"
+            assert results[0].score == 0.85
+            assert results[0].source == SearchSource.VECTOR
+
 
 class TestSearchServiceHybridSearch:
     """Tests for SearchService.hybrid_search method."""

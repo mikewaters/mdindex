@@ -245,3 +245,158 @@ class TestIndexingServiceExtractTitle:
         title = IndexingService._extract_title(content, "fallback")
 
         assert title == "fallback"
+
+
+class TestIndexingServiceEmbedCollection:
+    """Tests for IndexingService.embed_collection method."""
+
+    @pytest.mark.asyncio
+    async def test_embed_collection_raises_without_vec(self, config: Config):
+        """embed_collection should raise if vec not available."""
+        async with ServiceContainer(config) as services:
+            # Skip if vec is actually available
+            if services.vec_available:
+                pytest.skip("sqlite-vec is available")
+
+            services.collection_repo.create("test", "/tmp", "**/*.md")
+
+            with pytest.raises(RuntimeError, match="Vector storage not available"):
+                await services.indexing.embed_collection("test")
+
+    @pytest.mark.asyncio
+    async def test_embed_collection_not_found(self, config: Config):
+        """embed_collection should raise for unknown collection."""
+        async with ServiceContainer(config) as services:
+            # Force vec_available for this test
+            services._vec_available = True
+
+            with pytest.raises(CollectionNotFoundError):
+                await services.indexing.embed_collection("nonexistent")
+
+    @pytest.mark.asyncio
+    async def test_embed_collection_returns_embed_result(
+        self, config: Config, tmp_path: Path, mock_embedding_generator
+    ):
+        """embed_collection should return EmbedResult."""
+        from pmd.services.indexing import EmbedResult
+        from unittest.mock import AsyncMock
+
+        (tmp_path / "doc.md").write_text("# Document\n\nContent here.")
+
+        async with ServiceContainer(config) as services:
+            services._vec_available = True
+            services.collection_repo.create("test", str(tmp_path), "**/*.md")
+
+            # Index to create documents
+            await services.indexing.index_collection("test")
+
+            # Mock the embedding generator
+            services._embedding_generator = mock_embedding_generator
+
+            result = await services.indexing.embed_collection("test")
+
+            assert isinstance(result, EmbedResult)
+            assert result.embedded >= 0
+            assert result.skipped >= 0
+
+    @pytest.mark.asyncio
+    async def test_embed_collection_calls_embed_document(
+        self, config: Config, tmp_path: Path, mock_embedding_generator
+    ):
+        """embed_collection should call embed_document for each document."""
+        (tmp_path / "doc1.md").write_text("# Doc 1\n\nContent one.")
+        (tmp_path / "doc2.md").write_text("# Doc 2\n\nContent two.")
+
+        async with ServiceContainer(config) as services:
+            services._vec_available = True
+            services.collection_repo.create("test", str(tmp_path), "**/*.md")
+
+            # Index documents first
+            await services.indexing.index_collection("test")
+
+            # Mock embedding generator
+            services._embedding_generator = mock_embedding_generator
+
+            await services.indexing.embed_collection("test", force=True)
+
+            # Should have called embed_document for each document
+            assert mock_embedding_generator.embed_document.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_embed_collection_skips_existing(
+        self, config: Config, tmp_path: Path, mock_embedding_generator
+    ):
+        """embed_collection should skip documents with existing embeddings."""
+        from unittest.mock import MagicMock
+
+        (tmp_path / "doc.md").write_text("# Document\n\nContent.")
+
+        async with ServiceContainer(config) as services:
+            services._vec_available = True
+            services.collection_repo.create("test", str(tmp_path), "**/*.md")
+
+            # Index documents
+            await services.indexing.index_collection("test")
+
+            # Mock embedding repo to say embeddings exist
+            services.embedding_repo.has_embeddings = MagicMock(return_value=True)
+            services._embedding_generator = mock_embedding_generator
+
+            result = await services.indexing.embed_collection("test", force=False)
+
+            assert result.skipped == 1
+            assert result.embedded == 0
+            # embed_document should not be called when skipping
+            mock_embedding_generator.embed_document.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_embed_collection_force_regenerates(
+        self, config: Config, tmp_path: Path, mock_embedding_generator
+    ):
+        """embed_collection with force=True should regenerate all embeddings."""
+        from unittest.mock import MagicMock
+
+        (tmp_path / "doc.md").write_text("# Document\n\nContent.")
+
+        async with ServiceContainer(config) as services:
+            services._vec_available = True
+            services.collection_repo.create("test", str(tmp_path), "**/*.md")
+
+            # Index documents
+            await services.indexing.index_collection("test")
+
+            # Mock embedding repo - embeddings exist
+            services.embedding_repo.has_embeddings = MagicMock(return_value=True)
+            services._embedding_generator = mock_embedding_generator
+
+            result = await services.indexing.embed_collection("test", force=True)
+
+            # Should still embed even though embeddings exist
+            assert result.embedded == 1
+            assert result.skipped == 0
+            mock_embedding_generator.embed_document.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_embed_collection_tracks_chunks(
+        self, config: Config, tmp_path: Path
+    ):
+        """embed_collection should track total chunks embedded."""
+        from unittest.mock import AsyncMock
+
+        (tmp_path / "doc.md").write_text("# Document\n\nContent.")
+
+        async with ServiceContainer(config) as services:
+            services._vec_available = True
+            services.collection_repo.create("test", str(tmp_path), "**/*.md")
+
+            # Index documents
+            await services.indexing.index_collection("test")
+
+            # Mock embedding generator to return 5 chunks
+            mock_gen = AsyncMock()
+            mock_gen.embed_document = AsyncMock(return_value=5)
+            services._embedding_generator = mock_gen
+
+            result = await services.indexing.embed_collection("test", force=True)
+
+            assert result.chunks_total == 5
