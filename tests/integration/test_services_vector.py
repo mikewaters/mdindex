@@ -72,9 +72,8 @@ class TestServiceEmbedCollection:
             assert result.chunks_total >= 2
 
             # Verify embeddings exist
-            docs = services.document_repo.list(
-                services.collection_repo.get_by_name("test").id
-            )
+            collection = services.collection_repo.get_by_name("test")
+            docs = services.document_repo.list_by_collection(collection.id)
             for doc in docs:
                 assert services.embedding_repo.has_embeddings(doc.hash)
 

@@ -196,12 +196,15 @@ class IndexingService:
 
         Raises:
             CollectionNotFoundError: If collection does not exist.
-            RuntimeError: If vector storage is not available.
+            RuntimeError: If vector storage or LLM provider is not available.
         """
         if not self._container.vec_available:
             raise RuntimeError(
                 "Vector storage not available (sqlite-vec extension not loaded)"
             )
+
+        if not await self._container.is_llm_available():
+            raise RuntimeError("LLM provider not available (is it running?)")
 
         collection = self._container.collection_repo.get_by_name(collection_name)
         if not collection:
@@ -239,6 +242,7 @@ class IndexingService:
             chunks_embedded = await embedding_generator.embed_document(
                 doc["hash"],
                 doc["doc"],
+                force=force,
             )
 
             if chunks_embedded > 0:
