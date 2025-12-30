@@ -176,8 +176,13 @@ class TestServiceVectorSearch:
         """vector_search should filter by collection."""
         (tmp_path / "coll1").mkdir()
         (tmp_path / "coll2").mkdir()
-        (tmp_path / "coll1" / "doc1.md").write_text("# Document in collection one")
-        (tmp_path / "coll2" / "doc2.md").write_text("# Document in collection two")
+        # Documents need body content to pass is_indexable check
+        (tmp_path / "coll1" / "doc1.md").write_text(
+            "# Document One\n\nThis is content in collection one about Python programming."
+        )
+        (tmp_path / "coll2" / "doc2.md").write_text(
+            "# Document Two\n\nThis is content in collection two about Java development."
+        )
 
         config = Config()
         config.db_path = tmp_path / "test.db"
@@ -198,7 +203,7 @@ class TestServiceVectorSearch:
 
             # Search only in coll1
             results = await services.search.vector_search(
-                "document", collection_name="coll1"
+                "Python programming", collection_name="coll1"
             )
 
             assert len(results) == 1
