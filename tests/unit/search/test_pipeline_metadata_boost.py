@@ -2,12 +2,14 @@
 
 import pytest
 from dataclasses import dataclass
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 
 from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
 from pmd.search.metadata.inference import LexicalTagMatcher
 from pmd.search.metadata.ontology import Ontology
+from pmd.search.metadata.retrieval import TagRetriever
 from pmd.search.metadata.scoring import MetadataBoostConfig
+from pmd.core.types import SearchSource
 
 
 @dataclass
@@ -411,3 +413,191 @@ class TestPipelineOntologyIntegration:
         assert len(result) == 2
         # Both should be boosted
         assert result[0].score > 0.8 or result[1].score > 0.8
+
+
+class TestPipelineTagRetrievalIntegration:
+    """Tests for tag-based retrieval in RRF fusion."""
+
+    def test_tag_retrieval_disabled_by_default(self):
+        """Tag retrieval should be disabled when not configured."""
+        fts_repo = MagicMock()
+        config = SearchPipelineConfig()
+
+        pipeline = HybridSearchPipeline(fts_repo, config)
+
+        assert pipeline.tag_retriever is None
+        assert config.enable_tag_retrieval is False
+
+    def test_tag_retrieval_enabled_preserves_components(self):
+        """When tag retrieval enabled, tag_retriever should be preserved."""
+        fts_repo = MagicMock()
+        tag_retriever = MagicMock(spec=TagRetriever)
+        matcher = LexicalTagMatcher()
+        config = SearchPipelineConfig(enable_tag_retrieval=True)
+
+        pipeline = HybridSearchPipeline(
+            fts_repo,
+            config,
+            tag_matcher=matcher,
+            tag_retriever=tag_retriever,
+        )
+
+        assert pipeline.tag_retriever is tag_retriever
+        assert pipeline.tag_matcher is matcher
+
+    def test_tag_retrieval_preserves_matcher_for_both_features(self):
+        """Tag matcher preserved when either tag_retrieval or metadata_boost enabled."""
+        fts_repo = MagicMock()
+        matcher = LexicalTagMatcher()
+        metadata_repo = MagicMock()
+        config = SearchPipelineConfig(enable_tag_retrieval=True)
+
+        pipeline = HybridSearchPipeline(
+            fts_repo,
+            config,
+            tag_matcher=matcher,
+            metadata_repo=metadata_repo,
+        )
+
+        # tag_matcher should be preserved for tag retrieval
+        assert pipeline.tag_matcher is matcher
+
+    def test_default_tag_weight(self):
+        """Default tag weight should be 0.8."""
+        config = SearchPipelineConfig()
+        assert config.tag_weight == 0.8
+
+    def test_custom_tag_weight(self):
+        """Should accept custom tag weight."""
+        config = SearchPipelineConfig(tag_weight=1.2)
+        assert config.tag_weight == 1.2
+
+    @pytest.mark.asyncio
+    async def test_parallel_search_includes_tag_results(self):
+        """Parallel search should include tag results when enabled."""
+        fts_repo = MagicMock()
+        fts_repo.search.return_value = []
+
+        matcher = LexicalTagMatcher()
+        matcher.register_tags(["python"])
+
+        tag_retriever = MagicMock(spec=TagRetriever)
+        tag_retriever.search.return_value = []
+
+        config = SearchPipelineConfig(enable_tag_retrieval=True)
+
+        pipeline = HybridSearchPipeline(
+            fts_repo,
+            config,
+            tag_matcher=matcher,
+            tag_retriever=tag_retriever,
+        )
+
+        results, weights = await pipeline._parallel_search(["python tutorial"], limit=10, collection_id=None)
+
+        # Should have 3 result lists: FTS, vector (empty), tag
+        assert len(results) == 3
+        assert len(weights) == 3
+
+        # Tag retriever should have been called
+        tag_retriever.search.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_parallel_search_uses_ontology_expansion(self):
+        """Should expand tags with ontology when available."""
+        fts_repo = MagicMock()
+        fts_repo.search.return_value = []
+
+        matcher = LexicalTagMatcher()
+        matcher.register_tags(["ml/supervised"])
+        matcher.register_alias("supervised", "ml/supervised")
+
+        # Define complete hierarchy: ml -> ml/supervised
+        # Both need to be defined for parent lookup to work
+        ontology = Ontology({
+            "ml": {"children": ["ml/supervised"]},
+            "ml/supervised": {"children": []},  # Leaf node must be defined for parent lookup
+        }, parent_weight=0.7)
+
+        tag_retriever = MagicMock(spec=TagRetriever)
+        tag_retriever.search.return_value = []
+
+        config = SearchPipelineConfig(enable_tag_retrieval=True)
+
+        pipeline = HybridSearchPipeline(
+            fts_repo,
+            config,
+            tag_matcher=matcher,
+            tag_retriever=tag_retriever,
+            ontology=ontology,
+        )
+
+        await pipeline._parallel_search(["supervised learning"], limit=10, collection_id=None)
+
+        # Verify tag retriever was called with expanded tags
+        call_args = tag_retriever.search.call_args
+        expanded_tags = call_args[0][0]
+        assert isinstance(expanded_tags, dict)
+        assert "ml/supervised" in expanded_tags
+        assert "ml" in expanded_tags  # Parent should be included
+
+    @pytest.mark.asyncio
+    async def test_parallel_search_weights_include_tag_weight(self):
+        """Weights should include tag weight for tag results."""
+        fts_repo = MagicMock()
+        fts_repo.search.return_value = []
+
+        matcher = LexicalTagMatcher()
+        matcher.register_tags(["python"])
+
+        tag_retriever = MagicMock(spec=TagRetriever)
+        tag_retriever.search.return_value = []
+
+        config = SearchPipelineConfig(
+            enable_tag_retrieval=True,
+            fts_weight=1.0,
+            vec_weight=1.0,
+            tag_weight=0.8,
+        )
+
+        pipeline = HybridSearchPipeline(
+            fts_repo,
+            config,
+            tag_matcher=matcher,
+            tag_retriever=tag_retriever,
+        )
+
+        results, weights = await pipeline._parallel_search(["python"], limit=10, collection_id=None)
+
+        # Weights should be [fts=1.0, vec=1.0, tag=0.8]
+        assert weights[0] == 1.0  # FTS
+        assert weights[1] == 1.0  # Vector
+        assert weights[2] == 0.8  # Tag
+
+    @pytest.mark.asyncio
+    async def test_parallel_search_handles_tag_error_gracefully(self):
+        """Should continue if tag search fails."""
+        fts_repo = MagicMock()
+        fts_repo.search.return_value = []
+
+        matcher = LexicalTagMatcher()
+        matcher.register_tags(["python"])
+
+        tag_retriever = MagicMock(spec=TagRetriever)
+        tag_retriever.search.side_effect = Exception("Tag search failed")
+
+        config = SearchPipelineConfig(enable_tag_retrieval=True)
+
+        pipeline = HybridSearchPipeline(
+            fts_repo,
+            config,
+            tag_matcher=matcher,
+            tag_retriever=tag_retriever,
+        )
+
+        # Should not raise
+        results, weights = await pipeline._parallel_search(["python"], limit=10, collection_id=None)
+
+        # Should still have 3 results (FTS, vec, tag) but tag is empty
+        assert len(results) == 3
+        assert results[2] == []  # Tag results empty due to error

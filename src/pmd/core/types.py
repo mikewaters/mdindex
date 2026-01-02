@@ -143,10 +143,12 @@ class RankedResult:
         score: Final blended/normalized score.
         fts_score: Original FTS5 BM25 score (if found via FTS).
         vec_score: Original vector similarity score (if found via vector).
+        tag_score: Original tag retrieval score (if found via tags).
         rerank_score: LLM reranker score (if reranking enabled).
         fts_rank: Original rank in FTS results (0-indexed, None if not found).
         vec_rank: Original rank in vector results (0-indexed, None if not found).
-        sources_count: Number of sources that found this document (1 or 2).
+        tag_rank: Original rank in tag results (0-indexed, None if not found).
+        sources_count: Number of sources that found this document (1-3).
         relevant: LLM relevance judgment (True/False/None).
         rerank_confidence: LLM reranker confidence (0-1).
         rerank_raw_token: Raw token from reranker ("Yes"/"No").
@@ -160,10 +162,12 @@ class RankedResult:
     score: float
     fts_score: Optional[float] = None
     vec_score: Optional[float] = None
+    tag_score: Optional[float] = None
     rerank_score: Optional[float] = None
     # Fusion provenance
     fts_rank: Optional[int] = None
     vec_rank: Optional[int] = None
+    tag_rank: Optional[int] = None
     sources_count: int = 1
     # Reranker details
     relevant: Optional[bool] = None

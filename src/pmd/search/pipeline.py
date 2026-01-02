@@ -50,6 +50,7 @@ from ..store.search import FTS5SearchRepository
 from .fusion import reciprocal_rank_fusion
 from .metadata.inference import LexicalTagMatcher
 from .metadata.ontology import Ontology
+from .metadata.retrieval import TagRetriever
 from .metadata.scoring import (
     MetadataBoostConfig,
     apply_metadata_boost,
@@ -73,12 +74,14 @@ class SearchPipelineConfig:
     Attributes:
         fts_weight: Weight for FTS5 BM25 results in RRF (default: 1.0).
         vec_weight: Weight for vector search results in RRF (default: 1.0).
+        tag_weight: Weight for tag-based results in RRF (default: 0.8).
         rrf_k: Smoothing constant for RRF formula (default: 60).
         top_rank_bonus: Bonus score for top-ranked results (default: 0.05).
         expansion_weight: Weight for expanded query results (default: 0.5).
         rerank_candidates: Number of candidates to send to reranker (default: 30).
         enable_query_expansion: Enable LLM query expansion (default: False).
         enable_reranking: Enable LLM reranking with position-aware blending (default: False).
+        enable_tag_retrieval: Enable tag-based retrieval in RRF (default: False).
         enable_metadata_boost: Enable metadata-based score boosting (default: False).
         metadata_boost: Configuration for metadata boosting (uses defaults if None).
         normalize_final_scores: Normalize final scores to 0-1 range (default: True).
@@ -86,12 +89,14 @@ class SearchPipelineConfig:
 
     fts_weight: float = 1.0
     vec_weight: float = 1.0
+    tag_weight: float = 0.8
     rrf_k: int = 60
     top_rank_bonus: float = 0.05
     expansion_weight: float = 0.5
     rerank_candidates: int = 30
     enable_query_expansion: bool = False
     enable_reranking: bool = False
+    enable_tag_retrieval: bool = False
     enable_metadata_boost: bool = False
     metadata_boost: MetadataBoostConfig | None = None
     normalize_final_scores: bool = True
@@ -147,6 +152,7 @@ class HybridSearchPipeline:
         tag_matcher: LexicalTagMatcher | None = None,
         metadata_repo: "DocumentMetadataRepository | None" = None,
         ontology: Ontology | None = None,
+        tag_retriever: TagRetriever | None = None,
     ):
         """Initialize the pipeline.
 
@@ -162,6 +168,9 @@ class HybridSearchPipeline:
             ontology: Optional Ontology for hierarchical tag matching.
                      When provided, enables weighted boosting with parent-child
                      tag relationships.
+            tag_retriever: Optional TagRetriever for tag-based document retrieval.
+                          When provided with enable_tag_retrieval, adds tag results
+                          to RRF fusion.
         """
         self.fts_repo = fts_repo
         self.config = config or SearchPipelineConfig()
@@ -171,17 +180,24 @@ class HybridSearchPipeline:
         self.tag_matcher = tag_matcher
         self.metadata_repo = metadata_repo
         self.ontology = ontology
+        self.tag_retriever = tag_retriever
 
         # Ensure expander and reranker are only used if enabled
         if not self.config.enable_query_expansion:
             self.query_expander = None
         if not self.config.enable_reranking:
             self.reranker = None
+        # Tag retrieval requires tag_retriever or tag_matcher
+        if not self.config.enable_tag_retrieval:
+            self.tag_retriever = None
         # Metadata boost requires both matcher and repo
+        # Ontology is used by both metadata boost and tag retrieval
         if not self.config.enable_metadata_boost:
-            self.tag_matcher = None
-            self.metadata_repo = None
-            self.ontology = None
+            # Only clear these if tag retrieval doesn't need them
+            if not self.config.enable_tag_retrieval:
+                self.tag_matcher = None
+                self.metadata_repo = None
+                self.ontology = None
 
     async def search(
         self,
@@ -233,14 +249,14 @@ class HybridSearchPipeline:
             queries.extend(expansions)
             logger.debug(f"Query expansion: {len(queries)} queries (original + {len(expansions)} expansions)")
 
-        # Step 2: Parallel FTS5 and vector search for all query variants
-        all_results = await self._parallel_search(queries, limit * 3, collection_id)
+        # Step 2: Parallel FTS5, vector, and tag search for all query variants
+        all_results, weights = await self._parallel_search(queries, limit * 3, collection_id)
 
         # Step 3: Reciprocal Rank Fusion
         fused = reciprocal_rank_fusion(
             all_results,
             k=self.config.rrf_k,
-            original_query_weight=2.0,
+            weights=weights,
         )
         logger.debug(f"RRF fusion: {len(fused)} candidates from {len(all_results)} result lists")
 
@@ -304,11 +320,11 @@ class HybridSearchPipeline:
         queries: list[str],
         limit: int,
         collection_id: int | None,
-    ) -> list[list[SearchResult]]:
-        """Run FTS5 and vector search in parallel for all queries.
+    ) -> tuple[list[list[SearchResult]], list[float]]:
+        """Run FTS5, vector, and tag search in parallel for all queries.
 
-        Uses FTS5SearchRepository for text search and EmbeddingRepository
-        for vector similarity search.
+        Uses FTS5SearchRepository for text search, EmbeddingRepository
+        for vector similarity search, and TagRetriever for tag-based search.
 
         Args:
             queries: List of query strings to search.
@@ -316,15 +332,23 @@ class HybridSearchPipeline:
             collection_id: Optional collection ID.
 
         Returns:
-            List of result lists [fts1, vec1, fts2, vec2, ...].
+            Tuple of (result_lists, weights) where:
+            - result_lists: [fts1, vec1, tag1?, fts2, vec2, tag2?, ...]
+            - weights: Corresponding weights for each list
         """
         logger.debug(f"Parallel search: {len(queries)} queries, limit={limit}")
         start_time = time.perf_counter()
-        results = []
+        results: list[list[SearchResult]] = []
+        weights: list[float] = []
         total_fts = 0
         total_vec = 0
+        total_tag = 0
 
-        for query in queries:
+        for i, query in enumerate(queries):
+            # Weight factor for original query vs expansions
+            is_original = i == 0
+            weight_factor = self.config.expansion_weight if not is_original else 1.0
+
             # FTS5 search using dedicated repository
             fts_results = self.fts_repo.search(
                 query,
@@ -332,6 +356,7 @@ class HybridSearchPipeline:
                 collection_id,
             )
             results.append(fts_results)
+            weights.append(self.config.fts_weight * weight_factor)
             total_fts += len(fts_results)
 
             # Vector search with query embedding via EmbeddingRepository
@@ -349,12 +374,40 @@ class HybridSearchPipeline:
                     logger.debug(f"Vector search failed for query: {e}")
 
             results.append(vec_results)
+            weights.append(self.config.vec_weight * weight_factor)
             total_vec += len(vec_results)
 
-        elapsed = (time.perf_counter() - start_time) * 1000
-        logger.debug(f"Parallel search complete: FTS={total_fts}, VEC={total_vec}, {elapsed:.1f}ms")
+            # Tag-based search using TagRetriever
+            if self.tag_retriever and self.tag_matcher:
+                tag_results: list[SearchResult] = []
+                try:
+                    # Infer tags from query
+                    query_tags = self.tag_matcher.get_matching_tags(query)
+                    if query_tags:
+                        # Expand with ontology if available
+                        if self.ontology:
+                            expanded_tags = self.ontology.expand_for_matching(query_tags)
+                        else:
+                            expanded_tags = {tag: 1.0 for tag in query_tags}
 
-        return results
+                        tag_results = self.tag_retriever.search(
+                            expanded_tags,
+                            limit,
+                            collection_id,
+                        )
+                except Exception as e:
+                    logger.debug(f"Tag search failed for query: {e}")
+
+                results.append(tag_results)
+                weights.append(self.config.tag_weight * weight_factor)
+                total_tag += len(tag_results)
+
+        elapsed = (time.perf_counter() - start_time) * 1000
+        logger.debug(
+            f"Parallel search complete: FTS={total_fts}, VEC={total_vec}, TAG={total_tag}, {elapsed:.1f}ms"
+        )
+
+        return results, weights
 
     async def _rerank_with_blending(
         self,

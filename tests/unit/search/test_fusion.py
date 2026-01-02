@@ -307,3 +307,109 @@ class TestReciprocalRankFusionEdgeCases:
 
         # Should only appear once in output
         assert len([r for r in fused if r.file == "doc.md"]) == 1
+
+
+class TestTagProvenance:
+    """Tests for TAG source provenance tracking."""
+
+    def test_tag_score_preserved(self):
+        """Tag source results should have tag_score set."""
+        tag_result = make_search_result("doc.md", 0.9, SearchSource.TAG)
+
+        fused = reciprocal_rank_fusion([[tag_result]])
+
+        assert fused[0].tag_score == 0.9
+        assert fused[0].fts_score is None
+        assert fused[0].vec_score is None
+
+    def test_tag_rank_preserved(self):
+        """Tag source results should have tag_rank set."""
+        tag_results = [
+            make_search_result("doc1.md", 0.9, SearchSource.TAG),
+            make_search_result("doc2.md", 0.8, SearchSource.TAG),
+        ]
+
+        fused = reciprocal_rank_fusion([tag_results])
+
+        doc1 = next(r for r in fused if r.file == "doc1.md")
+        doc2 = next(r for r in fused if r.file == "doc2.md")
+        assert doc1.tag_rank == 0
+        assert doc2.tag_rank == 1
+
+    def test_three_sources_fused(self):
+        """FTS, vector, and tag results should all be tracked."""
+        fts_result = make_search_result("doc.md", 0.7, SearchSource.FTS)
+        vec_result = make_search_result("doc.md", 0.8, SearchSource.VECTOR)
+        tag_result = make_search_result("doc.md", 0.9, SearchSource.TAG)
+
+        fused = reciprocal_rank_fusion([[fts_result], [vec_result], [tag_result]])
+
+        assert len(fused) == 1
+        result = fused[0]
+        assert result.fts_score == 0.7
+        assert result.vec_score == 0.8
+        assert result.tag_score == 0.9
+        assert result.sources_count == 3
+
+    def test_sources_count_with_tag(self):
+        """Sources count should include tag source."""
+        fts_result = make_search_result("doc.md", 0.9, SearchSource.FTS)
+        tag_result = make_search_result("doc.md", 0.85, SearchSource.TAG)
+
+        fused = reciprocal_rank_fusion([[fts_result], [tag_result]])
+
+        assert fused[0].sources_count == 2
+
+    def test_mixed_tag_and_fts(self):
+        """Tag and FTS results should be tracked separately."""
+        fts_result = make_search_result("doc1.md", 0.9, SearchSource.FTS)
+        tag_result = make_search_result("doc2.md", 0.85, SearchSource.TAG)
+
+        fused = reciprocal_rank_fusion([[fts_result], [tag_result]])
+
+        doc1 = next(r for r in fused if r.file == "doc1.md")
+        doc2 = next(r for r in fused if r.file == "doc2.md")
+
+        assert doc1.fts_score == 0.9
+        assert doc1.tag_score is None
+        assert doc2.tag_score == 0.85
+        assert doc2.fts_score is None
+
+    def test_tag_only_ranking(self):
+        """Tag-only results should rank correctly."""
+        tag_results = [
+            make_search_result("high.md", 0.95, SearchSource.TAG),
+            make_search_result("mid.md", 0.8, SearchSource.TAG),
+            make_search_result("low.md", 0.6, SearchSource.TAG),
+        ]
+
+        fused = reciprocal_rank_fusion([tag_results])
+
+        # Check order matches ranks
+        assert fused[0].file == "high.md"
+        assert fused[1].file == "mid.md"
+        assert fused[2].file == "low.md"
+
+    def test_keeps_best_tag_rank(self):
+        """When doc appears in multiple tag lists, keep best rank."""
+        list1 = [
+            make_search_result("other.md", 0.9, SearchSource.TAG),
+            make_search_result("doc.md", 0.8, SearchSource.TAG),  # rank 1
+        ]
+        list2 = [
+            make_search_result("doc.md", 0.85, SearchSource.TAG),  # rank 0
+        ]
+
+        fused = reciprocal_rank_fusion([list1, list2])
+
+        doc = next(r for r in fused if r.file == "doc.md")
+        assert doc.tag_rank == 0  # Best rank from list2
+
+    def test_keeps_best_tag_score(self):
+        """When doc appears in multiple tag lists, keep best score."""
+        list1 = [make_search_result("doc.md", 0.7, SearchSource.TAG)]
+        list2 = [make_search_result("doc.md", 0.9, SearchSource.TAG)]
+
+        fused = reciprocal_rank_fusion([list1, list2])
+
+        assert fused[0].tag_score == 0.9  # Best score from list2

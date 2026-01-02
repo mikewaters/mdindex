@@ -16,8 +16,10 @@ class _DocProvenance:
     doc: SearchResult
     fts_score: Optional[float] = None
     vec_score: Optional[float] = None
+    tag_score: Optional[float] = None
     fts_rank: Optional[int] = None
     vec_rank: Optional[int] = None
+    tag_rank: Optional[int] = None
     sources: set = None  # type: ignore
 
     def __post_init__(self):
@@ -44,8 +46,8 @@ def reciprocal_rank_fusion(
 
     Args:
         result_lists: List of ranked result lists to fuse.
-            Expected order: [fts1, vec1, fts2, vec2, ...] where odd indices are FTS,
-            even indices are vector results.
+            Each result's source attribute (FTS, VECTOR, TAG) determines
+            how provenance is tracked.
         k: Smoothing constant (default 60, prevents score explosion).
         original_query_weight: Extra weight for original query results.
         weights: Optional per-list weights. If None, uses [original_query_weight,
@@ -53,7 +55,7 @@ def reciprocal_rank_fusion(
 
     Returns:
         List of RankedResult objects sorted by fused score (highest first).
-        Includes provenance fields: fts_rank, vec_rank, sources_count.
+        Includes provenance fields: fts_rank, vec_rank, tag_rank, sources_count.
     """
     scores: dict[str, float] = defaultdict(float)
     provenance: dict[str, _DocProvenance] = {}
@@ -88,16 +90,22 @@ def reciprocal_rank_fusion(
             prov = provenance[result.filepath]
 
             # Determine source from the result's source attribute
-            is_fts = result.source == SearchSource.FTS
-
-            if is_fts:
+            if result.source == SearchSource.FTS:
                 prov.sources.add("fts")
                 # Keep best FTS score and first (best) rank
                 if prov.fts_rank is None or rank < prov.fts_rank:
                     prov.fts_rank = rank
                 if prov.fts_score is None or result.score > prov.fts_score:
                     prov.fts_score = result.score
+            elif result.source == SearchSource.TAG:
+                prov.sources.add("tag")
+                # Keep best tag score and first (best) rank
+                if prov.tag_rank is None or rank < prov.tag_rank:
+                    prov.tag_rank = rank
+                if prov.tag_score is None or result.score > prov.tag_score:
+                    prov.tag_score = result.score
             else:
+                # VECTOR or any other source
                 prov.sources.add("vec")
                 # Keep best vector score and first (best) rank
                 if prov.vec_rank is None or rank < prov.vec_rank:
@@ -126,9 +134,11 @@ def reciprocal_rank_fusion(
             score=scores[filepath],
             fts_score=prov.fts_score,
             vec_score=prov.vec_score,
+            tag_score=prov.tag_score,
             rerank_score=None,
             fts_rank=prov.fts_rank,
             vec_rank=prov.vec_rank,
+            tag_rank=prov.tag_rank,
             sources_count=len(prov.sources),
         )
         ranked_results.append(result)
@@ -140,12 +150,15 @@ def reciprocal_rank_fusion(
             ranks_str.append(f"FTS#{prov.fts_rank + 1}")
         if prov.vec_rank is not None:
             ranks_str.append(f"VEC#{prov.vec_rank + 1}")
+        if prov.tag_rank is not None:
+            ranks_str.append(f"TAG#{prov.tag_rank + 1}")
         fts_str = f"{prov.fts_score:.3f}" if prov.fts_score is not None else "N/A"
         vec_str = f"{prov.vec_score:.3f}" if prov.vec_score is not None else "N/A"
+        tag_str = f"{prov.tag_score:.3f}" if prov.tag_score is not None else "N/A"
         logger.debug(
             f"RRF: {doc.title[:40]!r} | rrf={scores[filepath]:.4f} | "
             f"sources={sources_str} | ranks={','.join(ranks_str)} | "
-            f"fts={fts_str} | vec={vec_str}"
+            f"fts={fts_str} | vec={vec_str} | tag={tag_str}"
         )
 
     return ranked_results
