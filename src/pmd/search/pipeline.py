@@ -40,7 +40,7 @@ See Also:
 """
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -48,12 +48,22 @@ from loguru import logger
 from ..core.types import RankedResult, SearchResult
 from ..store.search import FTS5SearchRepository
 from .fusion import reciprocal_rank_fusion
+from .metadata.inference import LexicalTagMatcher
+from .metadata.ontology import Ontology
+from .metadata.scoring import (
+    MetadataBoostConfig,
+    apply_metadata_boost,
+    apply_metadata_boost_v2,
+    build_path_to_id_map,
+    get_document_tags_batch,
+)
 from .scoring import blend_scores, normalize_scores
 
 if TYPE_CHECKING:
     from ..llm.embeddings import EmbeddingGenerator
     from ..llm.query_expansion import QueryExpander
     from ..llm.reranker import DocumentReranker
+    from ..store.document_metadata import DocumentMetadataRepository
 
 
 @dataclass
@@ -69,6 +79,8 @@ class SearchPipelineConfig:
         rerank_candidates: Number of candidates to send to reranker (default: 30).
         enable_query_expansion: Enable LLM query expansion (default: False).
         enable_reranking: Enable LLM reranking with position-aware blending (default: False).
+        enable_metadata_boost: Enable metadata-based score boosting (default: False).
+        metadata_boost: Configuration for metadata boosting (uses defaults if None).
         normalize_final_scores: Normalize final scores to 0-1 range (default: True).
     """
 
@@ -80,6 +92,8 @@ class SearchPipelineConfig:
     rerank_candidates: int = 30
     enable_query_expansion: bool = False
     enable_reranking: bool = False
+    enable_metadata_boost: bool = False
+    metadata_boost: MetadataBoostConfig | None = None
     normalize_final_scores: bool = True
 
 
@@ -87,18 +101,24 @@ class HybridSearchPipeline:
     """Orchestrates hybrid search with FTS, vector, and optional reranking.
 
     This pipeline combines multiple retrieval strategies using Reciprocal Rank
-    Fusion (RRF), with optional LLM-based enhancements:
+    Fusion (RRF), with optional LLM-based and metadata-based enhancements:
 
     1. **Query Expansion**: Generate semantic query variations to improve recall
     2. **Parallel Search**: Run FTS5 and vector search for all query variants
     3. **RRF Fusion**: Combine ranked lists using reciprocal rank fusion
-    4. **LLM Reranking**: Score candidates with LLM relevance judgment
-    5. **Position-Aware Blending**: Blend RRF and rerank scores by position
+    4. **Metadata Boost**: Boost documents with matching tags (optional)
+    5. **LLM Reranking**: Score candidates with LLM relevance judgment
+    6. **Position-Aware Blending**: Blend RRF and rerank scores by position
 
     The position-aware blending strategy (from `pmd.search.scoring.blend_scores`):
     - Rank 1-3: 75% RRF + 25% reranker (trust initial retrieval for top results)
     - Rank 4-10: 60% RRF + 40% reranker (balanced weighting)
     - Rank 11+: 40% RRF + 60% reranker (trust reranker for borderline cases)
+
+    Metadata boosting (from `pmd.search.metadata.scoring.apply_metadata_boost`):
+    - Uses LexicalTagMatcher to infer tags from the query
+    - Boosts documents whose tags match query-inferred tags
+    - Configurable boost factor and max boost cap
 
     Example:
         >>> from pmd.store.search import FTS5SearchRepository
@@ -111,6 +131,7 @@ class HybridSearchPipeline:
     See Also:
         - `pmd.search.scoring.blend_scores`: Position-aware score blending
         - `pmd.search.scoring.normalize_scores`: Score normalization
+        - `pmd.search.metadata.scoring.apply_metadata_boost`: Metadata boosting
         - `pmd.llm.reranker.DocumentReranker`: LLM reranking
         - `pmd.store.search.FTS5SearchRepository`: Full-text search
         - `pmd.store.embeddings.EmbeddingRepository`: Vector similarity search
@@ -123,6 +144,9 @@ class HybridSearchPipeline:
         query_expander: "QueryExpander | None" = None,
         reranker: "DocumentReranker | None" = None,
         embedding_generator: "EmbeddingGenerator | None" = None,
+        tag_matcher: LexicalTagMatcher | None = None,
+        metadata_repo: "DocumentMetadataRepository | None" = None,
+        ontology: Ontology | None = None,
     ):
         """Initialize the pipeline.
 
@@ -133,18 +157,31 @@ class HybridSearchPipeline:
             reranker: Optional DocumentReranker for relevance scoring.
             embedding_generator: Optional EmbeddingGenerator for query embeddings.
                                 Provides vector search via its embedding_repo.
+            tag_matcher: Optional LexicalTagMatcher for query tag inference.
+            metadata_repo: Optional DocumentMetadataRepository for document tags.
+            ontology: Optional Ontology for hierarchical tag matching.
+                     When provided, enables weighted boosting with parent-child
+                     tag relationships.
         """
         self.fts_repo = fts_repo
         self.config = config or SearchPipelineConfig()
         self.query_expander = query_expander
         self.reranker = reranker
         self.embedding_generator = embedding_generator
+        self.tag_matcher = tag_matcher
+        self.metadata_repo = metadata_repo
+        self.ontology = ontology
 
         # Ensure expander and reranker are only used if enabled
         if not self.config.enable_query_expansion:
             self.query_expander = None
         if not self.config.enable_reranking:
             self.reranker = None
+        # Metadata boost requires both matcher and repo
+        if not self.config.enable_metadata_boost:
+            self.tag_matcher = None
+            self.metadata_repo = None
+            self.ontology = None
 
     async def search(
         self,
@@ -159,10 +196,11 @@ class HybridSearchPipeline:
         1. Query expansion - Generate semantic variations (if enabled)
         2. Parallel search - FTS5 and vector search for all query variants
         3. RRF fusion - Combine results using Reciprocal Rank Fusion
-        4. LLM reranking - Get relevance scores from LLM (if enabled)
-        5. Position-aware blending - Blend RRF and rerank scores
-        6. Normalization - Normalize scores to 0-1 range (if enabled)
-        7. Filter and limit - Apply score threshold and result limit
+        4. Metadata boost - Boost documents with matching tags (if enabled)
+        5. LLM reranking - Get relevance scores from LLM (if enabled)
+        6. Position-aware blending - Blend RRF and rerank scores
+        7. Normalization - Normalize scores to 0-1 range (if enabled)
+        8. Filter and limit - Apply score threshold and result limit
 
         The position-aware blending uses `pmd.search.scoring.blend_scores`
         which applies different weights based on result position:
@@ -182,6 +220,7 @@ class HybridSearchPipeline:
         See Also:
             - `pmd.search.scoring.blend_scores`: Position-aware blending
             - `pmd.search.scoring.normalize_scores`: Score normalization
+            - `pmd.search.metadata.scoring.apply_metadata_boost`: Metadata boosting
         """
         query_preview = query[:50] + "..." if len(query) > 50 else query
         logger.info(f"Hybrid search: {query_preview!r}, limit={limit}, collection_id={collection_id}")
@@ -208,17 +247,21 @@ class HybridSearchPipeline:
         # Take top candidates for reranking
         candidates = fused[: self.config.rerank_candidates]
 
-        # Step 4 & 5: LLM Reranking with position-aware blending
+        # Step 4: Metadata boost (before reranking so reranker can consider boosted order)
+        if self.config.enable_metadata_boost and candidates:
+            candidates = self._apply_metadata_boost(query, candidates)
+
+        # Step 5 & 6: LLM Reranking with position-aware blending
         if self.config.enable_reranking and candidates and self.reranker:
             final = await self._rerank_with_blending(query, candidates)
         else:
             final = candidates
 
-        # Step 6: Normalize scores to 0-1 range
+        # Step 7: Normalize scores to 0-1 range
         if self.config.normalize_final_scores and final:
             final = normalize_scores(final)
 
-        # Step 7: Filter and limit
+        # Step 8: Filter and limit
         final = [r for r in final if r.score >= min_score]
         final = final[:limit]
 
@@ -359,4 +402,100 @@ class HybridSearchPipeline:
         except Exception as e:
             elapsed = (time.perf_counter() - start_time) * 1000
             logger.warning(f"Reranking failed after {elapsed:.1f}ms: {e}")
+            return candidates
+
+    def _apply_metadata_boost(
+        self,
+        query: str,
+        candidates: list[RankedResult],
+    ) -> list[RankedResult]:
+        """Apply metadata-based score boosting to candidates.
+
+        Uses LexicalTagMatcher to infer tags from the query, then boosts
+        documents whose tags overlap with query-inferred tags.
+
+        When an ontology is provided, uses weighted boosting where parent tags
+        get reduced weights (e.g., parent=0.7x, grandparent=0.49x). Without
+        ontology, uses simple set-based matching (v1).
+
+        Args:
+            query: Original search query.
+            candidates: Candidate results to boost.
+
+        Returns:
+            Boosted and re-sorted results.
+
+        See Also:
+            - `pmd.search.metadata.scoring.apply_metadata_boost`: v1 boosting
+            - `pmd.search.metadata.scoring.apply_metadata_boost_v2`: Weighted boosting
+            - `pmd.search.metadata.inference.LexicalTagMatcher`: Tag inference
+            - `pmd.search.metadata.ontology.Ontology`: Hierarchical tag expansion
+        """
+        if not self.tag_matcher or not self.metadata_repo:
+            return candidates
+
+        logger.debug(f"Applying metadata boost to {len(candidates)} candidates")
+        start_time = time.perf_counter()
+
+        try:
+            # Step 1: Infer tags from query
+            query_tags = self.tag_matcher.get_matching_tags(query)
+            if not query_tags:
+                logger.debug("No tags inferred from query, skipping metadata boost")
+                return candidates
+
+            logger.debug(f"Inferred query tags: {query_tags}")
+
+            # Step 2: Build path->id map for candidates
+            paths = [r.file for r in candidates]
+            path_to_id = build_path_to_id_map(self.fts_repo.db, paths)
+
+            # Step 3: Get document tags for candidates
+            doc_ids = list(path_to_id.values())
+            doc_id_to_tags = get_document_tags_batch(self.metadata_repo, doc_ids)
+
+            # Step 4: Apply boost (v2 with ontology, v1 without)
+            if self.ontology:
+                # Expand query tags to include ancestors with weights
+                expanded_tags = self.ontology.expand_for_matching(query_tags)
+                logger.debug(f"Expanded to {len(expanded_tags)} weighted tags: {expanded_tags}")
+
+                # Get boost config values if set
+                boost_factor = 1.15
+                max_boost = 2.0
+                if self.config.metadata_boost:
+                    boost_factor = self.config.metadata_boost.boost_factor
+                    max_boost = self.config.metadata_boost.max_boost
+
+                boosted = apply_metadata_boost_v2(
+                    candidates,
+                    expanded_tags,
+                    doc_id_to_tags,
+                    path_to_id,
+                    boost_factor=boost_factor,
+                    max_boost=max_boost,
+                )
+                boosted_count = sum(1 for _, b in boosted if b.boost_applied > 1.0)
+            else:
+                # v1: Simple set-based matching
+                boosted = apply_metadata_boost(
+                    candidates,
+                    query_tags,
+                    doc_id_to_tags,
+                    path_to_id,
+                    self.config.metadata_boost,
+                )
+                boosted_count = sum(1 for _, b in boosted if b.boost_applied > 1.0)
+
+            # Extract just the results (discard boost info for now)
+            results = [r for r, _boost_info in boosted]
+
+            elapsed = (time.perf_counter() - start_time) * 1000
+            logger.debug(f"Metadata boost complete: {boosted_count} boosted, {elapsed:.1f}ms")
+
+            return results
+
+        except Exception as e:
+            elapsed = (time.perf_counter() - start_time) * 1000
+            logger.warning(f"Metadata boost failed after {elapsed:.1f}ms: {e}")
             return candidates
