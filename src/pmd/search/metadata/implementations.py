@@ -58,12 +58,13 @@ class GenericProfile:
 
             # Extract common attributes
             for attr in ("title", "author", "date", "created", "modified", "description"):
-                if attr in result.data and result.data[attr]:
+                if attr in result.data and result.data[attr] is not None:
                     value = result.data[attr]
-                    if isinstance(value, (str, int, float)):
-                        attributes[attr] = str(value)
-                    elif isinstance(value, list):
+                    if isinstance(value, list):
                         attributes[attr] = [str(v) for v in value]
+                    elif not isinstance(value, dict):
+                        # Convert scalars (str, int, float, datetime, etc.) to string
+                        attributes[attr] = str(value)
 
         # Extract inline tags from content (after frontmatter)
         inline_tags = extract_inline_tags(result.content)

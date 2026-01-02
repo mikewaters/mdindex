@@ -27,9 +27,9 @@ class FrontmatterResult:
 
 
 # Regex to match YAML frontmatter block at start of document
-# Matches: ---\n<yaml content>\n---\n
+# Matches: ---\n<yaml content>\n---\n (newline before closing --- is optional for empty frontmatter)
 _FRONTMATTER_PATTERN = re.compile(
-    r"^---\s*\n(.*?)\n---\s*\n?",
+    r"^---\s*\n(.*?)\n?---\s*\n?",
     re.DOTALL,
 )
 
