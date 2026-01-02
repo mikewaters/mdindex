@@ -1,0 +1,168 @@
+{
+  "$comment": "Tag ontology for parent-child tag matching. Improves recall by matching documents with child tags when query matches parent concepts.",
+  "parent_weight": 0.7,
+  "tags": {
+    "programming": {
+      "children": [
+        "programming/languages",
+        "programming/paradigms",
+        "programming/patterns"
+      ],
+      "description": "Software programming and development"
+    },
+    "programming/languages": {
+      "children": [
+        "programming/languages/python",
+        "programming/languages/javascript",
+        "programming/languages/rust",
+        "programming/languages/go",
+        "programming/languages/java",
+        "programming/languages/typescript"
+      ],
+      "description": "Programming languages"
+    },
+    "programming/paradigms": {
+      "children": [
+        "programming/paradigms/functional",
+        "programming/paradigms/oop",
+        "programming/paradigms/concurrent"
+      ],
+      "description": "Programming paradigms"
+    },
+    "programming/patterns": {
+      "children": [
+        "programming/patterns/design",
+        "programming/patterns/architectural",
+        "programming/patterns/behavioral"
+      ],
+      "description": "Software design patterns"
+    },
+
+    "machine-learning": {
+      "children": [
+        "machine-learning/supervised",
+        "machine-learning/unsupervised",
+        "machine-learning/reinforcement",
+        "machine-learning/deep-learning"
+      ],
+      "description": "Machine learning and AI"
+    },
+    "machine-learning/supervised": {
+      "children": [
+        "machine-learning/supervised/classification",
+        "machine-learning/supervised/regression"
+      ],
+      "description": "Supervised learning methods"
+    },
+    "machine-learning/unsupervised": {
+      "children": [
+        "machine-learning/unsupervised/clustering",
+        "machine-learning/unsupervised/dimensionality-reduction"
+      ],
+      "description": "Unsupervised learning methods"
+    },
+    "machine-learning/deep-learning": {
+      "children": [
+        "machine-learning/deep-learning/cnn",
+        "machine-learning/deep-learning/rnn",
+        "machine-learning/deep-learning/transformer",
+        "machine-learning/deep-learning/llm"
+      ],
+      "description": "Deep learning and neural networks"
+    },
+
+    "web": {
+      "children": [
+        "web/frontend",
+        "web/backend",
+        "web/api",
+        "web/security"
+      ],
+      "description": "Web development"
+    },
+    "web/frontend": {
+      "children": [
+        "web/frontend/react",
+        "web/frontend/vue",
+        "web/frontend/css",
+        "web/frontend/accessibility"
+      ],
+      "description": "Frontend web development"
+    },
+    "web/backend": {
+      "children": [
+        "web/backend/django",
+        "web/backend/flask",
+        "web/backend/fastapi",
+        "web/backend/nodejs"
+      ],
+      "description": "Backend web development"
+    },
+    "web/api": {
+      "children": [
+        "web/api/rest",
+        "web/api/graphql",
+        "web/api/grpc"
+      ],
+      "description": "Web APIs and protocols"
+    },
+
+    "devops": {
+      "children": [
+        "devops/containers",
+        "devops/ci-cd",
+        "devops/cloud",
+        "devops/monitoring"
+      ],
+      "description": "DevOps and infrastructure"
+    },
+    "devops/containers": {
+      "children": [
+        "devops/containers/docker",
+        "devops/containers/kubernetes"
+      ],
+      "description": "Container technologies"
+    },
+    "devops/cloud": {
+      "children": [
+        "devops/cloud/aws",
+        "devops/cloud/gcp",
+        "devops/cloud/azure"
+      ],
+      "description": "Cloud platforms"
+    },
+
+    "data": {
+      "children": [
+        "data/storage",
+        "data/processing",
+        "data/analytics"
+      ],
+      "description": "Data engineering and management"
+    },
+    "data/storage": {
+      "children": [
+        "data/storage/sql",
+        "data/storage/nosql",
+        "data/storage/graph"
+      ],
+      "description": "Data storage technologies"
+    },
+    "data/storage/sql": {
+      "children": [
+        "data/storage/sql/postgresql",
+        "data/storage/sql/mysql",
+        "data/storage/sql/sqlite"
+      ],
+      "description": "SQL databases"
+    },
+    "data/storage/nosql": {
+      "children": [
+        "data/storage/nosql/mongodb",
+        "data/storage/nosql/redis",
+        "data/storage/nosql/elasticsearch"
+      ],
+      "description": "NoSQL databases"
+    }
+  }
+}
