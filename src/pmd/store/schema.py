@@ -86,6 +86,17 @@ CREATE TABLE IF NOT EXISTS source_metadata (
     extra_metadata TEXT
 );
 
+-- Document metadata (extracted tags, attributes)
+CREATE TABLE IF NOT EXISTS document_metadata (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL UNIQUE REFERENCES documents(id),
+    profile_name TEXT NOT NULL,
+    tags_json TEXT NOT NULL,
+    source_tags_json TEXT NOT NULL,
+    attributes_json TEXT,
+    extracted_at TEXT NOT NULL
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection_id);
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);

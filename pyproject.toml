@@ -23,6 +23,11 @@ dependencies = [
     "mlx-lm>=0.29.1",
     "mlx-embeddings>=0.0.5",
     "loguru>=0.7.3",
+    "opentelemetry-sdk>=1.39.1",
+    "opentelemetry-exporter-otlp-proto-http>=1.39.1",
+    "arize-phoenix[all]>=12.27.0",
+    "arize-phoenix-otel>=0.14.0",
+    "pyyaml>=6.0.3",
 ]
 
 [project.optional-dependencies]
@@ -32,6 +37,10 @@ dev = [
     "pytest-cov>=4.0.0",
     "mypy>=1.8.0",
     "ruff>=0.2.0",
+]
+tracing = [
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
 ]
 
 [project.scripts]

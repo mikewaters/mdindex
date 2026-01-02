@@ -19,9 +19,10 @@ from ..sources import (
     SourceConfig,
     SourceFetchError,
     SourceListError,
-    get_default_registry,
+    get_default_registry, 
+    FetchResult
 )
-from ..store.source_metadata import SourceMetadata
+from ..store.source_metadata import SourceMetadata, SourceMetadataRepository
 
 if TYPE_CHECKING:
     from .container import ServiceContainer
@@ -260,6 +261,9 @@ class IndexingService:
             self._update_source_metadata(
                 metadata_repo, doc_id, ref, fetch_result, fetch_duration_ms
             )
+
+            # Extract and store document metadata (tags, attributes)
+            self._extract_and_store_metadata(doc_id, content, ref.path, collection)
 
         logger.debug(f"Indexed: {ref.path} ({len(content)} chars)")
         return "indexed"
@@ -506,6 +510,73 @@ class IndexingService:
         )
         row = cursor.fetchone()
         return row["id"] if row else None
+
+    def _extract_and_store_metadata(
+        self,
+        doc_id: int,
+        content: str,
+        path: str,
+        collection: Collection,
+    ) -> None:
+        """Extract and store document metadata.
+
+        Uses the metadata profile registry to detect the appropriate
+        profile, extract metadata, and store it.
+
+        Args:
+            doc_id: Document ID.
+            content: Document content.
+            path: Document path.
+            collection: Collection the document belongs to.
+        """
+        from datetime import datetime
+
+        from ..search.metadata import get_default_profile_registry
+        from ..store.document_metadata import DocumentMetadataRepository, StoredDocumentMetadata
+
+        try:
+            # Get profile registry and detect appropriate profile
+            registry = get_default_profile_registry()
+
+            # Check if collection has a configured profile
+            profile_name = None
+            if collection.source_config:
+                profile_name = collection.source_config.get("metadata_profile")
+
+            if profile_name:
+                profile = registry.get(profile_name)
+                if not profile:
+                    logger.warning(
+                        f"Configured profile '{profile_name}' not found, using auto-detection"
+                    )
+                    profile = registry.detect_or_default(content, path)
+            else:
+                profile = registry.detect_or_default(content, path)
+
+            # Extract metadata
+            extracted = profile.extract_metadata(content, path)
+
+            # Store metadata
+            metadata_repo = DocumentMetadataRepository(self._container.db)
+            stored = StoredDocumentMetadata(
+                document_id=doc_id,
+                profile_name=profile.name,
+                tags=extracted.tags,
+                source_tags=extracted.source_tags,
+                attributes=extracted.attributes,
+                extracted_at=datetime.utcnow().isoformat(),
+            )
+            metadata_repo.upsert(stored)
+
+            if extracted.tags:
+                logger.debug(
+                    f"Extracted metadata: path={path!r}, profile={profile.name}, "
+                    f"tags={len(extracted.tags)}"
+                )
+
+        except Exception as e:
+            # Don't fail indexing if metadata extraction fails
+            logger.warning(f"Failed to extract metadata for {path}: {e}")
 
     @staticmethod
     def _extract_title(content: str, fallback: str) -> str:

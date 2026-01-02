@@ -1,0 +1,56 @@
+# Sample PMD configuration file (TOML)
+
+# Path to the SQLite index database
+# db_path = "~/.cache/pmd/index.db"
+
+db_path = "/Users/you/.cache/pmd/index.db"
+llm_provider = "mlx"  # lm-studio | openrouter | mlx
+
+[lm_studio]
+base_url = "http://localhost:1234"
+embedding_model = "nomic-embed-text"
+expansion_model = "qwen2:0.5b"
+reranker_model = "qwen2:0.5b"
+timeout = 120.0
+
+[openrouter]
+api_key = "YOUR_OPENROUTER_API_KEY"
+base_url = "https://openrouter.io/api/v1"
+embedding_model = "nomic-ai/nomic-embed-text"
+expansion_model = "qwen/qwen-1.5-0.5b"
+reranker_model = "qwen/qwen-1.5-0.5b"
+timeout = 120.0
+
+[mlx]
+model = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+embedding_model = "mlx-community/nomicai-modernbert-embed-base-4bit"
+embedding_dimension = 768
+query_prefix = "search_query: "
+document_prefix = "search_document: "
+max_tokens = 256
+temperature = 0.7
+lazy_load = true
+
+[search]
+default_limit = 5
+fts_weight = 1.0
+vec_weight = 1.0
+rrf_k = 60
+top_rank_bonus = 0.05
+expansion_weight = 0.5
+rerank_candidates = 30
+
+[chunk]
+max_bytes = 6144
+min_chunk_size = 100
+
+[metadata]
+# Default profile for metadata extraction (generic | obsidian | drafts)
+default_profile = "generic"
+# Whether to expand nested tags (e.g., "parent/child" -> ["parent", "parent/child"])
+expand_nested_tags = true
+# Tag namespace mapping for normalization
+# Example: remap "project" prefix to shorter "prj"
+# [metadata.tag_namespace_map]
+# project = "prj"
+# status = "st"
