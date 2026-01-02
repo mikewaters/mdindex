@@ -6,10 +6,18 @@ from typing import Optional, TypedDict
 
 
 class SearchSource(Enum):
-    """Source of search result."""
+    """Source of search result.
+
+    Attributes:
+        FTS: Full-text search (BM25).
+        VECTOR: Vector similarity search.
+        TAG: Tag-based retrieval.
+        HYBRID: Combination of sources (via RRF).
+    """
 
     FTS = "fts"
     VECTOR = "vec"
+    TAG = "tag"
     HYBRID = "hybrid"
 
 
@@ -73,7 +81,7 @@ class Collection:
         """
         if self.source_type == "filesystem":
             from pathlib import Path
-            return Path(self.pwd).as_uri()
+            return Path(self.pwd).resolve().as_uri()
         elif self.source_type in ("http", "https"):
             return self.source_config.get("base_url", self.pwd) if self.source_config else self.pwd
         elif self.source_type == "entity":
