@@ -14,7 +14,26 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(python -m py_compile:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(uv run python:*)",
+      "Bash(uv add:*)",
+      "mcp__hf-mcp-server__model_search",
+      "Bash(uv run pmd collection add:*)",
+      "Bash(uv run:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "Bash(bd show:*)",
+      "Bash(bd blocked)",
+      "Bash(sqlite3:*)",
+      "Bash(PMD_CONFIG=pmd.toml uv run pmd:*)",
+      "Bash(bd dep --help:*)",
+      "Bash(bd --help:*)",
+      "Bash(bd from-template:*)",
+      "Bash(bd quickstart:*)",
+      "Bash(bd epic --help:*)",
+      "Bash(bd delete:*)",
+      "Skill(work-breakdown)"
     ]
   }
 }

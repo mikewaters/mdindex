@@ -7,6 +7,7 @@ from pmd.core.config import Config
 from pmd.core.types import IndexStatus
 from pmd.services import ServiceContainer
 from pmd.services.status import StatusService
+from pmd.store.schema import EMBEDDING_DIMENSION
 
 
 class TestStatusServiceInit:
@@ -155,3 +156,52 @@ class TestStatusServiceGetCollectionStats:
         stats = connected_container.status.get_collection_stats("test")
 
         assert stats["documents"] == 1
+
+
+class TestStatusServiceGetIndexSyncReport:
+    """Tests for StatusService.get_index_sync_report method."""
+
+    def test_sync_report_missing_fts_and_vectors(
+        self, connected_container: ServiceContainer, tmp_path: Path
+    ):
+        """Report should flag documents missing FTS and vectors."""
+        collection = connected_container.collection_repo.create(
+            "test", str(tmp_path), "**/*.md"
+        )
+        connected_container.document_repo.add_or_update(
+            collection.id, "doc1.md", "Doc 1", "# Content 1"
+        )
+
+        report = connected_container.status.get_index_sync_report()
+
+        assert report["missing_fts_count"] == 1
+        assert report["missing_vectors_count"] == 1
+
+    def test_sync_report_with_fts_and_vectors(
+        self, connected_container: ServiceContainer, tmp_path: Path
+    ):
+        """Report should show zero missing when FTS and vectors are present."""
+        collection = connected_container.collection_repo.create(
+            "test", str(tmp_path), "**/*.md"
+        )
+        doc, _ = connected_container.document_repo.add_or_update(
+            collection.id, "doc1.md", "Doc 1", "# Content 1"
+        )
+
+        # Add FTS entry
+        cursor = connected_container.db.execute(
+            "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
+            (collection.id, doc.filepath),
+        )
+        doc_id = cursor.fetchone()["id"]
+        connected_container.fts_repo.index_document(doc_id, doc.filepath, "# Content 1")
+
+        # Add vector metadata entry
+        connected_container.embedding_repo.store_embedding(
+            doc.hash, 0, 0, [0.1] * EMBEDDING_DIMENSION, "test-model"
+        )
+
+        report = connected_container.status.get_index_sync_report()
+
+        assert report["missing_fts_count"] == 0
+        assert report["missing_vectors_count"] == 0

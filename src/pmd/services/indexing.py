@@ -16,16 +16,18 @@ from ..search.text import is_indexable
 from ..sources import (
     DocumentReference,
     DocumentSource,
+    FetchResult,
     SourceConfig,
     SourceFetchError,
     SourceListError,
-    get_default_registry, 
-    FetchResult
 )
+from ..sources.filesystem import FileSystemSource
+from ..sources.metadata import ExtractedMetadata, get_default_profile_registry
 from ..store.source_metadata import SourceMetadata, SourceMetadataRepository
 
 if TYPE_CHECKING:
     from .container import ServiceContainer
+    from ..store.document_metadata import DocumentMetadataRepository
 
 
 @dataclass
@@ -100,6 +102,7 @@ class IndexingService:
         collection_name: str,
         force: bool = False,
         embed: bool = False,
+        source: DocumentSource | None = None,
     ) -> IndexResult:
         """Index all documents in a collection from its configured source.
 
@@ -122,8 +125,8 @@ class IndexingService:
         if not collection:
             raise CollectionNotFoundError(f"Collection '{collection_name}' not found")
 
-        # Create document source from collection configuration
-        source = self._create_source(collection)
+        # Use injected source when provided; otherwise fall back to filesystem source
+        source = source or self._build_filesystem_source(collection)
 
         logger.info(
             f"Indexing collection: name={collection.name!r}, "
@@ -146,7 +149,7 @@ class IndexingService:
                         collection=collection,
                         source=source,
                         ref=ref,
-                        metadata_repo=metadata_repo,
+                        source_metadata_repo=metadata_repo,
                         force=force,
                     )
                     if result == "indexed":
@@ -184,7 +187,7 @@ class IndexingService:
         collection: Collection,
         source: DocumentSource,
         ref: DocumentReference,
-        metadata_repo: "SourceMetadataRepository",
+        source_metadata_repo: "SourceMetadataRepository",
         force: bool,
     ) -> str:
         """Index a single document from a source.
@@ -208,7 +211,7 @@ class IndexingService:
         stored_metadata = {}
 
         if doc_id and not force:
-            meta = metadata_repo.get_by_document(doc_id)
+            meta = source_metadata_repo.get_by_document(doc_id)
             if meta:
                 stored_metadata = meta.extra.copy()
                 stored_metadata["etag"] = meta.etag
@@ -224,6 +227,7 @@ class IndexingService:
         fetch_duration_ms = int((time.perf_counter() - fetch_start) * 1000)
 
         content = fetch_result.content
+        extracted_metadata = fetch_result.extracted_metadata
 
         # Check content hash if we have existing document
         if existing_doc and not force:
@@ -232,7 +236,7 @@ class IndexingService:
                 # Content unchanged, but update metadata
                 if doc_id:
                     self._update_source_metadata(
-                        metadata_repo, doc_id, ref, fetch_result, fetch_duration_ms
+                        source_metadata_repo, doc_id, ref, fetch_result, fetch_duration_ms
                     )
                 return "skipped"
 
@@ -259,33 +263,36 @@ class IndexingService:
 
             # Store source metadata for remote sources
             self._update_source_metadata(
-                metadata_repo, doc_id, ref, fetch_result, fetch_duration_ms
+                source_metadata_repo, doc_id, ref, fetch_result, fetch_duration_ms
             )
 
             # Extract and store document metadata (tags, attributes)
-            self._extract_and_store_metadata(doc_id, content, ref.path, collection)
+            metadata = extracted_metadata or self._extract_metadata_via_profiles(
+                content,
+                ref.path,
+                collection,
+            )
+            if metadata:
+                self._persist_document_metadata(
+                    doc_id,
+                    metadata,
+                )
 
         logger.debug(f"Indexed: {ref.path} ({len(content)} chars)")
         return "indexed"
 
-    def _create_source(self, collection: Collection) -> DocumentSource:
-        """Create a document source from collection configuration.
+    def _build_filesystem_source(self, collection: Collection) -> DocumentSource:
+        """Create a filesystem source from collection data."""
+        if collection.source_type not in ("filesystem", None):
+            raise ValueError(
+                f"Collection '{collection.name}' is not filesystem-backed; "
+                "provide a DocumentSource explicitly."
+            )
 
-        Args:
-            collection: Collection to create source for.
-
-        Returns:
-            DocumentSource instance.
-        """
-        registry = get_default_registry()
-
-        # Build source config from collection
         source_uri = collection.get_source_uri()
         extra = collection.get_source_config_dict()
-
         config = SourceConfig(uri=source_uri, extra=extra)
-
-        return registry.resolve(source_uri, config)
+        return FileSystemSource(config)
 
     def _update_source_metadata(
         self,
@@ -511,34 +518,16 @@ class IndexingService:
         row = cursor.fetchone()
         return row["id"] if row else None
 
-    def _extract_and_store_metadata(
+    def _extract_metadata_via_profiles(
         self,
-        doc_id: int,
         content: str,
         path: str,
         collection: Collection,
-    ) -> None:
-        """Extract and store document metadata.
-
-        Uses the metadata profile registry to detect the appropriate
-        profile, extract metadata, and store it.
-
-        Args:
-            doc_id: Document ID.
-            content: Document content.
-            path: Document path.
-            collection: Collection the document belongs to.
-        """
-        from datetime import datetime
-
-        from ..search.metadata import get_default_profile_registry
-        from ..store.document_metadata import DocumentMetadataRepository, StoredDocumentMetadata
-
+    ) -> ExtractedMetadata | None:
+        """Extract document metadata using profile auto-detection."""
         try:
-            # Get profile registry and detect appropriate profile
             registry = get_default_profile_registry()
 
-            # Check if collection has a configured profile
             profile_name = None
             if collection.source_config:
                 profile_name = collection.source_config.get("metadata_profile")
@@ -553,20 +542,9 @@ class IndexingService:
             else:
                 profile = registry.detect_or_default(content, path)
 
-            # Extract metadata
             extracted = profile.extract_metadata(content, path)
-
-            # Store metadata
-            metadata_repo = DocumentMetadataRepository(self._container.db)
-            stored = StoredDocumentMetadata(
-                document_id=doc_id,
-                profile_name=profile.name,
-                tags=extracted.tags,
-                source_tags=extracted.source_tags,
-                attributes=extracted.attributes,
-                extracted_at=datetime.utcnow().isoformat(),
-            )
-            metadata_repo.upsert(stored)
+            if not extracted.extraction_source:
+                extracted.extraction_source = profile.name
 
             if extracted.tags:
                 logger.debug(
@@ -574,9 +552,38 @@ class IndexingService:
                     f"tags={len(extracted.tags)}"
                 )
 
-        except Exception as e:
+            return extracted
+
+        except Exception as exc:
             # Don't fail indexing if metadata extraction fails
-            logger.warning(f"Failed to extract metadata for {path}: {e}")
+            logger.warning(f"Failed to extract metadata for {path}: {exc}")
+            return None
+
+    def _persist_document_metadata(
+        self,
+        doc_id: int,
+        metadata: ExtractedMetadata,
+        metadata_repo: "DocumentMetadataRepository | None" = None,
+    ) -> None:
+        """Persist extracted metadata to the repository."""
+        from datetime import datetime
+
+        from ..store.document_metadata import (
+            DocumentMetadataRepository,
+            StoredDocumentMetadata,
+        )
+
+        repo = metadata_repo or DocumentMetadataRepository(self._container.db)
+
+        stored = StoredDocumentMetadata(
+            document_id=doc_id,
+            profile_name=metadata.extraction_source or "unknown",
+            tags=metadata.tags,
+            source_tags=metadata.source_tags,
+            attributes=metadata.attributes,
+            extracted_at=datetime.utcnow().isoformat(),
+        )
+        repo.upsert(stored)
 
     @staticmethod
     def _extract_title(content: str, fallback: str) -> str:
@@ -596,3 +603,139 @@ class IndexingService:
             if line.startswith("# "):
                 return line[2:].strip()
         return fallback
+
+    def backfill_metadata(
+        self,
+        collection_name: str | None = None,
+        force: bool = False,
+    ) -> dict:
+        """Backfill document metadata for existing documents.
+
+        This migration function extracts and stores metadata for documents
+        that were indexed before the metadata tables existed, or for
+        documents that need metadata re-extraction.
+
+        Args:
+            collection_name: Optional collection to limit backfill to.
+                           If None, backfills all collections.
+            force: If True, re-extract metadata even if already present.
+
+        Returns:
+            Dict with backfill statistics:
+            - processed: Number of documents processed
+            - updated: Number of documents with new/updated metadata
+            - skipped: Number of documents skipped (already have metadata)
+            - errors: List of (path, error) for failed documents
+        """
+        from ..store.document_metadata import DocumentMetadataRepository
+
+        logger.info(f"Starting metadata backfill (collection={collection_name}, force={force})")
+        start_time = time.time()
+
+        stats = {
+            "processed": 0,
+            "updated": 0,
+            "skipped": 0,
+            "errors": [],
+        }
+
+        # Ensure document_metadata table exists
+        metadata_repo = DocumentMetadataRepository(self._container.db)
+
+        # Build query for documents needing metadata extraction
+        if force:
+            # Re-extract all
+            if collection_name:
+                cursor = self._container.db.execute(
+                    """
+                    SELECT d.id, d.path, d.body, c.name as collection_name, c.source_config
+                    FROM documents d
+                    JOIN collections c ON d.collection_id = c.id
+                    WHERE d.active = 1 AND c.name = ?
+                    """,
+                    (collection_name,),
+                )
+            else:
+                cursor = self._container.db.execute(
+                    """
+                    SELECT d.id, d.path, d.body, c.name as collection_name, c.source_config
+                    FROM documents d
+                    JOIN collections c ON d.collection_id = c.id
+                    WHERE d.active = 1
+                    """
+                )
+        else:
+            # Only documents without metadata
+            if collection_name:
+                cursor = self._container.db.execute(
+                    """
+                    SELECT d.id, d.path, d.body, c.name as collection_name, c.source_config
+                    FROM documents d
+                    JOIN collections c ON d.collection_id = c.id
+                    LEFT JOIN document_metadata dm ON d.id = dm.document_id
+                    WHERE d.active = 1 AND c.name = ? AND dm.id IS NULL
+                    """,
+                    (collection_name,),
+                )
+            else:
+                cursor = self._container.db.execute(
+                    """
+                    SELECT d.id, d.path, d.body, c.name as collection_name, c.source_config
+                    FROM documents d
+                    JOIN collections c ON d.collection_id = c.id
+                    LEFT JOIN document_metadata dm ON d.id = dm.document_id
+                    WHERE d.active = 1 AND dm.id IS NULL
+                    """
+                )
+
+        rows = cursor.fetchall()
+        total = len(rows)
+        logger.info(f"Found {total} documents to process")
+
+        for row in rows:
+            doc_id = row["id"]
+            path = row["path"]
+            body = row["body"]
+            source_config = row["source_config"]
+
+            stats["processed"] += 1
+
+            if not body:
+                stats["skipped"] += 1
+                continue
+
+            try:
+                # Create a minimal collection object for the extraction
+                import json
+                parsed_config = json.loads(source_config) if source_config else {}
+                collection = Collection(
+                    id=0,  # Not needed for extraction
+                    name=row["collection_name"],
+                    base_path="",  # Not needed for extraction
+                    source_uri="",  # Not needed for extraction
+                    created_at="",  # Not needed for extraction
+                    source_config=parsed_config,
+                )
+
+                metadata = self._extract_metadata_via_profiles(body, path, collection)
+                if metadata:
+                    self._persist_document_metadata(doc_id, metadata, metadata_repo)
+                    stats["updated"] += 1
+                else:
+                    stats["skipped"] += 1
+
+                if stats["processed"] % 100 == 0:
+                    logger.info(f"Backfill progress: {stats['processed']}/{total}")
+
+            except Exception as e:
+                stats["errors"].append((path, str(e)))
+                logger.warning(f"Failed to extract metadata for {path}: {e}")
+
+        elapsed = time.time() - start_time
+        logger.info(
+            f"Metadata backfill complete: processed={stats['processed']}, "
+            f"updated={stats['updated']}, skipped={stats['skipped']}, "
+            f"errors={len(stats['errors'])}, time={elapsed:.1f}s"
+        )
+
+        return stats

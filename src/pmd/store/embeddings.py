@@ -317,7 +317,7 @@ class EmbeddingRepository:
                         collection_id=row["collection_id"],
                         modified_at=row["modified_at"],
                         body_length=len(row["body"]) if row["body"] else 0,
-                        body=None,
+                        body=row["body"],  # Include body for reranking
                         score=score,
                         source=SearchSource.VECTOR,
                         chunk_pos=row["pos"],

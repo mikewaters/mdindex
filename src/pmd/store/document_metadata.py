@@ -48,7 +48,7 @@ class DocumentMetadataRepository:
         self._ensure_table()
 
     def _ensure_table(self) -> None:
-        """Ensure the document_metadata table exists."""
+        """Ensure the document_metadata and document_tags tables exist."""
         self.db.execute(
             """
             CREATE TABLE IF NOT EXISTS document_metadata (
@@ -62,9 +62,25 @@ class DocumentMetadataRepository:
             )
             """
         )
+        # Junction table for fast tag lookups
+        self.db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS document_tags (
+                document_id INTEGER NOT NULL REFERENCES documents(id),
+                tag TEXT NOT NULL,
+                PRIMARY KEY (document_id, tag)
+            )
+            """
+        )
+        # Index for fast lookups by tag
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_document_tags_tag ON document_tags(tag)"
+        )
 
     def upsert(self, metadata: StoredDocumentMetadata) -> None:
         """Insert or update document metadata.
+
+        Also maintains the document_tags junction table for fast lookups.
 
         Args:
             metadata: StoredDocumentMetadata to store.
@@ -74,6 +90,7 @@ class DocumentMetadataRepository:
         attributes_json = json.dumps(metadata.attributes) if metadata.attributes else None
 
         with self.db.transaction() as cursor:
+            # Upsert metadata
             cursor.execute(
                 """
                 INSERT INTO document_metadata (
@@ -96,6 +113,17 @@ class DocumentMetadataRepository:
                     metadata.extracted_at,
                 ),
             )
+
+            # Update junction table: delete old, insert new
+            cursor.execute(
+                "DELETE FROM document_tags WHERE document_id = ?",
+                (metadata.document_id,),
+            )
+            if metadata.tags:
+                cursor.executemany(
+                    "INSERT INTO document_tags (document_id, tag) VALUES (?, ?)",
+                    [(metadata.document_id, tag) for tag in metadata.tags],
+                )
 
     def get_by_document(self, document_id: int) -> StoredDocumentMetadata | None:
         """Get metadata for a document.
@@ -134,27 +162,24 @@ class DocumentMetadataRepository:
     def find_documents_with_tag(self, tag: str) -> list[int]:
         """Find all documents with a specific tag.
 
+        Uses the document_tags junction table for fast indexed lookups.
+
         Args:
             tag: Normalized tag to search for.
 
         Returns:
             List of document IDs with this tag.
         """
-        # Search in JSON array (SQLite JSON functions)
         cursor = self.db.execute(
-            """
-            SELECT document_id FROM document_metadata
-            WHERE EXISTS (
-                SELECT 1 FROM json_each(tags_json)
-                WHERE value = ?
-            )
-            """,
+            "SELECT document_id FROM document_tags WHERE tag = ?",
             (tag,),
         )
         return [row["document_id"] for row in cursor.fetchall()]
 
     def find_documents_with_any_tag(self, tags: set[str]) -> list[int]:
         """Find documents with any of the specified tags.
+
+        Uses the document_tags junction table for fast indexed lookups.
 
         Args:
             tags: Set of tags to search for.
@@ -165,22 +190,43 @@ class DocumentMetadataRepository:
         if not tags:
             return []
 
-        # Build query for any matching tag
+        placeholders = ", ".join("?" for _ in tags)
+        cursor = self.db.execute(
+            f"SELECT DISTINCT document_id FROM document_tags WHERE tag IN ({placeholders})",
+            tuple(tags),
+        )
+        return [row["document_id"] for row in cursor.fetchall()]
+
+    def find_documents_with_all_tags(self, tags: set[str]) -> list[int]:
+        """Find documents that have ALL of the specified tags.
+
+        Uses the document_tags junction table for fast indexed lookups.
+
+        Args:
+            tags: Set of tags that must all be present.
+
+        Returns:
+            List of document IDs with all matching tags.
+        """
+        if not tags:
+            return []
+
         placeholders = ", ".join("?" for _ in tags)
         cursor = self.db.execute(
             f"""
-            SELECT DISTINCT document_id FROM document_metadata
-            WHERE EXISTS (
-                SELECT 1 FROM json_each(tags_json)
-                WHERE value IN ({placeholders})
-            )
+            SELECT document_id FROM document_tags
+            WHERE tag IN ({placeholders})
+            GROUP BY document_id
+            HAVING COUNT(DISTINCT tag) = ?
             """,
-            tuple(tags),
+            (*tags, len(tags)),
         )
         return [row["document_id"] for row in cursor.fetchall()]
 
     def delete_by_document(self, document_id: int) -> bool:
         """Delete metadata for a document.
+
+        Also removes entries from the document_tags junction table.
 
         Args:
             document_id: Document ID to delete metadata for.
@@ -197,6 +243,10 @@ class DocumentMetadataRepository:
 
         with self.db.transaction() as cursor:
             cursor.execute(
+                "DELETE FROM document_tags WHERE document_id = ?",
+                (document_id,),
+            )
+            cursor.execute(
                 "DELETE FROM document_metadata WHERE document_id = ?",
                 (document_id,),
             )
@@ -204,6 +254,8 @@ class DocumentMetadataRepository:
 
     def cleanup_orphans(self) -> int:
         """Remove metadata for deleted documents.
+
+        Also cleans up the document_tags junction table.
 
         Returns:
             Number of orphaned records removed.
@@ -218,6 +270,13 @@ class DocumentMetadataRepository:
 
         if count > 0:
             with self.db.transaction() as cursor:
+                # Clean up junction table first
+                cursor.execute(
+                    """
+                    DELETE FROM document_tags
+                    WHERE document_id NOT IN (SELECT id FROM documents WHERE active = 1)
+                    """
+                )
                 cursor.execute(
                     """
                     DELETE FROM document_metadata
@@ -230,26 +289,26 @@ class DocumentMetadataRepository:
     def get_all_tags(self) -> set[str]:
         """Get all unique tags across all documents.
 
+        Uses the document_tags junction table for fast lookups.
+
         Returns:
             Set of all normalized tags in the database.
         """
-        cursor = self.db.execute(
-            """
-            SELECT DISTINCT value as tag FROM document_metadata, json_each(tags_json)
-            """
-        )
+        cursor = self.db.execute("SELECT DISTINCT tag FROM document_tags")
         return {row["tag"] for row in cursor.fetchall()}
 
     def count_documents_by_tag(self) -> dict[str, int]:
         """Get tag frequency counts.
+
+        Uses the document_tags junction table for fast lookups.
 
         Returns:
             Dictionary mapping tag to document count.
         """
         cursor = self.db.execute(
             """
-            SELECT value as tag, COUNT(DISTINCT document_id) as count
-            FROM document_metadata, json_each(tags_json)
+            SELECT tag, COUNT(*) as count
+            FROM document_tags
             GROUP BY tag
             ORDER BY count DESC
             """

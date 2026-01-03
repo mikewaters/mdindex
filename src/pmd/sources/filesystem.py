@@ -22,6 +22,11 @@ from .base import (
     SourceFetchError,
     SourceListError,
 )
+from .metadata import (
+    ExtractedMetadata,
+    MetadataProfileRegistry,
+    get_default_profile_registry,
+)
 
 
 # =============================================================================
@@ -38,12 +43,14 @@ class FileSystemConfig:
         glob_pattern: Pattern for matching files (default: '**/*.md').
         encoding: File encoding to use (default: 'utf-8').
         follow_symlinks: Whether to follow symbolic links (default: False).
+        metadata_profile: Optional profile name to force (default: auto-detect).
     """
 
     base_path: Path
     glob_pattern: str = "**/*.md"
     encoding: str = "utf-8"
     follow_symlinks: bool = False
+    metadata_profile: str | None = None
 
     @classmethod
     def from_source_config(cls, config: SourceConfig) -> "FileSystemConfig":
@@ -69,6 +76,7 @@ class FileSystemConfig:
             glob_pattern=config.get("glob_pattern", "**/*.md"),
             encoding=config.get("encoding", "utf-8"),
             follow_symlinks=config.get("follow_symlinks", False),
+            metadata_profile=config.get("metadata_profile"),
         )
 
 
@@ -103,6 +111,9 @@ class FileSystemSource(BaseDocumentSource):
         """
         self._config = FileSystemConfig.from_source_config(config)
         self._base_path = self._config.base_path.resolve()
+        self._metadata_registry: MetadataProfileRegistry = (
+            get_default_profile_registry()
+        )
 
     @property
     def base_path(self) -> Path:
@@ -224,11 +235,14 @@ class FileSystemSource(BaseDocumentSource):
         except OSError:
             metadata = {}
 
+        extracted_metadata = self._extract_metadata(content, ref.path)
+
         return FetchResult(
             content=content,
             content_type=content_type,
             encoding=self._config.encoding,
             metadata=metadata,
+            extracted_metadata=extracted_metadata,
         )
 
     def capabilities(self) -> SourceCapabilities:
@@ -243,6 +257,7 @@ class FileSystemSource(BaseDocumentSource):
             supports_last_modified=True,  # Uses mtime
             supports_streaming=False,
             is_readonly=True,
+            provides_document_metadata=True,
         )
 
     async def check_modified(
@@ -312,3 +327,29 @@ class FileSystemSource(BaseDocumentSource):
             ".csv": "text/csv",
         }
         return content_types.get(suffix, "text/plain")
+
+    def _extract_metadata(self, content: str, path: str) -> ExtractedMetadata | None:
+        """Extract metadata for the given document content.
+
+        Args:
+            content: Document content.
+            path: Relative path for profile detection.
+
+        Returns:
+            Extracted metadata or None if extraction fails.
+        """
+        try:
+            if self._config.metadata_profile:
+                profile = self._metadata_registry.get(self._config.metadata_profile)
+                if not profile:
+                    logger.warning(
+                        "Configured metadata profile %r not found; falling back to auto-detection",
+                        self._config.metadata_profile,
+                    )
+                    profile = self._metadata_registry.detect_or_default(content, path)
+            else:
+                profile = self._metadata_registry.detect_or_default(content, path)
+            return profile.extract_metadata(content, path)
+        except Exception as exc:
+            logger.warning(f"Failed to extract metadata for {path}: {exc}")
+            return None

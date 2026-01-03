@@ -165,3 +165,110 @@ class StatusService:
             "created_at": collection.created_at,
             "updated_at": collection.updated_at,
         }
+
+    def get_index_sync_report(
+        self,
+        collection_name: str | None = None,
+        limit: int = 20,
+    ) -> dict:
+        """Report FTS and vector synchronization status.
+
+        Args:
+            collection_name: Optional collection name to scope the report.
+            limit: Maximum number of sample paths to return per category.
+
+        Returns:
+            Dictionary with counts and sample paths for mismatches.
+        """
+        collection_id = None
+        if collection_name:
+            collection = self._container.collection_repo.get_by_name(collection_name)
+            if not collection:
+                return {"error": f"Collection '{collection_name}' not found"}
+            collection_id = collection.id
+
+        params: tuple = ()
+        collection_filter = ""
+        if collection_id is not None:
+            collection_filter = "AND d.collection_id = ?"
+            params = (collection_id,)
+
+        # Documents missing FTS entries
+        missing_fts_count = self._container.db.execute(
+            f"""
+            SELECT COUNT(*) as count
+            FROM documents d
+            LEFT JOIN documents_fts fts ON fts.rowid = d.id
+            WHERE d.active = 1 {collection_filter}
+            AND fts.rowid IS NULL
+            """,
+            params,
+        ).fetchone()["count"]
+
+        missing_fts_paths = self._container.db.execute(
+            f"""
+            SELECT d.path
+            FROM documents d
+            LEFT JOIN documents_fts fts ON fts.rowid = d.id
+            WHERE d.active = 1 {collection_filter}
+            AND fts.rowid IS NULL
+            ORDER BY d.path
+            LIMIT ?
+            """,
+            params + (limit,),
+        ).fetchall()
+
+        # Documents missing embeddings
+        missing_vec_count = self._container.db.execute(
+            f"""
+            SELECT COUNT(DISTINCT d.id) as count
+            FROM documents d
+            LEFT JOIN content_vectors cv ON cv.hash = d.hash
+            WHERE d.active = 1 {collection_filter}
+            AND cv.hash IS NULL
+            """,
+            params,
+        ).fetchone()["count"]
+
+        missing_vec_paths = self._container.db.execute(
+            f"""
+            SELECT d.path
+            FROM documents d
+            LEFT JOIN content_vectors cv ON cv.hash = d.hash
+            WHERE d.active = 1 {collection_filter}
+            AND cv.hash IS NULL
+            ORDER BY d.path
+            LIMIT ?
+            """,
+            params + (limit,),
+        ).fetchall()
+
+        # Orphaned embeddings (no active documents)
+        orphan_vec_count = self._container.db.execute(
+            """
+            SELECT COUNT(DISTINCT cv.hash) as count
+            FROM content_vectors cv
+            LEFT JOIN documents d ON d.hash = cv.hash AND d.active = 1
+            WHERE d.hash IS NULL
+            """
+        ).fetchone()["count"]
+
+        # Orphaned FTS entries (no active documents)
+        orphan_fts_count = self._container.db.execute(
+            """
+            SELECT COUNT(*) as count
+            FROM documents_fts fts
+            LEFT JOIN documents d ON d.id = fts.rowid AND d.active = 1
+            WHERE d.id IS NULL
+            """
+        ).fetchone()["count"]
+
+        return {
+            "collection": collection_name,
+            "missing_fts_count": missing_fts_count,
+            "missing_fts_paths": [row["path"] for row in missing_fts_paths],
+            "missing_vectors_count": missing_vec_count,
+            "missing_vectors_paths": [row["path"] for row in missing_vec_paths],
+            "orphan_vectors_count": orphan_vec_count,
+            "orphan_fts_count": orphan_fts_count,
+        }

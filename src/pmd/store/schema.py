@@ -97,12 +97,20 @@ CREATE TABLE IF NOT EXISTS document_metadata (
     extracted_at TEXT NOT NULL
 );
 
+-- Document tags junction table (inverted index for fast tag lookups)
+CREATE TABLE IF NOT EXISTS document_tags (
+    document_id INTEGER NOT NULL REFERENCES documents(id),
+    tag TEXT NOT NULL,
+    PRIMARY KEY (document_id, tag)
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection_id);
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
 CREATE INDEX IF NOT EXISTS idx_content_vectors_hash ON content_vectors(hash);
 CREATE INDEX IF NOT EXISTS idx_path_contexts_collection ON path_contexts(collection_id);
 CREATE INDEX IF NOT EXISTS idx_source_metadata_uri ON source_metadata(source_uri);
+CREATE INDEX IF NOT EXISTS idx_document_tags_tag ON document_tags(tag);
 """
 
 # Vector storage table (requires sqlite-vec extension)

@@ -52,6 +52,15 @@ def create_parser() -> argparse.ArgumentParser:
         "--config",
         help="Path to TOML configuration file",
     )
+    parser.add_argument(
+        "--phoenix-tracing",
+        action="store_true",
+        help="Enable OpenTelemetry tracing to Arize Phoenix",
+    )
+    parser.add_argument(
+        "--phoenix-endpoint",
+        help="Phoenix OTLP endpoint (default: http://localhost:6006/v1/traces)",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=False)
 
@@ -139,6 +148,12 @@ def create_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("cleanup", help="Clean cache and orphaned data")
 
+    # Metadata backfill command
+    backfill_parser = subparsers.add_parser(
+        "backfill-metadata", help="Backfill document metadata for existing documents"
+    )
+    commands.add_backfill_arguments(backfill_parser)
+
     # Status command
     status_parser = subparsers.add_parser("status", help="Show index status")
     commands.add_status_arguments(status_parser)
@@ -157,6 +172,17 @@ def main() -> NoReturn:
     config = Config.from_env_or_file(args.config)
     logger.debug(f"Loaded config, db_path={config.db_path}")
 
+    # Apply CLI tracing overrides (CLI takes precedence over config/env)
+    if args.phoenix_tracing:
+        config.tracing.enabled = True
+    if args.phoenix_endpoint:
+        config.tracing.phoenix_endpoint = args.phoenix_endpoint
+
+    # Initialize Phoenix tracing if enabled
+    if config.tracing.enabled:
+        from ..core.instrumentation import configure_phoenix_tracing
+        configure_phoenix_tracing(config.tracing)
+
     try:
         if args.command == "collection":
             commands.handle_collection(args, config)
@@ -174,6 +200,8 @@ def main() -> NoReturn:
             commands.handle_embed(args, config)
         elif args.command == "cleanup":
             commands.handle_cleanup(args, config)
+        elif args.command == "backfill-metadata":
+            commands.handle_backfill_metadata(args, config)
         elif args.command == "status":
             commands.handle_status(args, config)
         else:

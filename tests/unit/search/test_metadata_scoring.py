@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from pmd.search.metadata.scoring import (
     MetadataBoostConfig,
     BoostResult,
+    WeightedBoostResult,
     apply_metadata_boost,
+    apply_metadata_boost_v2,
     _calculate_boost,
 )
 
@@ -406,3 +408,184 @@ class TestCalculateBoostEdgeCases:
         """Very high match count should still cap at max_boost."""
         boost = _calculate_boost(1000, 1.5, 2.0)
         assert boost == 2.0
+
+
+class TestApplyMetadataBoostV2:
+    """Tests for the weighted metadata boost function (v2)."""
+
+    def test_single_exact_match(self):
+        """Single exact match (weight 1.0) should boost correctly."""
+        results = [MockResult(file="doc1.md", score=1.0)]
+        query_tags = {"python": 1.0}
+        doc_id_to_tags = {1: {"python", "web"}}
+        doc_path_to_id = {"doc1.md": 1}
+
+        boosted = apply_metadata_boost_v2(
+            results, query_tags, doc_id_to_tags, doc_path_to_id,
+            boost_factor=1.15,
+        )
+
+        _, boost_info = boosted[0]
+        assert boost_info.matching_tags == {"python": 1.0}
+        assert boost_info.total_match_weight == 1.0
+        assert boost_info.boost_applied == pytest.approx(1.15)
+
+    def test_parent_match_reduced_weight(self):
+        """Parent match (weight < 1.0) should boost less."""
+        results = [MockResult(file="doc1.md", score=1.0)]
+        query_tags = {"ml/supervised": 0.7}  # Parent match from ontology
+        doc_id_to_tags = {1: {"ml/supervised"}}
+        doc_path_to_id = {"doc1.md": 1}
+
+        boosted = apply_metadata_boost_v2(
+            results, query_tags, doc_id_to_tags, doc_path_to_id,
+            boost_factor=1.15,
+        )
+
+        _, boost_info = boosted[0]
+        assert boost_info.total_match_weight == pytest.approx(0.7)
+        # 1.15 ** 0.7 = 1.10
+        assert boost_info.boost_applied == pytest.approx(1.15 ** 0.7)
+
+    def test_multiple_weighted_matches(self):
+        """Multiple matches should sum their weights."""
+        results = [MockResult(file="doc1.md", score=1.0)]
+        query_tags = {
+            "ml/supervised/classification": 1.0,
+            "ml/supervised": 0.7,
+            "ml": 0.49,
+        }
+        doc_id_to_tags = {1: {"ml/supervised", "ml"}}  # Matches 2 of 3
+        doc_path_to_id = {"doc1.md": 1}
+
+        boosted = apply_metadata_boost_v2(
+            results, query_tags, doc_id_to_tags, doc_path_to_id,
+            boost_factor=1.15,
+        )
+
+        _, boost_info = boosted[0]
+        assert boost_info.matching_tags == {"ml/supervised": 0.7, "ml": 0.49}
+        assert boost_info.total_match_weight == pytest.approx(1.19)
+        # 1.15 ** 1.19 = ~1.18
+        assert boost_info.boost_applied == pytest.approx(1.15 ** 1.19)
+
+    def test_no_match_no_boost(self):
+        """Documents without matching tags should not be boosted."""
+        results = [MockResult(file="doc1.md", score=1.0)]
+        query_tags = {"python": 1.0}
+        doc_id_to_tags = {1: {"rust"}}
+        doc_path_to_id = {"doc1.md": 1}
+
+        boosted = apply_metadata_boost_v2(
+            results, query_tags, doc_id_to_tags, doc_path_to_id,
+        )
+
+        _, boost_info = boosted[0]
+        assert boost_info.matching_tags == {}
+        assert boost_info.total_match_weight == 0.0
+        assert boost_info.boost_applied == 1.0
+
+    def test_empty_query_tags(self):
+        """Empty query tags should not boost anything."""
+        results = [MockResult(file="doc1.md", score=1.0)]
+
+        boosted = apply_metadata_boost_v2(
+            results, {}, {1: {"python"}}, {"doc1.md": 1},
+        )
+
+        _, boost_info = boosted[0]
+        assert boost_info.boost_applied == 1.0
+
+    def test_max_boost_cap(self):
+        """Total boost should be capped at max_boost."""
+        results = [MockResult(file="doc1.md", score=1.0)]
+        # High weight sum would give boost > max
+        query_tags = {f"tag{i}": 1.0 for i in range(10)}
+        doc_id_to_tags = {1: {f"tag{i}" for i in range(10)}}
+        doc_path_to_id = {"doc1.md": 1}
+
+        boosted = apply_metadata_boost_v2(
+            results, query_tags, doc_id_to_tags, doc_path_to_id,
+            boost_factor=1.15,
+            max_boost=1.5,
+        )
+
+        _, boost_info = boosted[0]
+        assert boost_info.boost_applied == 1.5
+
+    def test_reorders_by_boosted_score(self):
+        """Results should be reordered by boosted score."""
+        results = [
+            MockResult(file="doc1.md", score=1.0),  # No match
+            MockResult(file="doc2.md", score=0.8),  # Will match
+        ]
+        query_tags = {"python": 1.0}
+        doc_id_to_tags = {1: set(), 2: {"python"}}
+        doc_path_to_id = {"doc1.md": 1, "doc2.md": 2}
+
+        boosted = apply_metadata_boost_v2(
+            results, query_tags, doc_id_to_tags, doc_path_to_id,
+            boost_factor=1.5,
+            max_boost=2.0,
+        )
+
+        # Doc2 should now be first (0.8 * 1.5 = 1.2 > 1.0)
+        assert boosted[0][0].file == "doc2.md"
+        assert boosted[1][0].file == "doc1.md"
+
+    def test_unknown_document_no_boost(self):
+        """Documents not in path map should not be boosted."""
+        results = [MockResult(file="unknown.md", score=1.0)]
+        query_tags = {"python": 1.0}
+        doc_id_to_tags = {1: {"python"}}
+        doc_path_to_id = {}  # unknown.md not mapped
+
+        boosted = apply_metadata_boost_v2(
+            results, query_tags, doc_id_to_tags, doc_path_to_id,
+        )
+
+        _, boost_info = boosted[0]
+        assert boost_info.boost_applied == 1.0
+
+    def test_partial_ontology_match(self):
+        """Should correctly handle partial ontology matches."""
+        results = [MockResult(file="doc1.md", score=1.0)]
+        # Simulates ontology expansion for "ml/supervised/classification"
+        query_tags = {
+            "ml/supervised/classification": 1.0,  # Not in doc
+            "ml/supervised": 0.7,                 # In doc
+            "ml": 0.49,                           # In doc
+        }
+        doc_id_to_tags = {1: {"ml/supervised", "ml", "python"}}
+        doc_path_to_id = {"doc1.md": 1}
+
+        boosted = apply_metadata_boost_v2(
+            results, query_tags, doc_id_to_tags, doc_path_to_id,
+            boost_factor=1.2,
+        )
+
+        _, boost_info = boosted[0]
+        # Only matches ml/supervised (0.7) and ml (0.49)
+        assert "ml/supervised/classification" not in boost_info.matching_tags
+        assert boost_info.matching_tags["ml/supervised"] == 0.7
+        assert boost_info.matching_tags["ml"] == 0.49
+
+
+class TestWeightedBoostResult:
+    """Tests for WeightedBoostResult dataclass."""
+
+    def test_all_fields(self):
+        """Should have all required fields."""
+        result = WeightedBoostResult(
+            original_score=1.0,
+            boosted_score=1.5,
+            matching_tags={"python": 1.0, "web": 0.7},
+            total_match_weight=1.7,
+            boost_applied=1.5,
+        )
+
+        assert result.original_score == 1.0
+        assert result.boosted_score == 1.5
+        assert result.matching_tags == {"python": 1.0, "web": 0.7}
+        assert result.total_match_weight == 1.7
+        assert result.boost_applied == 1.5

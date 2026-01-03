@@ -1,0 +1,88 @@
+<svg width="900" height="600" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100%" height="100%" fill="#ffffff" />
+  <style>
+    .actor-rect { fill: #e1f5fe; stroke: #01579b; stroke-width: 2; }
+    .actor-text { font-family: sans-serif; font-size: 14px; font-weight: bold; fill: #333; text-anchor: middle; }
+    .line { stroke: #666; stroke-width: 1; stroke-dasharray: 5,5; }
+    .arrow { stroke: #333; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+    .msg-text { font-family: sans-serif; font-size: 12px; fill: #000; }
+    .note-rect { fill: #fff9c4; stroke: #fbc02d; stroke-width: 1; }
+    .note-text { font-family: sans-serif; font-size: 11px; fill: #333; }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333" />
+    </marker>
+  </defs>
+
+  <!-- Actors -->
+  <g transform="translate(50, 20)">
+    <rect width="120" height="40" rx="5" class="actor-rect" />
+    <text x="60" y="25" class="actor-text">Caller</text>
+    <line x1="60" y1="40" x2="60" y2="550" class="line" />
+  </g>
+  <g transform="translate(220, 20)">
+    <rect width="140" height="40" rx="5" class="actor-rect" style="fill: #e8f5e9; stroke: #2e7d32;" />
+    <text x="70" y="25" class="actor-text">IndexingService</text>
+    <line x1="70" y1="40" x2="70" y2="550" class="line" />
+  </g>
+  <g transform="translate(410, 20)">
+    <rect width="120" height="40" rx="5" class="actor-rect" />
+    <text x="60" y="25" class="actor-text">DocumentSource</text>
+    <line x1="60" y1="40" x2="60" y2="550" class="line" />
+  </g>
+  <g transform="translate(580, 20)">
+    <rect width="120" height="40" rx="5" class="actor-rect" />
+    <text x="60" y="25" class="actor-text">Repositories</text>
+    <line x1="60" y1="40" x2="60" y2="550" class="line" />
+  </g>
+  <g transform="translate(750, 20)">
+    <rect width="120" height="40" rx="5" class="actor-rect" />
+    <text x="60" y="25" class="actor-text">FTS5Repo</text>
+    <line x1="60" y1="40" x2="60" y2="550" class="line" />
+  </g>
+
+  <!-- Sequence -->
+  <!-- 1. index_collection -->
+  <path d="M110,80 L280,80" class="arrow" />
+  <text x="120" y="75" class="msg-text">index_collection(name, source)</text>
+
+  <!-- 2. list_documents -->
+  <path d="M290,110 L460,110" class="arrow" />
+  <text x="300" y="105" class="msg-text">list_documents()</text>
+  <path d="M460,140 L290,140" class="arrow" style="stroke-dasharray: 3,3;" />
+  <text x="300" y="135" class="msg-text">List[DocumentReference]</text>
+
+  <!-- Loop Start -->
+  <rect x="40" y="160" width="820" height="340" fill="none" stroke="#ccc" stroke-dasharray="2,2" />
+  <text x="50" y="175" class="msg-text" style="font-weight: bold;">loop for each doc</text>
+
+  <!-- 3. check metadata -->
+  <path d="M290,200 L630,200" class="arrow" />
+  <text x="300" y="195" class="msg-text">get_metadata(path)</text>
+  
+  <!-- 4. fetch if changed -->
+  <path d="M290,240 L460,240" class="arrow" />
+  <text x="300" y="235" class="msg-text">fetch_document(ref)</text>
+  <path d="M460,270 L290,270" class="arrow" style="stroke-dasharray: 3,3;" />
+  <text x="300" y="265" class="msg-text">FetchResult(content, etag)</text>
+
+  <!-- 5. store content -->
+  <path d="M290,310 L630,310" class="arrow" />
+  <text x="300" y="305" class="msg-text">upsert_document(content, hash)</text>
+
+  <!-- 6. update metadata -->
+  <path d="M290,350 L630,350" class="arrow" />
+  <text x="300" y="345" class="msg-text">update_source_metadata(path, etag)</text>
+
+  <!-- 7. update FTS -->
+  <path d="M290,390 L800,390" class="arrow" />
+  <text x="300" y="385" class="msg-text">index_document(id, content)</text>
+
+  <!-- Loop End -->
+  
+  <!-- 8. Return Result -->
+  <path d="M290,520 L110,520" class="arrow" style="stroke-dasharray: 3,3;" />
+  <text x="120" y="515" class="msg-text">IndexResult(indexed, skipped, errors)</text>
+
+</svg>

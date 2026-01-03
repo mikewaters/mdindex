@@ -1,5 +1,8 @@
 # PMD - Python Markdown Search
 
+# Instrumentation with Phoenix
+`phoenix serve`
+
 A hybrid search engine for markdown documents with full-text search, vector semantic search, and LLM-powered relevance ranking.
 
 ## Features
@@ -148,7 +151,7 @@ from pmd.store.documents import DocumentRepository
 from pmd.store.search import FTS5SearchRepository
 
 # Initialize
-config = Config.from_env()
+config = Config.from_env_or_file()
 db = Database(config.db_path)
 db.connect()
 
@@ -190,7 +193,7 @@ from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
 from pmd.llm import create_llm_provider, QueryExpander, DocumentReranker
 
 async def hybrid_search(query: str):
-    config = Config.from_env()
+    config = Config.from_env_or_file()
     db = Database(config.db_path)
     db.connect()
 
@@ -242,7 +245,7 @@ from pmd.llm import create_llm_provider
 from pmd.llm.embeddings import EmbeddingGenerator
 
 async def generate_embeddings(content: str, hash_value: str):
-    config = Config.from_env()
+    config = Config.from_env_or_file()
     db = Database(config.db_path)
     db.connect()
 
@@ -293,7 +296,7 @@ from pmd.core.config import Config
 from pmd.mcp.server import PMDMCPServer
 
 async def run_mcp_server():
-    config = Config.from_env()
+    config = Config.from_env_or_file()
     server = PMDMCPServer(config)
 
     await server.initialize()
@@ -331,6 +334,27 @@ asyncio.run(run_mcp_server())
 | `OPENROUTER_URL` | `https://openrouter.io/api/v1` | OpenRouter endpoint |
 | `INDEX_PATH` | `~/.cache/pmd/index.db` | Database file path |
 | `XDG_CACHE_HOME` | `~/.cache` | Cache directory base |
+
+### TOML Configuration File
+
+PMD can load configuration from a TOML file. Values in the file override defaults, and environment variables override the file.
+
+```bash
+pmd --config /path/to/pmd.toml status
+```
+
+You can also set `PMD_CONFIG` to point at a config file, which is used if `--config` is not provided.
+
+```bash
+export PMD_CONFIG=/path/to/pmd.toml
+pmd status
+```
+
+See `pmd.toml` in the repo root for a full example with all supported keys.
+
+### Programmatic Configuration Loading
+
+Use `Config.from_env_or_file()` to honor `--config`/`PMD_CONFIG` defaults without additional logic in callers.
 
 ### LLM Provider Configuration
 

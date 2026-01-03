@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Iterator, Protocol, runtime_checkable
 
 from ..core.exceptions import PMDError
+from .metadata import ExtractedMetadata
 
 if TYPE_CHECKING:
     pass
@@ -107,12 +108,14 @@ class FetchResult:
         content_type: MIME type of the content (e.g., 'text/markdown', 'text/html')
         encoding: Character encoding used
         metadata: Updated metadata from the fetch (new etag, last-modified, etc.)
+        extracted_metadata: Optional normalized metadata emitted by the source
     """
 
     content: str
     content_type: str = "text/plain"
     encoding: str = "utf-8"
     metadata: dict[str, Any] = field(default_factory=dict)
+    extracted_metadata: ExtractedMetadata | None = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +130,7 @@ class SourceCapabilities:
         supports_last_modified: Supports Last-Modified header/attribute
         supports_streaming: Can stream large documents
         is_readonly: Source content cannot be modified (always True for now)
+        provides_document_metadata: Source emits normalized metadata directly
     """
 
     supports_incremental: bool = False
@@ -134,6 +138,7 @@ class SourceCapabilities:
     supports_last_modified: bool = False
     supports_streaming: bool = False
     is_readonly: bool = True
+    provides_document_metadata: bool = False
 
 
 # =============================================================================
@@ -192,7 +197,8 @@ class DocumentSource(Protocol):
             ref: Reference to the document to fetch.
 
         Returns:
-            FetchResult containing the document content and metadata.
+            FetchResult containing the document content, transport metadata,
+            and optional extracted document metadata.
 
         Raises:
             SourceFetchError: If fetching fails.

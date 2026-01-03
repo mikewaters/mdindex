@@ -211,7 +211,7 @@ class FTS5SearchRepository(SearchRepository[str]):
                             collection_id=row["collection_id"],
                             modified_at=row["modified_at"],
                             body_length=len(row["body"]) if row["body"] else 0,
-                            body=None,  # Don't include body in search results by default
+                            body=row["body"],  # Include body for reranking
                             score=normalized_score,
                             source=SearchSource.FTS,
                         )

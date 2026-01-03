@@ -1,0 +1,70 @@
+<svg width="800" height="500" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="100%" height="100%" fill="#ffffff" />
+  
+  <!-- Styles -->
+  <style>
+    .node-rect { fill: #f9f9f9; stroke: #333; stroke-width: 2; }
+    .node-text { font-family: sans-serif; font-size: 14px; font-weight: bold; fill: #333; text-anchor: middle; }
+    .edge-path { fill: none; stroke: #666; stroke-width: 1.5; marker-end: url(#arrowhead); }
+    .edge-text { font-family: sans-serif; font-size: 11px; fill: #555; text-anchor: middle; }
+  </style>
+
+  <!-- Arrowhead Definition -->
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
+    </marker>
+  </defs>
+
+  <!-- Nodes -->
+  <rect x="300" y="40" width="200" height="50" rx="5" class="node-rect" style="fill: #e8f5e9; stroke: #2e7d32;" />
+  <text x="400" y="70" class="node-text">SearchService</text>
+
+  <!-- Row 1 -->
+  <rect x="310" y="150" width="180" height="40" rx="5" class="node-rect" />
+  <text x="400" y="175" class="node-text">FTS5SearchRepository</text>
+
+  <rect x="570" y="150" width="180" height="40" rx="5" class="node-rect" />
+  <text x="660" y="175" class="node-text">EmbeddingRepository</text>
+
+  <!-- Row 2 -->
+  <rect x="50" y="250" width="180" height="40" rx="5" class="node-rect" />
+  <text x="140" y="275" class="node-text">CollectionRepository</text>
+
+  <rect x="310" y="250" width="180" height="40" rx="5" class="node-rect" />
+  <text x="400" y="275" class="node-text">EmbeddingGenerator</text>
+
+  <rect x="570" y="250" width="180" height="40" rx="5" class="node-rect" />
+  <text x="660" y="275" class="node-text">HybridSearchPipeline</text>
+
+  <!-- Row 3 -->
+  <rect x="180" y="350" width="180" height="40" rx="5" class="node-rect" />
+  <text x="270" y="375" class="node-text">QueryExpander</text>
+
+  <rect x="440" y="350" width="180" height="40" rx="5" class="node-rect" />
+  <text x="530" y="375" class="node-text">Reranker</text>
+
+  <!-- Edges -->
+  <path d="M400,90 L400,150" class="edge-path" />
+  <text x="400" y="120" class="edge-text">lexical search</text>
+
+  <path d="M500,65 L660,65 L660,150" class="edge-path" />
+  <text x="620" y="60" class="edge-text">semantic search</text>
+
+  <path d="M300,75 L100,75 L100,250" class="edge-path" />
+  <text x="180" y="230" class="edge-text">resolves names</text>
+
+  <path d="M400,90 L400,250" class="edge-path" />
+  <text x="400" y="230" class="edge-text">embeds queries</text>
+
+  <path d="M500,75 L700,75 L700,250" class="edge-path" />
+  <text x="620" y="230" class="edge-text">orchestrates search</text>
+
+  <path d="M300,85 L220,85 L220,350" class="edge-path" />
+  <text x="220" y="330" class="edge-text">expands queries</text>
+
+  <path d="M500,85 L580,85 L580,350" class="edge-path" />
+  <text x="580" y="330" class="edge-text">reranks results</text>
+
+</svg>

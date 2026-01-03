@@ -94,12 +94,12 @@ class MLXProvider(LLMProvider):
         # mlx_lm.load accepts tokenizer_config dict for token
         if token:
             logger.debug("Using HuggingFace token for model download")
-            self._model, self._tokenizer = load(
+            self._model, self._tokenizer = load(  # type: ignore
                 self.config.model,
                 tokenizer_config={"token": token},
             )
         else:
-            self._model, self._tokenizer = load(self.config.model)
+            self._model, self._tokenizer = load(self.config.model)  # type: ignore
 
         self._model_loaded = True
         elapsed = time.perf_counter() - start_time
@@ -149,72 +149,91 @@ class MLXProvider(LLMProvider):
         Returns:
             EmbeddingResult with embedding vector, or None on failure.
         """
+        from ..core.instrumentation import traced_mlx_embed
+
         text_preview = text[:50] + "..." if len(text) > 50 else text
         logger.debug(f"Embedding text ({len(text)} chars, is_query={is_query}): {text_preview!r}")
         start_time = time.perf_counter()
 
-        try:
-            self._ensure_embedding_model_loaded()
+        with traced_mlx_embed(
+            model_id=self.config.embedding_model,
+            input_text=text,
+            is_query=is_query,
+            batch_size=1,
+        ) as trace_meta:
+            try:
+                self._ensure_embedding_model_loaded()
 
-            from mlx_embeddings import generate as generate_embeddings
+                from mlx_embeddings import generate as generate_embeddings
 
-            # Apply model-specific prefixes from config
-            # - nomic/modernbert: "search_query: " / "search_document: "
-            # - e5 models: "query: " / "passage: "
-            if is_query:
-                formatted_text = f"{self.config.query_prefix}{text}"
-            else:
-                formatted_text = f"{self.config.document_prefix}{text}"
+                # Apply model-specific prefixes from config
+                # - nomic/modernbert: "search_query: " / "search_document: "
+                # - e5 models: "query: " / "passage: "
+                if is_query:
+                    formatted_text = f"{self.config.query_prefix}{text}"
+                else:
+                    formatted_text = f"{self.config.document_prefix}{text}"
 
-            # Generate embedding using mlx_embeddings.generate
-            # Returns a BaseModelOutput with various embedding attributes
-            result = generate_embeddings(
-                self._embedding_model,
-                self._embedding_tokenizer,
-                formatted_text,
-            )
+                # Generate embedding using mlx_embeddings.generate
+                # Returns a BaseModelOutput with various embedding attributes
+                result = generate_embeddings(
+                    self._embedding_model,  # type: ignore
+                    self._embedding_tokenizer,  # type: ignore
+                    formatted_text,
+                )
 
-            # Log available attributes for debugging
-            available_attrs = [
-                attr for attr in ["text_embeds", "pooler_output", "last_hidden_state"]
-                if hasattr(result, attr) and getattr(result, attr) is not None
-            ]
-            logger.debug(f"Model output attributes available: {available_attrs}")
+                # Log available attributes for debugging
+                available_attrs = [
+                    attr for attr in ["text_embeds", "pooler_output", "last_hidden_state"]
+                    if hasattr(result, attr) and getattr(result, attr) is not None
+                ]
+                logger.debug(f"Model output attributes available: {available_attrs}")
 
-            # Extract sentence embedding - different models use different output attributes
-            # Priority: text_embeds (normalized, pooled) > pooler_output > last_hidden_state
-            embedding = None
+                # Extract sentence embedding - different models use different output attributes
+                # Priority: text_embeds (normalized, pooled) > pooler_output > last_hidden_state
+                embedding = None
+                pooling_used = None
 
-            # text_embeds: mean-pooled and normalized embeddings (best for similarity)
-            if hasattr(result, "text_embeds") and result.text_embeds is not None:
-                embedding = result.text_embeds.tolist()[0]
-                logger.debug("Using text_embeds for embedding")
-            # pooler_output: CLS token output (used by some BERT variants)
-            elif hasattr(result, "pooler_output") and result.pooler_output is not None:
-                embedding = result.pooler_output.tolist()[0]
-                logger.debug("Using pooler_output for embedding")
-            # Fallback: mean pooling over last_hidden_state
-            elif hasattr(result, "last_hidden_state") and result.last_hidden_state is not None:
-                embedding = result.last_hidden_state.mean(axis=1).tolist()[0]
-                logger.debug("Using mean-pooled last_hidden_state for embedding")
-            else:
-                raise ValueError(f"Could not extract embedding from model output: {type(result)}, available: {available_attrs}")
+                # text_embeds: mean-pooled and normalized embeddings (best for similarity)
+                if hasattr(result, "text_embeds") and result.text_embeds is not None:  # type: ignore
+                    embedding = result.text_embeds.tolist()[0]  # type: ignore
+                    pooling_used = "text_embeds"
+                    logger.debug("Using text_embeds for embedding")
+                # pooler_output: CLS token output (used by some BERT variants)
+                elif hasattr(result, "pooler_output") and result.pooler_output is not None:  # type: ignore
+                    embedding = result.pooler_output.tolist()[0]  # type: ignore
+                    pooling_used = "pooler_output"
+                    logger.debug("Using pooler_output for embedding")
+                # Fallback: mean pooling over last_hidden_state
+                elif hasattr(result, "last_hidden_state") and result.last_hidden_state is not None:  # type: ignore
+                    embedding = result.last_hidden_state.mean(axis=1).tolist()[0]  # type: ignore
+                    pooling_used = "mean_last_hidden_state"
+                    logger.debug("Using mean-pooled last_hidden_state for embedding")
+                else:
+                    raise ValueError(f"Could not extract embedding from model output: {type(result)}, available: {available_attrs}")
 
-            if embedding is None:
-                raise ValueError("Embedding extraction returned None")
+                if embedding is None:
+                    raise ValueError("Embedding extraction returned None")
 
-            elapsed = (time.perf_counter() - start_time) * 1000
-            logger.debug(f"Embedding generated: dim={len(embedding)}, {elapsed:.1f}ms")
+                elapsed = (time.perf_counter() - start_time) * 1000
+                logger.debug(f"Embedding generated: dim={len(embedding)}, {elapsed:.1f}ms")
 
-            return EmbeddingResult(
-                embedding=embedding,
-                model=self.config.embedding_model,
-            )
+                # Record trace metadata
+                trace_meta["success"] = True
+                trace_meta["embedding_dim"] = len(embedding)
+                trace_meta["pooling_used"] = pooling_used
 
-        except Exception as e:
-            elapsed = (time.perf_counter() - start_time) * 1000
-            logger.error(f"Embedding failed after {elapsed:.1f}ms: {e}")
-            return None
+                return EmbeddingResult(
+                    embedding=embedding,
+                    model=self.config.embedding_model,
+                )
+
+            except Exception as e:
+                elapsed = (time.perf_counter() - start_time) * 1000
+                logger.error(f"Embedding failed after {elapsed:.1f}ms: {e}")
+                trace_meta["success"] = False
+                trace_meta["error"] = str(e)
+                return None
 
     async def generate(
         self,
@@ -234,52 +253,69 @@ class MLXProvider(LLMProvider):
         Returns:
             Generated text or None on failure.
         """
+        from ..core.instrumentation import traced_mlx_generate
+
         prompt_preview = prompt[:80] + "..." if len(prompt) > 80 else prompt
         logger.debug(f"Generating text (max_tokens={max_tokens}, temp={temperature}): {prompt_preview!r}")
         start_time = time.perf_counter()
 
-        try:
-            self._ensure_model_loaded()
+        with traced_mlx_generate(
+            model_id=self.config.model,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            streaming=False,
+        ) as trace_meta:
+            try:
+                self._ensure_model_loaded()
 
-            from mlx_lm import generate
-            from mlx_lm.sample_utils import make_sampler
+                from mlx_lm import generate
+                from mlx_lm.sample_utils import make_sampler
 
-            # Format as chat message for instruction-tuned models
-            messages = [{"role": "user", "content": prompt}]
+                # Format as chat message for instruction-tuned models
+                messages = [{"role": "user", "content": prompt}]
 
-            # Apply chat template if available
-            if hasattr(self._tokenizer, "apply_chat_template"):
-                formatted_prompt = self._tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True,
-                )
-            else:
-                formatted_prompt = prompt
+                # Apply chat template if available
+                if hasattr(self._tokenizer, "apply_chat_template"):
+                    formatted_prompt = self._tokenizer.apply_chat_template(  # type: ignore
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True,
+                    ) # type: ignore
+                else:
+                    formatted_prompt = prompt
 
-            # Create sampler with temperature settings
-            sampler = make_sampler(temp=temperature)
+                # Create sampler with temperature settings
+                sampler = make_sampler(temp=temperature)
 
-            response = generate(
-                self._model,
-                self._tokenizer,
-                prompt=formatted_prompt,
-                max_tokens=max_tokens,
-                sampler=sampler,
-                verbose=False,
-            )
+                response = generate(
+                    self._model,  # type: ignore
+                    self._tokenizer,  # type: ignore
+                    prompt=formatted_prompt,
+                    max_tokens=max_tokens,
+                    sampler=sampler,
+                    verbose=False,
+                ) # type: ignore
 
-            result = response.strip() if response else None
-            elapsed = (time.perf_counter() - start_time) * 1000
-            resp_preview = result[:50] + "..." if result and len(result) > 50 else result
-            logger.debug(f"Generated in {elapsed:.1f}ms: {resp_preview!r}")
+                result = response.strip() if response else None
+                elapsed = (time.perf_counter() - start_time) * 1000
+                resp_preview = result[:50] + "..." if result and len(result) > 50 else result
+                logger.debug(f"Generated in {elapsed:.1f}ms: {resp_preview!r}")
 
-            return result
+                # Record trace metadata
+                trace_meta["success"] = result is not None
+                if result:
+                    trace_meta["output_length"] = len(result)
+                    trace_meta["output"] = result
 
-        except Exception as e:
-            elapsed = (time.perf_counter() - start_time) * 1000
-            logger.error(f"Generation failed after {elapsed:.1f}ms: {e}")
-            return None
+                return result
+
+            except Exception as e:
+                elapsed = (time.perf_counter() - start_time) * 1000
+                logger.error(f"Generation failed after {elapsed:.1f}ms: {e}")
+                trace_meta["success"] = False
+                trace_meta["error"] = str(e)
+                return None
 
     async def rerank(
         self,

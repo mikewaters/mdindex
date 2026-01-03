@@ -1,6 +1,7 @@
 """MCP server for PMD."""
 
 from ..core.config import Config
+from ..core.exceptions import CollectionNotFoundError
 from ..services import ServiceContainer
 
 
@@ -160,6 +161,7 @@ class PMDMCPServer:
         self,
         collection: str,
         force: bool = False,
+        embed: bool = False,
     ) -> dict:
         """Index a collection.
 
@@ -171,7 +173,25 @@ class PMDMCPServer:
             Indexing result.
         """
         try:
-            result = await self.services.indexing.index_collection(collection, force)
+            c = self.services.collection_repo.get_by_name(collection)
+            if not c:
+                raise CollectionNotFoundError(f"Collection '{collection}' not found")
+
+            from ..sources import FileSystemSource, SourceConfig
+
+            source = FileSystemSource(
+                SourceConfig(
+                    uri=c.get_source_uri(),
+                    extra=c.get_source_config_dict(),
+                )
+            )
+
+            result = await self.services.indexing.index_collection(
+                collection,
+                force=force,
+                embed=embed,
+                source=source,
+            )
             return {
                 "success": True,
                 "collection": collection,
