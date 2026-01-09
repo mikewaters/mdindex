@@ -13,7 +13,7 @@ Custom sources can still implement the DocumentSource protocol directly and
 be passed to the indexer.
 """
 
-from .base import (
+from .content import (
     BaseDocumentSource,
     DocumentReference,
     DocumentSource,
@@ -24,16 +24,21 @@ from .base import (
     SourceFetchError,
     SourceListError,
 )
-from .filesystem import FileSystemConfig, FileSystemSource
-from .llamaindex import LlamaIndexSource
+from .content import FileSystemConfig, FileSystemSource
+from .content import LlamaIndexSource
+from .content import (
+    SourceFactory,
+    SourceRegistry,
+    get_default_registry,
+    reset_default_registry,
+)
 from .metadata import (
-    DraftsProfile,
-    ExtractedMetadata,
     GenericProfile,
-    MetadataProfile,
+
     MetadataProfileRegistry,
-    ObsidianProfile,
     get_default_profile_registry,
+    ObsidianProfile,
+    DraftsProfile
 )
 
 __all__ = [
@@ -48,6 +53,11 @@ __all__ = [
     "SourceError",
     "SourceFetchError",
     "SourceListError",
+    # Source registry
+    "SourceFactory",
+    "SourceRegistry",
+    "get_default_registry",
+    "reset_default_registry",
     # Filesystem source
     "FileSystemConfig",
     "FileSystemSource",
@@ -55,9 +65,7 @@ __all__ = [
     "LlamaIndexSource",
     # Metadata helpers
     "DraftsProfile",
-    "ExtractedMetadata",
     "GenericProfile",
-    "MetadataProfile",
     "MetadataProfileRegistry",
     "ObsidianProfile",
     "get_default_profile_registry",

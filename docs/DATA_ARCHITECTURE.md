@@ -593,7 +593,7 @@ Triggered when:
 ### Incremental Update Flow
 
 ```
-index_collection(collection_name, force=False)
+index_collection(collection_name, source, force=False)
   │
   ├─► For each document in source.list_documents():
   │     │

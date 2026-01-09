@@ -60,7 +60,7 @@ graph TD
 - orphaned_content, orphaned_embeddings fields
 
 Key methods:
-- `index_collection()` - Enumerate, fetch, store, index documents
+- `index_collection()` - Enumerate, fetch, store, index documents (requires DocumentSource)
 - `embed_collection()` - Generate embeddings for indexed docs
 - `update_all_collections()` - Batch update all collections
 - `cleanup_orphans()` - Remove orphaned content and embeddings

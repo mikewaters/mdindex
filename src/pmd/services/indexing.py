@@ -17,17 +17,18 @@ from ..sources import (
     DocumentReference,
     DocumentSource,
     FetchResult,
-    SourceConfig,
     SourceFetchError,
     SourceListError,
+    SourceRegistry,
+    get_default_registry,
 )
-from ..sources.filesystem import FileSystemSource
-from ..sources.metadata import ExtractedMetadata, get_default_profile_registry
+from ..sources.metadata.types import ExtractedMetadata
+from ..sources.metadata import get_default_profile_registry
 from ..store.source_metadata import SourceMetadata, SourceMetadataRepository
+from ..store.document_metadata import DocumentMetadataRepository
 
 if TYPE_CHECKING:
     from .container import ServiceContainer
-    from ..store.document_metadata import DocumentMetadataRepository
 
 
 @dataclass
@@ -80,8 +81,11 @@ class IndexingService:
     Example:
 
         async with ServiceContainer(config) as services:
-            # Index a collection
-            result = await services.indexing.index_collection("my-docs")
+            # Index a collection using the source registry
+            collection = services.collection_repo.get_by_name("my-docs")
+            registry = get_default_registry()
+            source = registry.create_source(collection)
+            result = await services.indexing.index_collection("my-docs", source=source)
             print(f"Indexed {result.indexed} documents")
 
             # Generate embeddings
@@ -89,20 +93,27 @@ class IndexingService:
             print(f"Embedded {embed_result.embedded} documents")
     """
 
-    def __init__(self, container: "ServiceContainer"):
+    def __init__(
+        self,
+        container: "ServiceContainer",
+        source_registry: SourceRegistry | None = None,
+    ):
         """Initialize IndexingService.
 
         Args:
             container: Service container with shared resources.
+            source_registry: Optional source registry for creating sources from
+                collections. If not provided, uses the default registry.
         """
         self._container = container
+        self._source_registry = source_registry or get_default_registry()
 
     async def index_collection(
         self,
         collection_name: str,
+        source: DocumentSource,
         force: bool = False,
         embed: bool = False,
-        source: DocumentSource | None = None,
     ) -> IndexResult:
         """Index all documents in a collection from its configured source.
 
@@ -113,6 +124,7 @@ class IndexingService:
             collection_name: Name of the collection to index.
             force: If True, reindex all documents even if unchanged.
             embed: If True, trigger embedding generation after indexing.
+            source: Document source to enumerate and fetch documents from.
 
         Returns:
             IndexResult with counts of indexed, skipped, and errored files.
@@ -124,9 +136,6 @@ class IndexingService:
         collection = self._container.collection_repo.get_by_name(collection_name)
         if not collection:
             raise CollectionNotFoundError(f"Collection '{collection_name}' not found")
-
-        # Use injected source when provided; otherwise fall back to filesystem source
-        source = source or self._build_filesystem_source(collection)
 
         logger.info(
             f"Indexing collection: name={collection.name!r}, "
@@ -202,13 +211,13 @@ class IndexingService:
         Returns:
             "indexed" if document was indexed, "skipped" if unchanged.
         """
-        from ..store.source_metadata import SourceMetadataRepository
         from ..utils.hashing import sha256_hash
 
         # Get existing document and metadata for change detection
         existing_doc = self._container.document_repo.get(collection.id, ref.path)
         doc_id = self._get_document_id(collection.id, ref.path) if existing_doc else None
         stored_metadata = {}
+        document_metadata_repo = DocumentMetadataRepository(self._container.db)
 
         if doc_id and not force:
             meta = source_metadata_repo.get_by_document(doc_id)
@@ -276,23 +285,11 @@ class IndexingService:
                 self._persist_document_metadata(
                     doc_id,
                     metadata,
+                    document_metadata_repo
                 )
 
         logger.debug(f"Indexed: {ref.path} ({len(content)} chars)")
         return "indexed"
-
-    def _build_filesystem_source(self, collection: Collection) -> DocumentSource:
-        """Create a filesystem source from collection data."""
-        if collection.source_type not in ("filesystem", None):
-            raise ValueError(
-                f"Collection '{collection.name}' is not filesystem-backed; "
-                "provide a DocumentSource explicitly."
-            )
-
-        source_uri = collection.get_source_uri()
-        extra = collection.get_source_config_dict()
-        config = SourceConfig(uri=source_uri, extra=extra)
-        return FileSystemSource(config)
 
     def _update_source_metadata(
         self,
@@ -425,10 +422,12 @@ class IndexingService:
 
         for collection in collections:
             try:
+                source = self._source_registry.create_source(collection)
                 result = await self.index_collection(
                     collection.name,
                     force=False,
                     embed=embed,
+                    source=source,
                 )
                 results[collection.name] = result
             except Exception as e:
@@ -563,17 +562,14 @@ class IndexingService:
         self,
         doc_id: int,
         metadata: ExtractedMetadata,
-        metadata_repo: "DocumentMetadataRepository | None" = None,
+        metadata_repo: DocumentMetadataRepository,
     ) -> None:
         """Persist extracted metadata to the repository."""
         from datetime import datetime
 
         from ..store.document_metadata import (
-            DocumentMetadataRepository,
             StoredDocumentMetadata,
         )
-
-        repo = metadata_repo or DocumentMetadataRepository(self._container.db)
 
         stored = StoredDocumentMetadata(
             document_id=doc_id,
@@ -583,7 +579,7 @@ class IndexingService:
             attributes=metadata.attributes,
             extracted_at=datetime.utcnow().isoformat(),
         )
-        repo.upsert(stored)
+        metadata_repo.upsert(stored)
 
     @staticmethod
     def _extract_title(content: str, fallback: str) -> str:
@@ -627,7 +623,6 @@ class IndexingService:
             - skipped: Number of documents skipped (already have metadata)
             - errors: List of (path, error) for failed documents
         """
-        from ..store.document_metadata import DocumentMetadataRepository
 
         logger.info(f"Starting metadata backfill (collection={collection_name}, force={force})")
         start_time = time.time()
@@ -643,14 +638,16 @@ class IndexingService:
         metadata_repo = DocumentMetadataRepository(self._container.db)
 
         # Build query for documents needing metadata extraction
+        # Note: Content is stored separately in the content table, joined via hash
         if force:
             # Re-extract all
             if collection_name:
                 cursor = self._container.db.execute(
                     """
-                    SELECT d.id, d.path, d.body, c.name as collection_name, c.source_config
+                    SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d
                     JOIN collections c ON d.collection_id = c.id
+                    JOIN content ct ON d.hash = ct.hash
                     WHERE d.active = 1 AND c.name = ?
                     """,
                     (collection_name,),
@@ -658,9 +655,10 @@ class IndexingService:
             else:
                 cursor = self._container.db.execute(
                     """
-                    SELECT d.id, d.path, d.body, c.name as collection_name, c.source_config
+                    SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d
                     JOIN collections c ON d.collection_id = c.id
+                    JOIN content ct ON d.hash = ct.hash
                     WHERE d.active = 1
                     """
                 )
@@ -669,9 +667,10 @@ class IndexingService:
             if collection_name:
                 cursor = self._container.db.execute(
                     """
-                    SELECT d.id, d.path, d.body, c.name as collection_name, c.source_config
+                    SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d
                     JOIN collections c ON d.collection_id = c.id
+                    JOIN content ct ON d.hash = ct.hash
                     LEFT JOIN document_metadata dm ON d.id = dm.document_id
                     WHERE d.active = 1 AND c.name = ? AND dm.id IS NULL
                     """,
@@ -680,9 +679,10 @@ class IndexingService:
             else:
                 cursor = self._container.db.execute(
                     """
-                    SELECT d.id, d.path, d.body, c.name as collection_name, c.source_config
+                    SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d
                     JOIN collections c ON d.collection_id = c.id
+                    JOIN content ct ON d.hash = ct.hash
                     LEFT JOIN document_metadata dm ON d.id = dm.document_id
                     WHERE d.active = 1 AND dm.id IS NULL
                     """
@@ -711,9 +711,10 @@ class IndexingService:
                 collection = Collection(
                     id=0,  # Not needed for extraction
                     name=row["collection_name"],
-                    base_path="",  # Not needed for extraction
-                    source_uri="",  # Not needed for extraction
+                    pwd="",  # Not needed for extraction
+                    glob_pattern="",  # Not needed for extraction
                     created_at="",  # Not needed for extraction
+                    updated_at="",  # Not needed for extraction
                     source_config=parsed_config,
                 )
 

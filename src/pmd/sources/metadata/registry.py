@@ -2,6 +2,8 @@
 
 Provides a registry for managing metadata profiles and selecting
 the appropriate profile based on document path and content.
+
+At ingest time, if the user has not provided an explicit profile for a collection, we can detect it using some heuristics.
 """
 
 from __future__ import annotations
@@ -10,8 +12,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, TYPE_CHECKING
 
+from pmd.sources.metadata.drafts import _detect_drafts_content
+from pmd.sources.metadata.obsidian import _detect_obsidian_content
+
 if TYPE_CHECKING:
-    from .profiles import MetadataProfile
+    from pmd.sources.metadata.types import MetadataProfile
 
 
 # Type for detector functions
@@ -162,7 +167,9 @@ def get_default_profile_registry() -> MetadataProfileRegistry:
 
 def _register_builtin_profiles(registry: MetadataProfileRegistry) -> None:
     """Register built-in metadata profiles."""
-    from .implementations import GenericProfile, ObsidianProfile, DraftsProfile
+    from .base import GenericProfile
+    from .drafts import DraftsProfile
+    from .obsidian import ObsidianProfile
 
     # Generic profile as lowest-priority fallback
     registry.register(
@@ -193,31 +200,3 @@ def _register_builtin_profiles(registry: MetadataProfileRegistry) -> None:
     )
 
 
-def _detect_obsidian_content(content: str, path: str) -> bool:
-    """Detect Obsidian documents by content."""
-    # Check for wikilinks or embeds
-    if re.search(r"\[\[[^\]]+\]\]", content):
-        return True
-
-    # Check for Obsidian-style comments
-    if "%%" in content:
-        return True
-
-    # Check for nested tags in frontmatter or inline
-    if re.search(r"#[a-zA-Z]+/[a-zA-Z]+", content):
-        return True
-
-    return False
-
-
-def _detect_drafts_content(content: str, path: str) -> bool:
-    """Detect Drafts app documents by content."""
-    # Check for Drafts UUID pattern in frontmatter
-    if re.search(r"uuid:\s*[a-f0-9-]{36}", content, re.IGNORECASE):
-        return True
-
-    # Check for created_latitude (Drafts geolocation)
-    if "created_latitude:" in content:
-        return True
-
-    return False

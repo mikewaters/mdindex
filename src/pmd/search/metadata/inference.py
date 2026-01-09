@@ -217,34 +217,15 @@ def load_default_aliases() -> dict[str, str]:
 
     Returns:
         Dictionary mapping alias -> canonical tag.
+
+    Note:
+        This function is kept for backward compatibility.
+        Prefer using pmd.metadata.load_default_aliases() directly.
     """
-    import json
-    from pathlib import Path
+    from pmd.metadata import load_default_aliases as _load_aliases
 
-    # Load from package data
-    data_dir = Path(__file__).parent / "data"
-    aliases_file = data_dir / "tag_aliases.json"
-
-    if aliases_file.exists():
-        try:
-            with open(aliases_file) as f:
-                data = json.load(f)
-                return data.get("aliases", {})
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    # Fallback to minimal built-in aliases
-    return {
-        "py": "python",
-        "js": "javascript",
-        "ts": "typescript",
-        "api": "api",
-        "db": "database",
-        "ml": "machine-learning",
-        "k8s": "kubernetes",
-        "doc": "documentation",
-        "docs": "documentation",
-    }
+    aliases = _load_aliases()
+    return aliases.all_aliases()
 
 
 def create_default_matcher(known_tags: set[str] | None = None) -> LexicalTagMatcher:

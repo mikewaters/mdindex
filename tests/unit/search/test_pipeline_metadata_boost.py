@@ -5,10 +5,12 @@ from dataclasses import dataclass
 from unittest.mock import MagicMock, patch, AsyncMock
 
 from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
-from pmd.search.metadata.inference import LexicalTagMatcher
-from pmd.search.metadata.ontology import Ontology
-from pmd.search.metadata.retrieval import TagRetriever
-from pmd.search.metadata.scoring import MetadataBoostConfig
+from pmd.metadata import Ontology
+from pmd.search.metadata import (
+    LexicalTagMatcher,
+    MetadataBoostConfig,
+    TagRetriever,
+)
 from pmd.core.types import SearchSource
 
 

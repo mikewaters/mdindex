@@ -2,7 +2,7 @@
 
 import pytest
 
-from pmd.search.metadata.parsers import (
+from pmd.sources.metadata import (
     FrontmatterResult,
     parse_frontmatter,
     extract_inline_tags,

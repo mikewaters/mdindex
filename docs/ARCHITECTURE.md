@@ -201,7 +201,14 @@ class DocumentRepository:
 
 ```python
 async with ServiceContainer(config) as services:
-    await services.indexing.index_collection("docs")
+    collection = services.collection_repo.get_by_name("docs")
+    source = FileSystemSource(
+        SourceConfig(
+            uri=collection.get_source_uri(),
+            extra=collection.get_source_config_dict(),
+        )
+    )
+    await services.indexing.index_collection("docs", source=source)
     results = await services.search.hybrid_search("query")
 ```
 
@@ -340,7 +347,7 @@ Key environment variables:
 ```
 CLI: pmd index my-docs
     ↓
-IndexingService.index_collection("my-docs")
+IndexingService.index_collection("my-docs", source)
     ↓
 CollectionRepository.get_by_name("my-docs") → Collection
     ↓

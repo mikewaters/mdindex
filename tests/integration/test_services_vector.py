@@ -15,6 +15,7 @@ from pathlib import Path
 from pmd.core.config import Config, MLXConfig
 from pmd.core.types import SearchSource
 from pmd.services import ServiceContainer
+from pmd.sources import FileSystemSource, SourceConfig
 
 
 # Skip all tests in this module if not on macOS
@@ -22,6 +23,21 @@ pytestmark = pytest.mark.skipif(
     sys.platform != "darwin",
     reason="MLX embeddings require macOS with Apple Silicon"
 )
+
+
+def _filesystem_source_for(collection) -> FileSystemSource:
+    return FileSystemSource(
+        SourceConfig(
+            uri=collection.get_source_uri(),
+            extra=collection.get_source_config_dict(),
+        )
+    )
+
+
+def _filesystem_source_for_name(services: ServiceContainer, name: str) -> FileSystemSource:
+    collection = services.collection_repo.get_by_name(name)
+    assert collection is not None
+    return _filesystem_source_for(collection)
 
 
 @pytest.fixture(scope="module")
@@ -62,7 +78,8 @@ class TestServiceEmbedCollection:
 
             # Create and index collection
             services.collection_repo.create("test", str(tmp_path), "**/*.md")
-            await services.indexing.index_collection("test")
+            source = _filesystem_source_for_name(services, "test")
+            await services.indexing.index_collection("test", source)
 
             # Embed collection
             result = await services.indexing.embed_collection("test")
@@ -93,7 +110,8 @@ class TestServiceEmbedCollection:
                 pytest.skip("sqlite-vec not available")
 
             services.collection_repo.create("test", str(tmp_path), "**/*.md")
-            await services.indexing.index_collection("test")
+            source = _filesystem_source_for_name(services, "test")
+            await services.indexing.index_collection("test", source)
 
             # First embedding
             result1 = await services.indexing.embed_collection("test")
@@ -120,7 +138,8 @@ class TestServiceEmbedCollection:
                 pytest.skip("sqlite-vec not available")
 
             services.collection_repo.create("test", str(tmp_path), "**/*.md")
-            await services.indexing.index_collection("test")
+            source = _filesystem_source_for_name(services, "test")
+            await services.indexing.index_collection('test', source)
 
             # First embedding
             await services.indexing.embed_collection("test")
@@ -156,7 +175,8 @@ class TestServiceVectorSearch:
                 pytest.skip("sqlite-vec not available")
 
             services.collection_repo.create("test", str(tmp_path), "**/*.md")
-            await services.indexing.index_collection("test")
+            source = _filesystem_source_for_name(services, "test")
+            await services.indexing.index_collection("test", source)
             await services.indexing.embed_collection("test")
 
             # Search for programming-related content
@@ -195,9 +215,11 @@ class TestServiceVectorSearch:
             # Create two collections
             services.collection_repo.create("coll1", str(tmp_path / "coll1"), "**/*.md")
             services.collection_repo.create("coll2", str(tmp_path / "coll2"), "**/*.md")
+            coll1_source = _filesystem_source_for_name(services, "coll1")
+            coll2_source = _filesystem_source_for_name(services, "coll2")
 
-            await services.indexing.index_collection("coll1")
-            await services.indexing.index_collection("coll2")
+            await services.indexing.index_collection("coll1", coll1_source)
+            await services.indexing.index_collection("coll2", coll2_source)
             await services.indexing.embed_collection("coll1")
             await services.indexing.embed_collection("coll2")
 
@@ -233,7 +255,8 @@ class TestServiceVectorSearch:
                 pytest.skip("sqlite-vec not available")
 
             services.collection_repo.create("test", str(tmp_path), "**/*.md")
-            await services.indexing.index_collection("test")
+            source = _filesystem_source_for_name(services, "test")
+            await services.indexing.index_collection("test", source)
             await services.indexing.embed_collection("test")
 
             # Search for ML content
@@ -274,7 +297,8 @@ class TestServiceHybridSearch:
                 pytest.skip("sqlite-vec not available")
 
             services.collection_repo.create("test", str(tmp_path), "**/*.md")
-            await services.indexing.index_collection("test")
+            source = _filesystem_source_for_name(services, "test")
+            await services.indexing.index_collection("test", source)
             await services.indexing.embed_collection("test")
 
             # Hybrid search
@@ -299,7 +323,8 @@ class TestServiceHybridSearch:
 
         async with ServiceContainer(config) as services:
             services.collection_repo.create("test", str(tmp_path), "**/*.md")
-            await services.indexing.index_collection("test")
+            source = _filesystem_source_for_name(services, "test")
+            await services.indexing.index_collection("test", source)
             # Don't embed - test FTS fallback
 
             # Hybrid search should still work via FTS
@@ -329,7 +354,8 @@ class TestServiceCorpusSearch:
 
             # Index and embed corpus (limit for speed)
             services.collection_repo.create("corpus", str(corpus_path), "**/*.md")
-            await services.indexing.index_collection("corpus")
+            source = _filesystem_source_for_name(services, "corpus")
+            await services.indexing.index_collection("corpus", source)
 
             # Only embed first 20 docs for speed
             result = await services.indexing.embed_collection("corpus")

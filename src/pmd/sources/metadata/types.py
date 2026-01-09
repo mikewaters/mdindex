@@ -1,7 +1,7 @@
-"""Metadata profile protocol and types.
+"""Core metadata types and protocols.
 
-Defines the Protocol for app-aware metadata extraction and the
-ExtractedMetadata dataclass for normalized output.
+Defines the foundational types for metadata handling across both
+source extraction and search inference.
 """
 
 from dataclasses import dataclass, field

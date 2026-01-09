@@ -48,11 +48,11 @@ from loguru import logger
 from ..core.types import RankedResult, SearchResult
 from ..store.search import FTS5SearchRepository
 from .fusion import reciprocal_rank_fusion
-from .metadata.inference import LexicalTagMatcher
-from .metadata.ontology import Ontology
-from .metadata.retrieval import TagRetriever
-from .metadata.scoring import (
+from pmd.metadata import Ontology
+from .metadata import (
+    LexicalTagMatcher,
     MetadataBoostConfig,
+    TagRetriever,
     apply_metadata_boost,
     apply_metadata_boost_v2,
     build_path_to_id_map,

@@ -38,7 +38,12 @@ class ServiceContainer:
     Usage as context manager (recommended):
 
         async with ServiceContainer(config) as services:
-            result = await services.indexing.index_collection("docs")
+            from pmd.sources import get_default_registry
+
+            collection = services.collection_repo.get_by_name("docs")
+            registry = get_default_registry()
+            source = registry.create_source(collection)
+            result = await services.indexing.index_collection("docs", source=source)
             results = await services.search.hybrid_search("query")
 
     Usage with manual lifecycle:

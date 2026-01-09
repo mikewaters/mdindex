@@ -129,3 +129,47 @@ Tests for LexicalTagMatcher query-time tag inference.
 | test_register_tags | Register tags correctly | Pass |
 | test_register_alias | Register aliases correctly | Pass |
 | test_clear | Clear registered tags and aliases | Pass |
+## Source Registry (tests/unit/sources/test_registry.py)
+
+### SourceRegistry
+
+Tests for SourceRegistry class that maps source_type strings to factory functions.
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_register_and_create | Register factory and create source | Pass |
+| test_create_unknown_type_raises | Unknown source_type raises ValueError | Pass |
+| test_create_unknown_type_lists_available | Error message lists available types | Pass |
+| test_overwrite_registration_replaces_factory | Overwriting replaces factory | Pass |
+| test_unregister_removes_factory | Unregister removes factory | Pass |
+| test_unregister_unknown_returns_false | Unregister unknown type returns False | Pass |
+| test_is_registered | is_registered returns correct status | Pass |
+| test_registered_types_sorted | registered_types returns sorted list | Pass |
+| test_empty_registry_create_raises | Empty registry raises ValueError | Pass |
+| test_filesystem_factory_registered_by_default | Default registry has filesystem | Pass |
+| test_create_filesystem_source_from_collection | Create FileSystemSource from Collection | Pass |
+| test_create_filesystem_source_with_source_config | FileSystemSource respects config | Pass |
+| test_reset_default_registry | reset_default_registry clears singleton | Pass |
+| test_get_default_registry_singleton | get_default_registry returns same instance | Pass |
+| test_null_source_type_defaults_to_filesystem | collection.source_type=None uses filesystem | Pass |
+
+## Indexing Service (tests/unit/services/test_indexing.py)
+
+### Backfill Metadata
+
+Tests for `backfill_metadata` method, specifically exercising source_config JSON parsing
+and Collection object creation (lines 709-724 in indexing.py).
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_backfill_metadata_empty_database | Returns zeros for empty database | Pass |
+| test_backfill_metadata_extracts_tags | Extracts metadata from documents | Pass |
+| test_backfill_metadata_skips_empty_body | Skips documents with empty content | Pass |
+| test_backfill_metadata_with_source_config | Parses source_config JSON | Pass |
+| test_backfill_metadata_with_null_source_config | Handles NULL source_config | Pass |
+| test_backfill_metadata_with_metadata_profile_in_config | Uses metadata_profile from config | Pass |
+| test_backfill_metadata_collection_filter | Filters by collection_name | Pass |
+| test_backfill_metadata_force_reextracts | force=True re-extracts existing metadata | Pass |
+| test_backfill_metadata_handles_extraction_errors | Captures errors and continues | Pass |
+| test_backfill_metadata_with_empty_source_config_string | Handles empty string source_config | Pass |
+

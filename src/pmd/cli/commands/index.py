@@ -5,7 +5,7 @@ import asyncio
 from ...core.config import Config
 from ...core.exceptions import CollectionNotFoundError
 from ...services import ServiceContainer
-from ...sources import FileSystemSource, SourceConfig
+from ...sources import get_default_registry
 
 
 def add_index_arguments(parser) -> None:
@@ -54,12 +54,8 @@ async def _handle_index_async(args, config: Config) -> None:
             if not collection:
                 raise CollectionNotFoundError(f"Collection '{args.collection}' not found")
 
-            source = FileSystemSource(
-                SourceConfig(
-                    uri=collection.get_source_uri(),
-                    extra=collection.get_source_config_dict(),
-                )
-            )
+            registry = get_default_registry()
+            source = registry.create_source(collection)
 
             result = await services.indexing.index_collection(
                 args.collection,

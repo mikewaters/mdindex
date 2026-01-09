@@ -1,44 +1,11 @@
 # Sources Module Architecture
+Covers the various types of source data to be ingested into a pipeline.
 
-**Location:** `src/pmd/sources/`
+## Source Content
+Covers the various types of content/data sources that can be ingested; for example, 
+reading from a filesystem, a network location, a third-party library etc.
 
-Document source abstraction with a fixed, explicit set of sources.
-
-## Files and Key Abstractions
-
-### `base.py`
-
-**`DocumentSource`** (Protocol) - Source contract
-
-Methods:
-- `list_documents()` - Enumerate documents
-- `fetch_content()` - Fetch document content
-- `capabilities()` - Describe source features
-- `check_modified()` - Change detection
-
-**`DocumentReference`** - Document metadata
-- uri, path, title, metadata
-
-**`FetchResult`** - Fetch operation result
-- content, content_type, encoding, metadata
-
-**`SourceCapabilities`** - Feature flags
-- supports_incremental, supports_etag, etc.
-
-### `filesystem.py`
-
-**`FileSystemSource`** - Local filesystem source
-
-Features:
-- Glob pattern matching
-- Nanosecond mtime comparison
-- Content type detection
-
-### `llamaindex.py`
-
-**`LlamaIndexSource`** - Adapter for LlamaIndex readers/loaders
-
-Features:
-- Wraps any object exposing `load_data(**kwargs)`
-- Maps returned documents to PMD `DocumentReference`/`FetchResult`
-- Caches loaded documents for reuse during indexing
+## Source Metadata
+Covers the variants of metadata storage that may be based on a source application,
+like Obsidian. Obsidian uses frontmatter properties, whereas other tools may use
+inline tags or even special file metadata.

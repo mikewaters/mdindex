@@ -564,7 +564,7 @@ classDiagram
 
     class IndexingService {
         -_container: ServiceContainer
-        +index_collection(name) IndexResult
+        +index_collection(name, source) IndexResult
         +embed_collection(name) EmbedResult
         +cleanup_orphans() CleanupResult
     }

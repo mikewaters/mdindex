@@ -2,12 +2,12 @@
 
 import pytest
 
-from pmd.search.metadata.implementations import (
+from pmd.sources.metadata import ExtractedMetadata
+from pmd.sources.metadata import (
     GenericProfile,
     ObsidianProfile,
     DraftsProfile,
 )
-from pmd.search.metadata.profiles import ExtractedMetadata
 
 
 class TestGenericProfile:

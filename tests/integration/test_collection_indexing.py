@@ -10,7 +10,7 @@ from pathlib import Path
 from pmd.core.exceptions import CollectionNotFoundError
 from pmd.core.types import SearchSource
 from pmd.services import IndexResult, ServiceContainer
-from pmd.sources import SourceListError
+from pmd.sources import FileSystemSource, SourceConfig, SourceListError
 from pmd.store.collections import CollectionRepository
 from pmd.store.database import Database
 from pmd.store.documents import DocumentRepository
@@ -35,6 +35,21 @@ def get_document_id(db: Database, collection_id: int, path: str) -> int:
     )
     row = cursor.fetchone()
     return row["id"] if row else None
+
+
+def _filesystem_source_for(collection) -> FileSystemSource:
+    return FileSystemSource(
+        SourceConfig(
+            uri=collection.get_source_uri(),
+            extra=collection.get_source_config_dict(),
+        )
+    )
+
+
+def _filesystem_source_for_name(services: ServiceContainer, name: str) -> FileSystemSource:
+    collection = services.collection_repo.get_by_name(name)
+    assert collection is not None
+    return _filesystem_source_for(collection)
 
 
 class TestCollectionCreation:
@@ -70,12 +85,13 @@ class TestCollectionCreation:
                 str(test_corpus_path),
                 "**/*.md",
             )
+            source = _filesystem_source_for(collection)
 
             index_result = await services.indexing.index_collection(
                 "my-corpus",
+                source,
                 force=False,
             )
-
             assert index_result.indexed == 118
             assert index_result.skipped == 0
             assert index_result.errors == []
@@ -631,8 +647,13 @@ class TestIndexingService:
                 str(test_corpus_path),
                 "**/*.md",
             )
+            source = _filesystem_source_for_name(services, "test-corpus")
 
-            result = await services.indexing.index_collection("test-corpus", force=True)
+            result = await services.indexing.index_collection(
+                "test-corpus",
+                source,
+                force=True,
+            )
 
             assert isinstance(result, IndexResult)
             assert result.indexed > 100  # Test corpus has 118 files
@@ -651,8 +672,13 @@ class TestIndexingService:
                 str(test_corpus_path),
                 "**/*.md",
             )
+            source = _filesystem_source_for_name(services, "test-corpus")
 
-            result = await services.indexing.index_collection("test-corpus", force=True)
+            result = await services.indexing.index_collection(
+                "test-corpus",
+                source,
+                force=True,
+            )
 
             assert hasattr(result, "indexed")
             assert hasattr(result, "skipped")
@@ -674,12 +700,21 @@ class TestIndexingService:
                 str(test_corpus_path),
                 "**/*.md",
             )
+            source = _filesystem_source_for_name(services, "test-corpus")
 
             # First index
-            result1 = await services.indexing.index_collection("test-corpus", force=True)
+            result1 = await services.indexing.index_collection(
+                "test-corpus",
+                source,
+                force=True,
+            )
 
             # Second index without force - should skip all
-            result2 = await services.indexing.index_collection("test-corpus", force=False)
+            result2 = await services.indexing.index_collection(
+                "test-corpus",
+                source,
+                force=False,
+            )
 
             assert result1.indexed > 0
             assert result2.indexed == 0
@@ -698,12 +733,21 @@ class TestIndexingService:
                 str(test_corpus_path),
                 "**/*.md",
             )
+            source = _filesystem_source_for_name(services, "test-corpus")
 
             # First index
-            result1 = await services.indexing.index_collection("test-corpus", force=True)
+            result1 = await services.indexing.index_collection(
+                "test-corpus",
+                source,
+                force=True,
+            )
 
             # Second index with force - should reindex all
-            result2 = await services.indexing.index_collection("test-corpus", force=True)
+            result2 = await services.indexing.index_collection(
+                "test-corpus",
+                source,
+                force=True,
+            )
 
             assert result1.indexed == result2.indexed
             assert result2.skipped == 0
@@ -721,8 +765,13 @@ class TestIndexingService:
                 str(test_corpus_path),
                 "**/*.md",
             )
+            source = _filesystem_source_for(collection)
 
-            await services.indexing.index_collection("test-corpus", force=True)
+            await services.indexing.index_collection(
+                "test-corpus",
+                source,
+                force=True,
+            )
 
             # Search for a common term
             results = services.fts_repo.search(
@@ -740,8 +789,12 @@ class TestIndexingService:
     ):
         """index_collection should raise CollectionNotFoundError for unknown name."""
         async with ServiceContainer(config) as services:
+            dummy_source = FileSystemSource(SourceConfig(uri="file:///tmp"))
             with pytest.raises(CollectionNotFoundError):
-                await services.indexing.index_collection("nonexistent-collection")
+                await services.indexing.index_collection(
+                    "nonexistent-collection",
+                    source=dummy_source,
+                )
 
     @pytest.mark.asyncio
     async def test_index_collection_raises_for_nonexistent_path(
@@ -756,9 +809,10 @@ class TestIndexingService:
                 "/nonexistent/path/that/does/not/exist",
                 "**/*.md",
             )
+            source = _filesystem_source_for_name(services, "nonexistent")
 
             with pytest.raises(SourceListError, match="does not exist"):
-                await services.indexing.index_collection("nonexistent")
+                await services.indexing.index_collection("nonexistent", source)
 
     @pytest.mark.asyncio
     async def test_index_collection_extracts_titles_from_headings(
@@ -773,8 +827,13 @@ class TestIndexingService:
                 str(test_corpus_path),
                 "**/*.md",
             )
+            source = _filesystem_source_for(collection)
 
-            await services.indexing.index_collection("test-corpus", force=True)
+            await services.indexing.index_collection(
+                "test-corpus",
+                source,
+                force=True,
+            )
 
             # Check a document that should have a heading-based title
             documents = services.document_repo.list_by_collection(collection.id)
@@ -799,8 +858,13 @@ class TestIndexingService:
                 str(test_corpus_path),
                 "**/*.md",
             )
+            source = _filesystem_source_for(collection)
 
-            result = await services.indexing.index_collection("test-corpus", force=True)
+            result = await services.indexing.index_collection(
+                "test-corpus",
+                source,
+                force=True,
+            )
 
             # Count should match what's stored
             stored_count = services.document_repo.count_by_collection(collection.id)

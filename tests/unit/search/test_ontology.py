@@ -5,7 +5,7 @@ import pytest
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from pmd.search.metadata.ontology import (
+from pmd.metadata import (
     Ontology,
     OntologyNode,
     load_ontology,

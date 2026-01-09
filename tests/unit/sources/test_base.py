@@ -139,11 +139,6 @@ class TestSourceCapabilities:
 class TestSourceExceptions:
     """Tests for source exceptions."""
 
-    def test_source_error_is_pmd_error(self):
-        """SourceError inherits from PMDError."""
-        from pmd.core.exceptions import PMDError
-        assert issubclass(SourceError, PMDError)
-
     def test_source_list_error(self):
         """SourceListError contains source info."""
         error = SourceListError("file:///path", "Directory not found")

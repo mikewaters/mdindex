@@ -10,8 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Iterator, Protocol, runtime_checkable
 
-from ..core.exceptions import PMDError
-from .metadata import ExtractedMetadata
+from pmd.core.exceptions import PMDError
+from pmd.sources.metadata.types import ExtractedMetadata
 
 if TYPE_CHECKING:
     pass

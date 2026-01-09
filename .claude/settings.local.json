@@ -33,7 +33,8 @@
       "Bash(bd quickstart:*)",
       "Bash(bd epic --help:*)",
       "Bash(bd delete:*)",
-      "Skill(work-breakdown)"
+      "Skill(work-breakdown)",
+      "Bash(git rm:*)"
     ]
   }
 }

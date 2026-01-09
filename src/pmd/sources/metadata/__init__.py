@@ -1,25 +1,39 @@
-"""Source-side metadata extraction utilities."""
+"""Source-side metadata extraction utilities.
 
-from .implementations import DraftsProfile, GenericProfile, ObsidianProfile
-from .parsers import (
-    FrontmatterResult,
+This module provides app-aware metadata extraction profiles for
+different document sources (Obsidian, Drafts, generic markdown).
+
+Core types are re-exported from pmd.metadata for convenience.
+"""
+
+# Re-export core types from pmd.metadata
+
+
+# Source-specific implementations
+from .base import GenericProfile
+from .drafts import DraftsProfile
+from .obsidian import ObsidianProfile
+from .registry import MetadataProfileRegistry, get_default_profile_registry
+from .types import (
+    ExtractedMetadata
+)
+from .parsing import (
     extract_inline_tags,
     extract_tags_from_field,
     parse_frontmatter,
+    FrontmatterResult
 )
-from .profiles import ExtractedMetadata, MetadataProfile
-from .registry import MetadataProfileRegistry, get_default_profile_registry
 
 __all__ = [
+
     "DraftsProfile",
     "GenericProfile",
     "ObsidianProfile",
-    "FrontmatterResult",
+    "MetadataProfileRegistry",
+    "get_default_profile_registry",
+    "ExtractedMetadata",
     "extract_inline_tags",
     "extract_tags_from_field",
     "parse_frontmatter",
-    "ExtractedMetadata",
-    "MetadataProfile",
-    "MetadataProfileRegistry",
-    "get_default_profile_registry",
+    "FrontmatterResult"
 ]

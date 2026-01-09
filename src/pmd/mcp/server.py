@@ -177,14 +177,10 @@ class PMDMCPServer:
             if not c:
                 raise CollectionNotFoundError(f"Collection '{collection}' not found")
 
-            from ..sources import FileSystemSource, SourceConfig
+            from ..sources import get_default_registry
 
-            source = FileSystemSource(
-                SourceConfig(
-                    uri=c.get_source_uri(),
-                    extra=c.get_source_config_dict(),
-                )
-            )
+            registry = get_default_registry()
+            source = registry.create_source(c)
 
             result = await self.services.indexing.index_collection(
                 collection,

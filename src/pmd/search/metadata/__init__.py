@@ -1,70 +1,51 @@
-"""Metadata extraction for documents.
+"""Query-time metadata inference and scoring for search.
 
-This module provides app-aware metadata extraction, allowing different
-document sources (Obsidian, Drafts, etc.) to have their metadata
-parsed and normalized appropriately.
+This module provides search-specific metadata functionality:
+- LexicalTagMatcher: Infer tags from search queries
+- TagRetriever: Tag-based document retrieval for RRF fusion
+- Scoring: Metadata-based score boosting
+
+For core metadata types, use pmd.metadata.
+For extraction profiles, use pmd.sources.metadata.
 """
 
-from .implementations import (
-    DraftsProfile,
-    GenericProfile,
-    ObsidianProfile,
-)
 from .inference import (
     LexicalTagMatcher,
     TagMatch,
     create_default_matcher,
 )
+from .retrieval import (
+    TagRetriever,
+    TagSearchConfig,
+    create_tag_retriever,
+)
 from .scoring import (
     BoostResult,
     MetadataBoostConfig,
+    ScoredResult,
     WeightedBoostResult,
     apply_metadata_boost,
     apply_metadata_boost_v2,
-)
-from .ontology import (
-    Ontology,
-    OntologyNode,
-    load_default_ontology,
-    load_ontology,
-)
-from .parsers import (
-    FrontmatterResult,
-    extract_inline_tags,
-    extract_tags_from_field,
-    parse_frontmatter,
-)
-from .profiles import (
-    ExtractedMetadata,
-    MetadataProfile,
-)
-from .registry import (
-    MetadataProfileRegistry,
-    get_default_profile_registry,
+    build_path_to_id_map,
+    get_document_tags_batch,
 )
 
 __all__ = [
-    "BoostResult",
-    "DraftsProfile",
-    "ExtractedMetadata",
-    "FrontmatterResult",
-    "GenericProfile",
+    # Inference
     "LexicalTagMatcher",
-    "MetadataBoostConfig",
-    "MetadataProfile",
-    "MetadataProfileRegistry",
-    "ObsidianProfile",
-    "Ontology",
-    "OntologyNode",
     "TagMatch",
+    "create_default_matcher",
+    # Retrieval
+    "TagRetriever",
+    "TagSearchConfig",
+    "create_tag_retriever",
+    # Scoring
+    "BoostResult",
+    "MetadataBoostConfig",
+    "ScoredResult",
     "WeightedBoostResult",
     "apply_metadata_boost",
     "apply_metadata_boost_v2",
-    "create_default_matcher",
-    "extract_inline_tags",
-    "extract_tags_from_field",
-    "get_default_profile_registry",
-    "load_default_ontology",
-    "load_ontology",
-    "parse_frontmatter",
+    "build_path_to_id_map",
+    "get_document_tags_batch",
 ]

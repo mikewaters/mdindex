@@ -22,8 +22,8 @@ from .base import (
     SourceFetchError,
     SourceListError,
 )
-from .metadata import (
-    ExtractedMetadata,
+from pmd.sources.metadata.types import ExtractedMetadata
+from ..metadata import (
     MetadataProfileRegistry,
     get_default_profile_registry,
 )
@@ -349,6 +349,7 @@ class FileSystemSource(BaseDocumentSource):
                     profile = self._metadata_registry.detect_or_default(content, path)
             else:
                 profile = self._metadata_registry.detect_or_default(content, path)
+            logger.debug(f"Using metadata profile: {profile.name}")
             return profile.extract_metadata(content, path)
         except Exception as exc:
             logger.warning(f"Failed to extract metadata for {path}: {exc}")
