@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import time
+import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Awaitable
 
 from loguru import logger
 
@@ -25,6 +26,14 @@ from ..sources import (
 from ..metadata import ExtractedMetadata, get_default_profile_registry
 from ..metadata.store import DocumentMetadataRepository
 from ..store.source_metadata import SourceMetadata, SourceMetadataRepository
+from ..app.types import (
+    CollectionRepositoryProtocol,
+    DatabaseProtocol,
+    DocumentRepositoryProtocol,
+    EmbeddingGeneratorProtocol,
+    EmbeddingRepositoryProtocol,
+    FTSRepositoryProtocol,
+)
 
 if TYPE_CHECKING:
     from .container import ServiceContainer
@@ -77,35 +86,115 @@ class IndexingService:
     - Embedding generation for vector search
     - Cleanup of orphaned data
 
-    Example:
+    Example with explicit dependencies (recommended):
+
+        indexing = IndexingService(
+            db=db,
+            collection_repo=collection_repo,
+            document_repo=document_repo,
+            fts_repo=fts_repo,
+            embedding_repo=embedding_repo,
+        )
+        result = await indexing.index_collection("my-docs", source=source)
+
+    Example with ServiceContainer (deprecated):
 
         async with ServiceContainer(config) as services:
-            # Index a collection using the source registry
-            collection = services.collection_repo.get_by_name("my-docs")
-            registry = get_default_registry()
-            source = registry.create_source(collection)
             result = await services.indexing.index_collection("my-docs", source=source)
-            print(f"Indexed {result.indexed} documents")
-
-            # Generate embeddings
-            embed_result = await services.indexing.embed_collection("my-docs")
-            print(f"Embedded {embed_result.embedded} documents")
     """
 
     def __init__(
         self,
-        container: "ServiceContainer",
+        # Explicit dependencies (new API)
+        db: DatabaseProtocol | None = None,
+        collection_repo: CollectionRepositoryProtocol | None = None,
+        document_repo: DocumentRepositoryProtocol | None = None,
+        fts_repo: FTSRepositoryProtocol | None = None,
+        embedding_repo: EmbeddingRepositoryProtocol | None = None,
+        embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]] | None = None,
+        llm_available_check: Callable[[], Awaitable[bool]] | None = None,
         source_registry: SourceRegistry | None = None,
+        # Deprecated: ServiceContainer
+        container: "ServiceContainer | None" = None,
     ):
         """Initialize IndexingService.
 
         Args:
-            container: Service container with shared resources.
-            source_registry: Optional source registry for creating sources from
-                collections. If not provided, uses the default registry.
+            db: Database for direct SQL operations.
+            collection_repo: Repository for collection operations.
+            document_repo: Repository for document operations.
+            fts_repo: Repository for FTS indexing.
+            embedding_repo: Repository for embedding storage.
+            embedding_generator_factory: Async factory for embedding generator.
+            llm_available_check: Async function to check if LLM is available.
+            source_registry: Optional source registry for creating sources.
+            container: DEPRECATED. Use explicit dependencies instead.
         """
-        self._container = container
         self._source_registry = source_registry or get_default_registry()
+
+        # Support backward compatibility with container
+        if container is not None:
+            warnings.warn(
+                "Passing 'container' to IndexingService is deprecated. "
+                "Use explicit dependencies instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._container = container
+            self._db = container.db
+            self._collection_repo = container.collection_repo
+            self._document_repo = container.document_repo
+            self._fts_repo = container.fts_repo
+            self._embedding_repo = container.embedding_repo
+            self._embedding_generator_factory = container.get_embedding_generator
+            self._llm_available_check = container.is_llm_available
+        else:
+            self._container = None
+            if db is None or collection_repo is None or document_repo is None or fts_repo is None:
+                raise ValueError(
+                    "IndexingService requires db, collection_repo, document_repo, and fts_repo"
+                )
+            self._db = db
+            self._collection_repo = collection_repo
+            self._document_repo = document_repo
+            self._fts_repo = fts_repo
+            self._embedding_repo = embedding_repo
+            self._embedding_generator_factory = embedding_generator_factory
+            self._llm_available_check = llm_available_check
+
+    @classmethod
+    def from_container(
+        cls,
+        container: "ServiceContainer",
+        source_registry: SourceRegistry | None = None,
+    ) -> "IndexingService":
+        """Create IndexingService from a ServiceContainer.
+
+        This is a convenience method for backward compatibility.
+        Prefer using explicit dependencies in new code.
+
+        Args:
+            container: Service container with shared resources.
+            source_registry: Optional source registry.
+
+        Returns:
+            IndexingService instance.
+        """
+        return cls(
+            db=container.db,
+            collection_repo=container.collection_repo,
+            document_repo=container.document_repo,
+            fts_repo=container.fts_repo,
+            embedding_repo=container.embedding_repo,
+            embedding_generator_factory=container.get_embedding_generator,
+            llm_available_check=container.is_llm_available,
+            source_registry=source_registry,
+        )
+
+    @property
+    def vec_available(self) -> bool:
+        """Check if vector storage is available."""
+        return self._db.vec_available
 
     async def index_collection(
         self,
@@ -132,7 +221,7 @@ class IndexingService:
             CollectionNotFoundError: If collection does not exist.
             SourceListError: If the source cannot enumerate documents.
         """
-        collection = self._container.collection_repo.get_by_name(collection_name)
+        collection = self._collection_repo.get_by_name(collection_name)
         if not collection:
             raise CollectionNotFoundError(f"Collection '{collection_name}' not found")
 
@@ -148,7 +237,7 @@ class IndexingService:
 
         # Get source metadata repository for tracking fetch info
         from ..store.source_metadata import SourceMetadataRepository
-        metadata_repo = SourceMetadataRepository(self._container.db)
+        metadata_repo = SourceMetadataRepository(self._db)
 
         try:
             for ref in source.list_documents():
@@ -213,10 +302,10 @@ class IndexingService:
         from ..utils.hashing import sha256_hash
 
         # Get existing document and metadata for change detection
-        existing_doc = self._container.document_repo.get(collection.id, ref.path)
+        existing_doc = self._document_repo.get(collection.id, ref.path)
         doc_id = self._get_document_id(collection.id, ref.path) if existing_doc else None
         stored_metadata = {}
-        document_metadata_repo = DocumentMetadataRepository(self._container.db)
+        document_metadata_repo = DocumentMetadataRepository(self._db)
 
         if doc_id and not force:
             meta = source_metadata_repo.get_by_document(doc_id)
@@ -252,7 +341,7 @@ class IndexingService:
         title = ref.title or self._extract_title(content, Path(ref.path).stem)
 
         # Store document
-        doc_result, is_new = self._container.document_repo.add_or_update(
+        doc_result, is_new = self._document_repo.add_or_update(
             collection.id,
             ref.path,
             title,
@@ -265,9 +354,9 @@ class IndexingService:
         # Index in FTS5 if document has sufficient quality
         if doc_id is not None:
             if is_indexable(content):
-                self._container.fts_repo.index_document(doc_id, ref.path, content)
+                self._fts_repo.index_document(doc_id, ref.path, content)
             else:
-                self._container.fts_repo.remove_from_index(doc_id)
+                self._fts_repo.remove_from_index(doc_id)
 
             # Store source metadata for remote sources
             self._update_source_metadata(
@@ -340,15 +429,15 @@ class IndexingService:
             CollectionNotFoundError: If collection does not exist.
             RuntimeError: If vector storage or LLM provider is not available.
         """
-        if not self._container.vec_available:
+        if not self.vec_available:
             raise RuntimeError(
                 "Vector storage not available (sqlite-vec extension not loaded)"
             )
 
-        if not await self._container.is_llm_available():
+        if self._llm_available_check and not await self._llm_available_check():
             raise RuntimeError("LLM provider not available (is it running?)")
 
-        collection = self._container.collection_repo.get_by_name(collection_name)
+        collection = self._collection_repo.get_by_name(collection_name)
         if not collection:
             raise CollectionNotFoundError(f"Collection '{collection_name}' not found")
 
@@ -356,10 +445,12 @@ class IndexingService:
         start_time = time.perf_counter()
 
         # Get embedding generator
-        embedding_generator = await self._container.get_embedding_generator()
+        if not self._embedding_generator_factory:
+            raise RuntimeError("Embedding generator not configured")
+        embedding_generator = await self._embedding_generator_factory()
 
         # Get all documents in collection
-        cursor = self._container.db.execute(
+        cursor = self._db.execute(
             """
             SELECT d.path, d.hash, c.doc
             FROM documents d
@@ -376,7 +467,7 @@ class IndexingService:
 
         for doc in documents:
             # Check if already embedded (unless force)
-            if not force and self._container.embedding_repo.has_embeddings(doc["hash"]):
+            if not force and self._embedding_repo and self._embedding_repo.has_embeddings(doc["hash"]):
                 skipped_count += 1
                 continue
 
@@ -416,7 +507,7 @@ class IndexingService:
         logger.info("Updating all collections")
         start_time = time.perf_counter()
 
-        collections = self._container.collection_repo.list_all()
+        collections = self._collection_repo.list_all()
         results: dict[str, IndexResult] = {}
 
         for collection in collections:
@@ -455,7 +546,7 @@ class IndexingService:
         start_time = time.perf_counter()
 
         # Find and remove orphaned content
-        cursor = self._container.db.execute(
+        cursor = self._db.execute(
             """
             SELECT COUNT(*) as count FROM content
             WHERE hash NOT IN (SELECT DISTINCT hash FROM documents WHERE active = 1)
@@ -464,7 +555,7 @@ class IndexingService:
         orphaned_content = cursor.fetchone()["count"]
 
         if orphaned_content > 0:
-            self._container.db.execute(
+            self._db.execute(
                 """
                 DELETE FROM content
                 WHERE hash NOT IN (SELECT DISTINCT hash FROM documents WHERE active = 1)
@@ -472,7 +563,7 @@ class IndexingService:
             )
 
         # Find and remove orphaned embeddings
-        cursor = self._container.db.execute(
+        cursor = self._db.execute(
             """
             SELECT COUNT(*) as count FROM content_vectors
             WHERE hash NOT IN (SELECT DISTINCT hash FROM documents WHERE active = 1)
@@ -481,7 +572,7 @@ class IndexingService:
         orphaned_embeddings = cursor.fetchone()["count"]
 
         if orphaned_embeddings > 0:
-            self._container.db.execute(
+            self._db.execute(
                 """
                 DELETE FROM content_vectors
                 WHERE hash NOT IN (SELECT DISTINCT hash FROM documents WHERE active = 1)
@@ -509,7 +600,7 @@ class IndexingService:
         Returns:
             Document ID or None if not found.
         """
-        cursor = self._container.db.execute(
+        cursor = self._db.execute(
             "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
             (collection_id, path),
         )
@@ -634,14 +725,14 @@ class IndexingService:
         }
 
         # Ensure document_metadata table exists
-        metadata_repo = DocumentMetadataRepository(self._container.db)
+        metadata_repo = DocumentMetadataRepository(self._db)
 
         # Build query for documents needing metadata extraction
         # Note: Content is stored separately in the content table, joined via hash
         if force:
             # Re-extract all
             if collection_name:
-                cursor = self._container.db.execute(
+                cursor = self._db.execute(
                     """
                     SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d
@@ -652,7 +743,7 @@ class IndexingService:
                     (collection_name,),
                 )
             else:
-                cursor = self._container.db.execute(
+                cursor = self._db.execute(
                     """
                     SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d
@@ -664,7 +755,7 @@ class IndexingService:
         else:
             # Only documents without metadata
             if collection_name:
-                cursor = self._container.db.execute(
+                cursor = self._db.execute(
                     """
                     SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d
@@ -676,7 +767,7 @@ class IndexingService:
                     (collection_name,),
                 )
             else:
-                cursor = self._container.db.execute(
+                cursor = self._db.execute(
                     """
                     SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d

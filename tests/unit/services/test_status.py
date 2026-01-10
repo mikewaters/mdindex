@@ -13,11 +13,23 @@ from pmd.store.schema import EMBEDDING_DIMENSION
 class TestStatusServiceInit:
     """Tests for StatusService initialization."""
 
-    def test_init_stores_container(self, connected_container: ServiceContainer):
-        """StatusService should store container reference."""
-        service = StatusService(connected_container)
+    def test_init_with_explicit_deps(self, connected_container: ServiceContainer):
+        """StatusService should work with explicit dependencies."""
+        service = StatusService(
+            db=connected_container.db,
+            collection_repo=connected_container.collection_repo,
+            db_path=connected_container.config.db_path,
+        )
 
-        assert service._container is connected_container
+        assert service._db is connected_container.db
+        assert service._collection_repo is connected_container.collection_repo
+
+    def test_from_container_factory(self, connected_container: ServiceContainer):
+        """StatusService.from_container should create service with container deps."""
+        service = StatusService.from_container(connected_container)
+
+        assert service._db is connected_container.db
+        assert service._collection_repo is connected_container.collection_repo
 
 
 class TestStatusServiceGetIndexStatus:

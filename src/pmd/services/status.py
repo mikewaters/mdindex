@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import warnings
+from pathlib import Path
+from typing import TYPE_CHECKING, Callable, Awaitable
 
 from loguru import logger
 
 from ..core.types import IndexStatus
+from ..app.types import (
+    CollectionRepositoryProtocol,
+    DatabaseProtocol,
+)
 
 if TYPE_CHECKING:
     from .container import ServiceContainer
@@ -20,21 +26,93 @@ class StatusService:
     - Collection information
     - LLM provider availability
 
-    Example:
+    Example with explicit dependencies (recommended):
+
+        status_service = StatusService(
+            db=db,
+            collection_repo=collection_repo,
+            db_path=config.db_path,
+        )
+        status = status_service.get_index_status()
+
+    Example with ServiceContainer (deprecated):
 
         async with ServiceContainer(config) as services:
             status = services.status.get_index_status()
-            print(f"Documents: {status.total_documents}")
-            print(f"Collections: {len(status.collections)}")
     """
 
-    def __init__(self, container: "ServiceContainer"):
+    def __init__(
+        self,
+        # Explicit dependencies (new API)
+        db: DatabaseProtocol | None = None,
+        collection_repo: CollectionRepositoryProtocol | None = None,
+        db_path: Path | None = None,
+        llm_provider: str = "unknown",
+        llm_available_check: Callable[[], Awaitable[bool]] | None = None,
+        # Deprecated: ServiceContainer
+        container: "ServiceContainer | None" = None,
+    ):
         """Initialize StatusService.
 
         Args:
-            container: Service container with shared resources.
+            db: Database for direct SQL operations.
+            collection_repo: Repository for collection operations.
+            db_path: Path to the database file.
+            llm_provider: Name of the LLM provider.
+            llm_available_check: Async function to check if LLM is available.
+            container: DEPRECATED. Use explicit dependencies instead.
         """
-        self._container = container
+        # Support backward compatibility with container
+        if container is not None:
+            warnings.warn(
+                "Passing 'container' to StatusService is deprecated. "
+                "Use explicit dependencies instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._container = container
+            self._db = container.db
+            self._collection_repo = container.collection_repo
+            self._db_path = container.config.db_path
+            self._llm_provider = container.config.llm_provider
+            self._llm_available_check = container.is_llm_available
+        else:
+            self._container = None
+            if db is None or collection_repo is None:
+                raise ValueError(
+                    "StatusService requires db and collection_repo"
+                )
+            self._db = db
+            self._collection_repo = collection_repo
+            self._db_path = db_path
+            self._llm_provider = llm_provider
+            self._llm_available_check = llm_available_check
+
+    @classmethod
+    def from_container(cls, container: "ServiceContainer") -> "StatusService":
+        """Create StatusService from a ServiceContainer.
+
+        This is a convenience method for backward compatibility.
+        Prefer using explicit dependencies in new code.
+
+        Args:
+            container: Service container with shared resources.
+
+        Returns:
+            StatusService instance.
+        """
+        return cls(
+            db=container.db,
+            collection_repo=container.collection_repo,
+            db_path=container.config.db_path,
+            llm_provider=container.config.llm_provider,
+            llm_available_check=container.is_llm_available,
+        )
+
+    @property
+    def vec_available(self) -> bool:
+        """Check if vector storage is available."""
+        return self._db.vec_available
 
     def get_index_status(self) -> IndexStatus:
         """Get current index status.
@@ -44,18 +122,18 @@ class StatusService:
         """
         logger.debug("Getting index status")
 
-        collections = self._container.collection_repo.list_all()
+        collections = self._collection_repo.list_all()
 
         # Count total documents
-        cursor = self._container.db.execute(
+        cursor = self._db.execute(
             "SELECT COUNT(*) as count FROM documents WHERE active = 1"
         )
         total_documents = cursor.fetchone()["count"]
 
         # Count embedded documents (documents with at least one embedding)
         embedded_documents = 0
-        if self._container.vec_available:
-            cursor = self._container.db.execute(
+        if self.vec_available:
+            cursor = self._db.execute(
                 """
                 SELECT COUNT(DISTINCT hash) as count FROM content_vectors
                 """
@@ -64,14 +142,14 @@ class StatusService:
 
         # Get database file size
         try:
-            index_size_bytes = self._container.config.db_path.stat().st_size
+            index_size_bytes = self._db_path.stat().st_size if self._db_path else 0
         except (OSError, AttributeError):
             index_size_bytes = 0
 
         # Count embeddings (for cache entries metric)
         cache_entries = 0
-        if self._container.vec_available:
-            cursor = self._container.db.execute(
+        if self.vec_available:
+            cursor = self._db.execute(
                 "SELECT COUNT(*) as count FROM content_vectors"
             )
             cache_entries = cursor.fetchone()["count"]
@@ -100,7 +178,9 @@ class StatusService:
         index_status = self.get_index_status()
 
         # Check LLM availability
-        llm_available = await self._container.is_llm_available()
+        llm_available = False
+        if self._llm_available_check:
+            llm_available = await self._llm_available_check()
 
         return {
             "collections_count": len(index_status.collections),
@@ -116,10 +196,10 @@ class StatusService:
             "embedded_documents": index_status.embedded_documents,
             "index_size_bytes": index_status.index_size_bytes,
             "embeddings_count": index_status.cache_entries,
-            "database_path": str(self._container.config.db_path),
-            "llm_provider": self._container.config.llm_provider,
+            "database_path": str(self._db_path) if self._db_path else "",
+            "llm_provider": self._llm_provider,
             "llm_available": llm_available,
-            "vec_available": self._container.vec_available,
+            "vec_available": self.vec_available,
         }
 
     def get_collection_stats(self, collection_name: str) -> dict | None:
@@ -131,12 +211,12 @@ class StatusService:
         Returns:
             Dictionary with collection statistics, or None if not found.
         """
-        collection = self._container.collection_repo.get_by_name(collection_name)
+        collection = self._collection_repo.get_by_name(collection_name)
         if not collection:
             return None
 
         # Count documents in collection
-        cursor = self._container.db.execute(
+        cursor = self._db.execute(
             "SELECT COUNT(*) as count FROM documents WHERE collection_id = ? AND active = 1",
             (collection.id,),
         )
@@ -144,8 +224,8 @@ class StatusService:
 
         # Count embedded documents in collection
         embedded_count = 0
-        if self._container.vec_available:
-            cursor = self._container.db.execute(
+        if self.vec_available:
+            cursor = self._db.execute(
                 """
                 SELECT COUNT(DISTINCT d.hash) as count
                 FROM documents d
@@ -182,7 +262,7 @@ class StatusService:
         """
         collection_id = None
         if collection_name:
-            collection = self._container.collection_repo.get_by_name(collection_name)
+            collection = self._collection_repo.get_by_name(collection_name)
             if not collection:
                 return {"error": f"Collection '{collection_name}' not found"}
             collection_id = collection.id
@@ -194,7 +274,7 @@ class StatusService:
             params = (collection_id,)
 
         # Documents missing FTS entries
-        missing_fts_count = self._container.db.execute(
+        missing_fts_count = self._db.execute(
             f"""
             SELECT COUNT(*) as count
             FROM documents d
@@ -205,7 +285,7 @@ class StatusService:
             params,
         ).fetchone()["count"]
 
-        missing_fts_paths = self._container.db.execute(
+        missing_fts_paths = self._db.execute(
             f"""
             SELECT d.path
             FROM documents d
@@ -219,7 +299,7 @@ class StatusService:
         ).fetchall()
 
         # Documents missing embeddings
-        missing_vec_count = self._container.db.execute(
+        missing_vec_count = self._db.execute(
             f"""
             SELECT COUNT(DISTINCT d.id) as count
             FROM documents d
@@ -230,7 +310,7 @@ class StatusService:
             params,
         ).fetchone()["count"]
 
-        missing_vec_paths = self._container.db.execute(
+        missing_vec_paths = self._db.execute(
             f"""
             SELECT d.path
             FROM documents d
@@ -244,7 +324,7 @@ class StatusService:
         ).fetchall()
 
         # Orphaned embeddings (no active documents)
-        orphan_vec_count = self._container.db.execute(
+        orphan_vec_count = self._db.execute(
             """
             SELECT COUNT(DISTINCT cv.hash) as count
             FROM content_vectors cv
@@ -254,7 +334,7 @@ class StatusService:
         ).fetchone()["count"]
 
         # Orphaned FTS entries (no active documents)
-        orphan_fts_count = self._container.db.execute(
+        orphan_fts_count = self._db.execute(
             """
             SELECT COUNT(*) as count
             FROM documents_fts fts

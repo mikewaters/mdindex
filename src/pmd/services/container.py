@@ -282,7 +282,7 @@ class ServiceContainer:
         if self._indexing is None:
             from .indexing import IndexingService
 
-            self._indexing = IndexingService(self)
+            self._indexing = IndexingService.from_container(self)
         return self._indexing
 
     @property
@@ -295,7 +295,7 @@ class ServiceContainer:
         if self._search is None:
             from .search import SearchService
 
-            self._search = SearchService(self)
+            self._search = SearchService.from_container(self)
         return self._search
 
     @property
@@ -308,7 +308,7 @@ class ServiceContainer:
         if self._status is None:
             from .status import StatusService
 
-            self._status = StatusService(self)
+            self._status = StatusService.from_container(self)
         return self._status
 
     # --- Utility methods ---

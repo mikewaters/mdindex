@@ -29,11 +29,26 @@ def _filesystem_source_for_name(services: ServiceContainer, name: str) -> FileSy
 class TestIndexingServiceInit:
     """Tests for IndexingService initialization."""
 
-    def test_init_stores_container(self, connected_container: ServiceContainer):
-        """IndexingService should store container reference."""
-        service = IndexingService(connected_container)
+    def test_init_with_explicit_deps(self, connected_container: ServiceContainer):
+        """IndexingService should work with explicit dependencies."""
+        service = IndexingService(
+            db=connected_container.db,
+            collection_repo=connected_container.collection_repo,
+            document_repo=connected_container.document_repo,
+            fts_repo=connected_container.fts_repo,
+            embedding_repo=connected_container.embedding_repo,
+        )
 
-        assert service._container is connected_container
+        assert service._db is connected_container.db
+        assert service._collection_repo is connected_container.collection_repo
+
+    def test_from_container_factory(self, connected_container: ServiceContainer):
+        """IndexingService.from_container should create service with container deps."""
+        service = IndexingService.from_container(connected_container)
+
+        assert service._db is connected_container.db
+        assert service._collection_repo is connected_container.collection_repo
+        assert service._fts_repo is connected_container.fts_repo
 
 
 class TestIndexingServiceIndexCollection:

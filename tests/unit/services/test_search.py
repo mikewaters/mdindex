@@ -12,11 +12,26 @@ from pmd.services.search import SearchService
 class TestSearchServiceInit:
     """Tests for SearchService initialization."""
 
-    def test_init_stores_container(self, connected_container: ServiceContainer):
-        """SearchService should store container reference."""
-        service = SearchService(connected_container)
+    def test_init_with_explicit_deps(self, connected_container: ServiceContainer):
+        """SearchService should work with explicit dependencies."""
+        service = SearchService(
+            db=connected_container.db,
+            fts_repo=connected_container.fts_repo,
+            collection_repo=connected_container.collection_repo,
+            embedding_repo=connected_container.embedding_repo,
+        )
 
-        assert service._container is connected_container
+        assert service._db is connected_container.db
+        assert service._fts_repo is connected_container.fts_repo
+        assert service._collection_repo is connected_container.collection_repo
+
+    def test_from_container_factory(self, connected_container: ServiceContainer):
+        """SearchService.from_container should create service with container deps."""
+        service = SearchService.from_container(connected_container)
+
+        assert service._db is connected_container.db
+        assert service._fts_repo is connected_container.fts_repo
+        assert service._collection_repo is connected_container.collection_repo
 
 
 class TestSearchServiceFtsSearch:
