@@ -22,8 +22,8 @@ from .base import (
     SourceFetchError,
     SourceListError,
 )
-from pmd.sources.metadata.types import ExtractedMetadata
-from ..metadata import (
+from pmd.metadata import (
+    ExtractedMetadata,
     MetadataProfileRegistry,
     get_default_profile_registry,
 )

@@ -173,3 +173,39 @@ and Collection object creation (lines 709-724 in indexing.py).
 | test_backfill_metadata_handles_extraction_errors | Captures errors and continues | Pass |
 | test_backfill_metadata_with_empty_source_config_string | Handles empty string source_config | Pass |
 
+
+## Metadata Integration (tests/unit/metadata/test_metadata_integration.py)
+
+### Deprecation Shims
+
+Tests that old import paths raise deprecation warnings.
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_sources_metadata_shim_warns | pmd.sources.metadata raises DeprecationWarning | Pass |
+| test_search_metadata_shim_warns | pmd.search.metadata raises DeprecationWarning | Pass |
+| test_store_document_metadata_shim_warns | pmd.store.document_metadata raises DeprecationWarning | Pass |
+
+### Cross-Module Interactions
+
+Tests that types flow correctly between metadata submodules.
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_extraction_produces_expected_metadata_type | Profiles return ExtractedMetadata | Pass |
+| test_query_inference_with_model_aliases | Query uses aliases from model | Pass |
+| test_stored_metadata_compatible_with_extracted | StoredDocumentMetadata from ExtractedMetadata | Pass |
+| test_ontology_expansion_with_query_scoring | Ontology expands tags for scoring | Pass |
+| test_registry_provides_correct_profile_types | Registry returns valid profiles | Pass |
+
+### Public API Consistency
+
+Tests that all expected types are exported from pmd.metadata.
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_all_model_types_exported | Model types exported | Pass |
+| test_all_extraction_types_exported | Extraction types exported | Pass |
+| test_all_query_types_exported | Query types exported | Pass |
+| test_store_types_exported | Store types exported | Pass |
+| test_subpackage_imports_work | Direct subpackage imports work | Pass |

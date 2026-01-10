@@ -1,31 +1,43 @@
-"""Source-side metadata extraction utilities.
+"""DEPRECATED: Source-side metadata extraction utilities.
 
-This module provides app-aware metadata extraction profiles for
-different document sources (Obsidian, Drafts, generic markdown).
+This module is deprecated. Import from pmd.metadata or pmd.metadata.extraction instead.
 
-Core types are re-exported from pmd.metadata for convenience.
+Migration guide:
+    # Old (deprecated):
+    from pmd.sources.metadata import GenericProfile, ObsidianProfile
+
+    # New:
+    from pmd.metadata import GenericProfile, ObsidianProfile
+    # or
+    from pmd.metadata.extraction import GenericProfile, ObsidianProfile
 """
 
-# Re-export core types from pmd.metadata
+import warnings
 
-
-# Source-specific implementations
-from .base import GenericProfile
-from .drafts import DraftsProfile
-from .obsidian import ObsidianProfile
-from .registry import MetadataProfileRegistry, get_default_profile_registry
-from .types import (
-    ExtractedMetadata
+# Issue deprecation warning on import
+warnings.warn(
+    "Importing from 'pmd.sources.metadata' is deprecated. "
+    "Use 'pmd.metadata' or 'pmd.metadata.extraction' instead. "
+    "This import path will be removed in a future version.",
+    DeprecationWarning,
+    stacklevel=2,
 )
-from .parsing import (
+
+# Re-export from new locations for backward compatibility
+from pmd.metadata.extraction import (
+    GenericProfile,
+    DraftsProfile,
+    ObsidianProfile,
+    MetadataProfileRegistry,
+    get_default_profile_registry,
+    FrontmatterResult,
     extract_inline_tags,
     extract_tags_from_field,
     parse_frontmatter,
-    FrontmatterResult
 )
+from pmd.metadata.model import ExtractedMetadata
 
 __all__ = [
-
     "DraftsProfile",
     "GenericProfile",
     "ObsidianProfile",
@@ -35,5 +47,5 @@ __all__ = [
     "extract_inline_tags",
     "extract_tags_from_field",
     "parse_frontmatter",
-    "FrontmatterResult"
+    "FrontmatterResult",
 ]

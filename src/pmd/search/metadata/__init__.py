@@ -1,25 +1,36 @@
-"""Query-time metadata inference and scoring for search.
+"""DEPRECATED: Query-time metadata inference and scoring for search.
 
-This module provides search-specific metadata functionality:
-- LexicalTagMatcher: Infer tags from search queries
-- TagRetriever: Tag-based document retrieval for RRF fusion
-- Scoring: Metadata-based score boosting
+This module is deprecated. Import from pmd.metadata or pmd.metadata.query instead.
 
-For core metadata types, use pmd.metadata.
-For extraction profiles, use pmd.sources.metadata.
+Migration guide:
+    # Old (deprecated):
+    from pmd.search.metadata import LexicalTagMatcher, TagRetriever
+
+    # New:
+    from pmd.metadata import LexicalTagMatcher, TagRetriever
+    # or
+    from pmd.metadata.query import LexicalTagMatcher, TagRetriever
 """
 
-from .inference import (
+import warnings
+
+# Issue deprecation warning on import
+warnings.warn(
+    "Importing from 'pmd.search.metadata' is deprecated. "
+    "Use 'pmd.metadata' or 'pmd.metadata.query' instead. "
+    "This import path will be removed in a future version.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+# Re-export from new locations for backward compatibility
+from pmd.metadata.query import (
     LexicalTagMatcher,
     TagMatch,
     create_default_matcher,
-)
-from .retrieval import (
     TagRetriever,
     TagSearchConfig,
     create_tag_retriever,
-)
-from .scoring import (
     BoostResult,
     MetadataBoostConfig,
     ScoredResult,

@@ -10,6 +10,56 @@ The system separates metadata into two distinct layers:
 
 **Metadata Profiles** serve as the bridge between raw content and structured Document Metadata, providing logic to parse specific formats (like Obsidian or Drafts) into a standardized structure.
 
+## Unified Metadata Package
+
+All metadata functionality is consolidated in the `pmd.metadata` package with clear submodules:
+
+```
+pmd/metadata/
+├── __init__.py          # Public API surface (re-exports from submodules)
+├── model/               # Core types and ontology
+│   ├── types.py         # ExtractedMetadata, StoredDocumentMetadata, MetadataProfile
+│   ├── ontology.py      # Ontology, OntologyNode - tag hierarchy
+│   ├── aliases.py       # TagAliases - alias resolution
+│   └── data/            # JSON data files (ontology, aliases)
+├── extraction/          # Source-aware metadata extraction
+│   ├── generic.py       # GenericProfile - fallback
+│   ├── obsidian.py      # ObsidianProfile - Obsidian vault support
+│   ├── drafts.py        # DraftsProfile - Drafts app support
+│   ├── registry.py      # MetadataProfileRegistry with auto-detection
+│   └── parsing.py       # Frontmatter and inline tag parsing
+├── query/               # Query-time operations
+│   ├── inference.py     # LexicalTagMatcher - tag inference from queries
+│   ├── retrieval.py     # TagRetriever - tag-based document retrieval
+│   └── scoring.py       # Score boosting based on tag matches
+└── store/               # Persistence
+    └── repository.py    # DocumentMetadataRepository
+```
+
+### Import Patterns
+
+```python
+# Recommended: Import from top-level pmd.metadata
+from pmd.metadata import (
+    Ontology, TagAliases, ExtractedMetadata,
+    GenericProfile, get_default_profile_registry,
+    LexicalTagMatcher, create_default_matcher,
+    DocumentMetadataRepository,
+)
+
+# Alternative: Import from specific subpackages
+from pmd.metadata.extraction import ObsidianProfile
+from pmd.metadata.query import TagRetriever
+from pmd.metadata.store import DocumentMetadataRepository
+```
+
+### Deprecated Import Paths
+
+The following import paths are deprecated and will be removed in a future version:
+- `pmd.sources.metadata` → use `pmd.metadata` or `pmd.metadata.extraction`
+- `pmd.search.metadata` → use `pmd.metadata` or `pmd.metadata.query`
+- `pmd.store.document_metadata` → use `pmd.metadata` or `pmd.metadata.store`
+
 ## 1. Source Metadata (The "Envelope")
 
 Managed by `SourceMetadataRepository` (`src/pmd/store/source_metadata.py`).
@@ -26,7 +76,7 @@ This layer tracks **where** a document came from and **when** it was retrieved. 
 
 ## 2. Document Metadata (The "Content")
 
-Managed by `DocumentMetadataRepository` (`src/pmd/store/document_metadata.py`).
+Managed by `DocumentMetadataRepository` (`src/pmd/metadata/store/repository.py`).
 
 This layer tracks **what** the document is about. It is populated by parsing the document content. It is primarily used for:
 - **Search**: Filtering documents by tags or attributes.
@@ -39,7 +89,7 @@ This layer tracks **what** the document is about. It is populated by parsing the
 
 ## 3. Metadata Profiles (The "Translator")
 
-Managed by `MetadataProfileRegistry` (`src/pmd/sources/metadata/registry.py`).
+Managed by `MetadataProfileRegistry` (`src/pmd/metadata/extraction/registry.py`).
 
 A **Metadata Profile** is a strategy pattern implementation that knows how to extract meaning from a specific document format. Different apps (Obsidian, Drafts, standard Markdown) store metadata differently.
 

@@ -14,7 +14,7 @@ from loguru import logger
 from .base import DocumentSource, SourceConfig
 
 if TYPE_CHECKING:
-    from src.pmd.core.types import Collection
+    from pmd.core.types import Collection
 
 
 # Factory signature: takes a Collection, returns a DocumentSource

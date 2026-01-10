@@ -22,10 +22,9 @@ from ..sources import (
     SourceRegistry,
     get_default_registry,
 )
-from ..sources.metadata.types import ExtractedMetadata
-from ..sources.metadata import get_default_profile_registry
+from ..metadata import ExtractedMetadata, get_default_profile_registry
+from ..metadata.store import DocumentMetadataRepository
 from ..store.source_metadata import SourceMetadata, SourceMetadataRepository
-from ..store.document_metadata import DocumentMetadataRepository
 
 if TYPE_CHECKING:
     from .container import ServiceContainer
