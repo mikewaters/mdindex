@@ -4,10 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ...core.config import Config
-from ...core.exceptions import CollectionExistsError, CollectionNotFoundError
-from ...store.collections import CollectionRepository
-from ...store.database import Database
+from pmd.core.config import Config
+from pmd.core.exceptions import CollectionExistsError, CollectionNotFoundError
+from pmd.store.collections import CollectionRepository
+from pmd.store.database import Database
 
 
 def _get_collection_id(db: Database, name: str) -> int:

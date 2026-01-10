@@ -401,6 +401,7 @@ class TestHybridSearchWithCorpus:
     async def test_hybrid_search_combines_signals(self, indexed_corpus, mlx_provider):
         """Hybrid search should use both FTS and vector signals."""
         from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
+        from pmd.search.adapters import FTS5TextSearcher, EmbeddingVectorSearcher
 
         fts_repo = indexed_corpus["fts_repo"]
         embedding_generator = indexed_corpus["embedding_generator"]
@@ -411,9 +412,9 @@ class TestHybridSearchWithCorpus:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         # Search for a specific topic
@@ -434,6 +435,7 @@ class TestHybridSearchWithCorpus:
     ):
         """Hybrid search should respect collection_id filter."""
         from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
+        from pmd.search.adapters import FTS5TextSearcher, EmbeddingVectorSearcher
 
         fts_repo = indexed_corpus["fts_repo"]
         embedding_generator = indexed_corpus["embedding_generator"]
@@ -445,9 +447,9 @@ class TestHybridSearchWithCorpus:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         # Search with collection filter

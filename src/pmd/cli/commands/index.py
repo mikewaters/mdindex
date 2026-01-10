@@ -2,10 +2,10 @@
 
 import asyncio
 
-from ...core.config import Config
-from ...core.exceptions import CollectionNotFoundError
-from ...services import ServiceContainer
-from ...sources import get_default_registry
+from pmd.core.config import Config
+from pmd.core.exceptions import CollectionNotFoundError
+from pmd.services import ServiceContainer
+from pmd.sources import get_default_registry
 
 
 def add_index_arguments(parser) -> None:

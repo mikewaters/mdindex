@@ -15,17 +15,23 @@ from pathlib import Path
 from datetime import datetime
 
 from pmd.core.types import SearchSource
-from pmd.metadata import Ontology
-from pmd.search.metadata import (
+from pmd.metadata import (
+    Ontology,
     LexicalTagMatcher,
-    MetadataBoostConfig,
     TagRetriever,
+    DocumentMetadataRepository,
+    StoredDocumentMetadata,
 )
 from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
+from pmd.search.adapters import (
+    FTS5TextSearcher,
+    TagRetrieverAdapter,
+    LexicalTagInferencer,
+    OntologyMetadataBooster,
+)
 from pmd.store.database import Database
 from pmd.store.collections import CollectionRepository
 from pmd.store.documents import DocumentRepository
-from pmd.store.document_metadata import DocumentMetadataRepository, StoredDocumentMetadata
 from pmd.store.search import FTS5SearchRepository
 
 
@@ -163,19 +169,20 @@ class TestMetadataBoostIntegration:
         self, metadata_db, tag_matcher
     ):
         """Documents with matching tags should rank higher."""
+        db = metadata_db["db"]
         fts_repo = metadata_db["fts_repo"]
         metadata_repo = metadata_db["metadata_repo"]
 
         config = SearchPipelineConfig(
             enable_metadata_boost=True,
-            metadata_boost=MetadataBoostConfig(boost_factor=2.0),
+            metadata_boost_factor=2.0,
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            tag_inferencer=LexicalTagInferencer(tag_matcher),
+            metadata_booster=OntologyMetadataBooster(db, metadata_repo),
             config=config,
-            tag_matcher=tag_matcher,
-            metadata_repo=metadata_repo,
         )
 
         # Search for "machine" which is in python_ml.md
@@ -192,20 +199,20 @@ class TestMetadataBoostIntegration:
         self, metadata_db, tag_matcher, ontology
     ):
         """Ontology should enable parent-child tag matching."""
+        db = metadata_db["db"]
         fts_repo = metadata_db["fts_repo"]
         metadata_repo = metadata_db["metadata_repo"]
 
         config = SearchPipelineConfig(
             enable_metadata_boost=True,
-            metadata_boost=MetadataBoostConfig(boost_factor=2.0),
+            metadata_boost_factor=2.0,
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            tag_inferencer=LexicalTagInferencer(tag_matcher, ontology),
+            metadata_booster=OntologyMetadataBooster(db, metadata_repo, ontology),
             config=config,
-            tag_matcher=tag_matcher,
-            metadata_repo=metadata_repo,
-            ontology=ontology,
         )
 
         # Search for "learning" - should work with ontology
@@ -221,19 +228,20 @@ class TestMetadataBoostIntegration:
         self, metadata_db, tag_matcher
     ):
         """Documents without matching tags should not be boosted."""
+        db = metadata_db["db"]
         fts_repo = metadata_db["fts_repo"]
         metadata_repo = metadata_db["metadata_repo"]
 
         config = SearchPipelineConfig(
             enable_metadata_boost=True,
-            metadata_boost=MetadataBoostConfig(boost_factor=2.0),
+            metadata_boost_factor=2.0,
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            tag_inferencer=LexicalTagInferencer(tag_matcher),
+            metadata_booster=OntologyMetadataBooster(db, metadata_repo),
             config=config,
-            tag_matcher=tag_matcher,
-            metadata_repo=metadata_repo,
         )
 
         # Search for "rust" - should not boost python docs
@@ -266,10 +274,10 @@ class TestTagRetrievalIntegration:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            tag_inferencer=LexicalTagInferencer(tag_matcher),
+            tag_searcher=TagRetrieverAdapter(tag_retriever),
             config=config,
-            tag_matcher=tag_matcher,
-            tag_retriever=tag_retriever,
         )
 
         # Search for "python" - should find via tag retrieval
@@ -297,11 +305,10 @@ class TestTagRetrievalIntegration:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            tag_inferencer=LexicalTagInferencer(tag_matcher, ontology),
+            tag_searcher=TagRetrieverAdapter(tag_retriever),
             config=config,
-            tag_matcher=tag_matcher,
-            tag_retriever=tag_retriever,
-            ontology=ontology,
         )
 
         # Search for "machine learning" which maps to ml/supervised
@@ -329,10 +336,10 @@ class TestTagRetrievalIntegration:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            tag_inferencer=LexicalTagInferencer(tag_matcher),
+            tag_searcher=TagRetrieverAdapter(tag_retriever),
             config=config,
-            tag_matcher=tag_matcher,
-            tag_retriever=tag_retriever,
         )
 
         results = await pipeline.search("python", limit=5)
@@ -356,26 +363,25 @@ class TestCombinedMetadataSearch:
         self, metadata_db, tag_matcher, ontology
     ):
         """Both metadata boost and tag retrieval should work together."""
+        db = metadata_db["db"]
         fts_repo = metadata_db["fts_repo"]
         metadata_repo = metadata_db["metadata_repo"]
-        db = metadata_db["db"]
 
         tag_retriever = TagRetriever(db, metadata_repo)
 
         config = SearchPipelineConfig(
             enable_metadata_boost=True,
-            metadata_boost=MetadataBoostConfig(boost_factor=1.5),
+            metadata_boost_factor=1.5,
             enable_tag_retrieval=True,
             tag_weight=1.0,
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            tag_inferencer=LexicalTagInferencer(tag_matcher, ontology),
+            tag_searcher=TagRetrieverAdapter(tag_retriever),
+            metadata_booster=OntologyMetadataBooster(db, metadata_repo, ontology),
             config=config,
-            tag_matcher=tag_matcher,
-            metadata_repo=metadata_repo,
-            tag_retriever=tag_retriever,
-            ontology=ontology,
         )
 
         results = await pipeline.search("python machine learning", limit=5)
@@ -404,10 +410,10 @@ class TestCombinedMetadataSearch:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            tag_inferencer=LexicalTagInferencer(tag_matcher),
+            tag_searcher=TagRetrieverAdapter(tag_retriever),
             config=config,
-            tag_matcher=tag_matcher,
-            tag_retriever=tag_retriever,
         )
 
         # Query that should match python docs via both FTS and tags
@@ -425,9 +431,9 @@ class TestCombinedMetadataSearch:
         self, metadata_db, tag_matcher
     ):
         """Search should work even when no tags match."""
+        db = metadata_db["db"]
         fts_repo = metadata_db["fts_repo"]
         metadata_repo = metadata_db["metadata_repo"]
-        db = metadata_db["db"]
 
         tag_retriever = TagRetriever(db, metadata_repo)
 
@@ -437,11 +443,11 @@ class TestCombinedMetadataSearch:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            tag_inferencer=LexicalTagInferencer(tag_matcher),
+            tag_searcher=TagRetrieverAdapter(tag_retriever),
+            metadata_booster=OntologyMetadataBooster(db, metadata_repo),
             config=config,
-            tag_matcher=tag_matcher,
-            metadata_repo=metadata_repo,
-            tag_retriever=tag_retriever,
         )
 
         # Query with terms not in any tags
@@ -471,11 +477,10 @@ class TestTagRetrievalScoring:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            tag_inferencer=LexicalTagInferencer(tag_matcher, ontology),
+            tag_searcher=TagRetrieverAdapter(tag_retriever),
             config=config,
-            tag_matcher=tag_matcher,
-            tag_retriever=tag_retriever,
-            ontology=ontology,
         )
 
         # ml/supervised should have higher weight than ml (parent)
@@ -507,10 +512,10 @@ class TestTagRetrievalScoring:
         multi_matcher.register_alias("ml", "ml/supervised")
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            tag_inferencer=LexicalTagInferencer(multi_matcher),
+            tag_searcher=TagRetrieverAdapter(tag_retriever),
             config=config,
-            tag_matcher=multi_matcher,
-            tag_retriever=tag_retriever,
         )
 
         # Search with multiple matching tags
@@ -535,7 +540,7 @@ class TestSearchSourceTracking:
         config = SearchPipelineConfig()
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
             config=config,
         )
 
@@ -563,10 +568,10 @@ class TestSearchSourceTracking:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            tag_inferencer=LexicalTagInferencer(tag_matcher),
+            tag_searcher=TagRetrieverAdapter(tag_retriever),
             config=config,
-            tag_matcher=tag_matcher,
-            tag_retriever=tag_retriever,
         )
 
         results = await pipeline.search("python programming", limit=5)

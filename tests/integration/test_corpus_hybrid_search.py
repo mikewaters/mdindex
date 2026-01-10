@@ -25,6 +25,7 @@ from pmd.store.embeddings import EmbeddingRepository
 from pmd.store.search import FTS5SearchRepository
 from pmd.llm.embeddings import EmbeddingGenerator
 from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
+from pmd.search.adapters import FTS5TextSearcher, EmbeddingVectorSearcher
 
 
 # Skip all tests in this module if not on macOS
@@ -182,9 +183,9 @@ class TestHybridSearchBasics:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         results = await pipeline.search("machine learning algorithm", limit=10)
@@ -203,9 +204,9 @@ class TestHybridSearchBasics:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         results = await pipeline.search("graph database neo4j", limit=10)
@@ -234,9 +235,9 @@ class TestHybridSearchAccuracy:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         results = await pipeline.search(
@@ -259,9 +260,9 @@ class TestHybridSearchAccuracy:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         results = await pipeline.search("weaviate neo4j graph database", limit=10)
@@ -281,9 +282,9 @@ class TestHybridSearchAccuracy:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         # Avoid hyphens which cause FTS5 parsing issues
@@ -307,9 +308,9 @@ class TestHybridSearchAccuracy:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         results = await pipeline.search("firecrawl jina web scraping", limit=10)
@@ -329,9 +330,9 @@ class TestHybridSearchAccuracy:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         results = await pipeline.search(
@@ -358,9 +359,9 @@ class TestHybridFTSStrength:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         # Very specific term that FTS should match exactly
@@ -381,9 +382,9 @@ class TestHybridFTSStrength:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         results = await pipeline.search("TigerGraph pyTigerGraph", limit=10)
@@ -403,9 +404,9 @@ class TestHybridFTSStrength:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         results = await pipeline.search("Zealios Gateron switch", limit=10)
@@ -429,9 +430,9 @@ class TestHybridSemanticStrength:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         # Query about clustering concepts - should find K-means
@@ -456,9 +457,9 @@ class TestHybridSemanticStrength:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         # Query about concept without using exact terms
@@ -482,9 +483,9 @@ class TestHybridSemanticStrength:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         results = await pipeline.search(
@@ -511,9 +512,9 @@ class TestHybridRanking:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         # Query specifically about clustering (avoid hyphens for FTS5)
@@ -542,9 +543,9 @@ class TestHybridRanking:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         # Query that should match both lexically and semantically
@@ -579,9 +580,9 @@ class TestHybridCollectionFiltering:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         # Search with collection filter
@@ -611,9 +612,9 @@ class TestHybridScoreNormalization:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         results = await pipeline.search("database query language", limit=10)
@@ -635,9 +636,9 @@ class TestHybridScoreNormalization:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         # High min_score should filter out many results
@@ -667,9 +668,9 @@ class TestHybridEdgeCases:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         # Single word query
@@ -691,9 +692,9 @@ class TestHybridEdgeCases:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=config,
-            embedding_generator=embedding_generator,
         )
 
         # Very long query with many terms

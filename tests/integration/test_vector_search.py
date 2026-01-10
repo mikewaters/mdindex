@@ -553,6 +553,8 @@ class TestHybridSearchPipeline:
             )
 
         # Create embedding generator and pipeline
+        from pmd.search.adapters import FTS5TextSearcher, EmbeddingVectorSearcher
+
         embedding_generator = EmbeddingGenerator(mlx_provider, embedding_repo, config)
 
         pipeline_config = SearchPipelineConfig(
@@ -561,9 +563,9 @@ class TestHybridSearchPipeline:
         )
 
         pipeline = HybridSearchPipeline(
-            fts_repo,
+            text_searcher=FTS5TextSearcher(fts_repo),
+            vector_searcher=EmbeddingVectorSearcher(embedding_generator),
             config=pipeline_config,
-            embedding_generator=embedding_generator,
         )
 
         # Search

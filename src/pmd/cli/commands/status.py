@@ -2,8 +2,8 @@
 
 import asyncio
 
-from ...core.config import Config
-from ...services import ServiceContainer
+from pmd.core.config import Config
+from pmd.services import ServiceContainer
 
 
 def add_status_arguments(parser) -> None:

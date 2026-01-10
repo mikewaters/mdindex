@@ -1,7 +1,24 @@
-"""Test fakes for search pipeline testing.
+"""Test fakes for testing without real infrastructure.
 
-This module provides in-memory implementations of search ports
-for testing the pipeline without requiring real infrastructure.
+This module provides in-memory implementations of:
+- Search ports (for testing the search pipeline)
+- Repository protocols (for testing services without a database)
+
+Example:
+    from tests.fakes import (
+        InMemoryDatabase,
+        InMemoryCollectionRepository,
+        InMemoryDocumentRepository,
+        InMemoryFTSRepository,
+    )
+
+    # Create service with fakes
+    service = IndexingService(
+        db=InMemoryDatabase(),
+        collection_repo=InMemoryCollectionRepository(),
+        document_repo=InMemoryDocumentRepository(),
+        fts_repo=InMemoryFTSRepository(),
+    )
 """
 
 from .search import (
@@ -12,9 +29,24 @@ from .search import (
     StubReranker,
     InMemoryMetadataBooster,
     InMemoryTagInferencer,
+    make_search_result as make_search_result_search,
+    make_ranked_result,
 )
 
+from .repos import (
+    InMemoryDatabase,
+    InMemoryCursor,
+    InMemoryCollectionRepository,
+    InMemoryDocumentRepository,
+    InMemoryFTSRepository,
+    InMemoryEmbeddingRepository,
+)
+
+# Use search module's make_search_result
+make_search_result = make_search_result_search
+
 __all__ = [
+    # Search fakes
     "InMemoryTextSearcher",
     "InMemoryVectorSearcher",
     "InMemoryTagSearcher",
@@ -22,4 +54,13 @@ __all__ = [
     "StubReranker",
     "InMemoryMetadataBooster",
     "InMemoryTagInferencer",
+    "make_search_result",
+    "make_ranked_result",
+    # Repository fakes
+    "InMemoryDatabase",
+    "InMemoryCursor",
+    "InMemoryCollectionRepository",
+    "InMemoryDocumentRepository",
+    "InMemoryFTSRepository",
+    "InMemoryEmbeddingRepository",
 ]
