@@ -19,23 +19,68 @@ Data access layer implementing the Repository pattern with SQLite.
 - Row factory set to sqlite3.Row
 - `vec_available` property indicates vector search capability
 
+### `migrations/`
+
+Versioned database migrations using SQLite `PRAGMA user_version`.
+
+**Structure:**
+```
+migrations/
+├── __init__.py      # Exports MigrationRunner
+├── runner.py        # Migration runner implementation
+└── versions/        # Versioned migration files
+    ├── __init__.py
+    └── v0001_initial_schema.py
+```
+
+**`MigrationRunner`** - Applies versioned migrations
+- Uses `PRAGMA user_version` for tracking
+- Discovers migrations in `versions/` package
+- Idempotent execution (safe to re-run)
+
+**Adding New Migrations:**
+1. Create `versions/v{NNNN}_{description}.py`
+2. Define `VERSION = N` (integer, must be unique)
+3. Define `DESCRIPTION = "..."` (human-readable)
+4. Define `up(conn)` function to apply changes
+
+```python
+# Example: v0002_add_feature.py
+VERSION = 2
+DESCRIPTION = "Add feature table"
+
+def up(conn):
+    conn.executescript('''
+        CREATE TABLE IF NOT EXISTS feature (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL
+        );
+    ''')
+```
+
+**Migration Policy:**
+- Migrations are forward-only (no rollback support)
+- Use `IF NOT EXISTS` for idempotency
+- Test with fresh DB and existing DBs
+- Never modify existing migrations after release
+
 ### `schema.py`
 
-Database schema definitions:
-- `SCHEMA_VERSION = 1`
+Constants and reference schema (migrations are authoritative):
 - `EMBEDDING_DIMENSION = 768`
-- `SCHEMA_SQL` - Relational tables
-- `VECTOR_TABLE_SQL` - sqlite-vec virtual table
+- `VECTOR_TABLE_SQL` - sqlite-vec virtual table (created separately)
 
-**Tables:**
+**Tables (created by v0001_initial_schema):**
 - `content` - Content-addressable storage (hash-based)
 - `collections` - Named document collections
 - `documents` - File-to-content mappings
 - `documents_fts` - FTS5 virtual table
 - `content_vectors` - Embedding metadata
-- `content_vectors_vec` - Vector storage (sqlite-vec)
+- `content_vectors_vec` - Vector storage (sqlite-vec, created after extension load)
 - `path_contexts` - Directory-level context
 - `source_metadata` - Remote document metadata
+- `document_metadata` - Extracted tags/attributes
+- `document_tags` - Tag inverted index
 
 ### `documents.py`
 

@@ -1,6 +1,11 @@
-"""Database schema definitions for PMD."""
+"""Database schema constants for PMD.
 
-SCHEMA_VERSION = 1
+NOTE: Schema DDL is now managed by migrations in pmd.store.migrations.
+This file contains only constants and the vector table schema
+(which requires the sqlite-vec extension to be loaded first).
+
+See migrations/versions/ for the authoritative schema definitions.
+"""
 
 # Default embedding dimension
 # - nomic/modernbert-embed-base uses 768 (default)

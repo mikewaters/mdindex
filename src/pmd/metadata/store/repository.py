@@ -23,39 +23,9 @@ class DocumentMetadataRepository:
 
         Args:
             db: Database instance to use for operations.
+                Tables are created by migrations, not by repository.
         """
         self.db = db
-        self._ensure_table()
-
-    def _ensure_table(self) -> None:
-        """Ensure the document_metadata and document_tags tables exist."""
-        self.db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS document_metadata (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                document_id INTEGER NOT NULL UNIQUE REFERENCES documents(id),
-                profile_name TEXT NOT NULL,
-                tags_json TEXT NOT NULL,
-                source_tags_json TEXT NOT NULL,
-                attributes_json TEXT,
-                extracted_at TEXT NOT NULL
-            )
-            """
-        )
-        # Junction table for fast tag lookups
-        self.db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS document_tags (
-                document_id INTEGER NOT NULL REFERENCES documents(id),
-                tag TEXT NOT NULL,
-                PRIMARY KEY (document_id, tag)
-            )
-            """
-        )
-        # Index for fast lookups by tag
-        self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_document_tags_tag ON document_tags(tag)"
-        )
 
     def upsert(self, metadata: StoredDocumentMetadata) -> None:
         """Insert or update document metadata.

@@ -9,7 +9,8 @@ from typing import Iterator
 from loguru import logger
 
 from ..core.exceptions import DatabaseError
-from .schema import get_schema, get_vector_schema
+from .migrations import MigrationRunner
+from .schema import get_vector_schema
 
 
 class Database:
@@ -166,16 +167,26 @@ class Database:
         return self._vec_available
 
     def _init_schema(self) -> None:
-        """Initialize database schema."""
-        logger.debug("Initializing database schema")
+        """Initialize database schema using migrations."""
+        if not self._connection:
+            raise DatabaseError("Database not connected")
+
+        logger.debug("Running database migrations")
         try:
-            schema = get_schema()
-            self.executescript(schema)
-            logger.debug("Base schema initialized")
+            # Run versioned migrations
+            runner = MigrationRunner(self._connection)
+            applied = runner.run()
+
+            if applied > 0:
+                logger.debug(f"Applied {applied} migration(s)")
+            else:
+                logger.debug(
+                    f"Database at version {runner.get_version()}, no migrations needed"
+                )
 
             # Create vector table if sqlite-vec is available
+            # This is separate from migrations since it requires the extension
             if self._vec_available:
-                # Use configured dimension or default
                 if self.embedding_dimension:
                     vec_schema = get_vector_schema(dimension=self.embedding_dimension)
                     logger.debug(f"Using embedding dimension: {self.embedding_dimension}")
@@ -183,6 +194,7 @@ class Database:
                     vec_schema = get_vector_schema()
                 self.executescript(vec_schema)
                 logger.debug("Vector schema initialized")
+
         except Exception as e:
             logger.error(f"Failed to initialize schema: {e}")
             raise DatabaseError(f"Failed to initialize schema: {e}") from e

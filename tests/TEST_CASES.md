@@ -281,3 +281,41 @@ Tests that all expected types are exported from pmd.metadata.
 | test_all_query_types_exported | Query types exported | Pass |
 | test_store_types_exported | Store types exported | Pass |
 | test_subpackage_imports_work | Direct subpackage imports work | Pass |
+
+
+## Database Migrations (tests/unit/store/test_migrations.py)
+
+### MigrationRunner
+
+Tests for the versioned migration runner using SQLite PRAGMA user_version.
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_fresh_database_starts_at_version_zero | New database has version 0 | Pass |
+| test_run_applies_pending_migrations | run() applies all pending migrations | Pass |
+| test_run_is_idempotent | Running twice is safe (no-op second time) | Pass |
+| test_version_persists_across_connections | Version survives reconnect | Pass |
+| test_get_migrations_returns_sorted_list | Migrations sorted by version | Pass |
+| test_get_pending_migrations_filters_by_version | Only returns unapplied migrations | Pass |
+| test_set_version_updates_user_version | Sets PRAGMA user_version | Pass |
+| test_initial_migration_creates_tables | Creates all required tables | Pass |
+
+### Database Integration
+
+Tests for Database class migration integration.
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_database_connect_runs_migrations | connect() runs migrations automatically | Pass |
+| test_database_connect_is_idempotent | Reconnecting to existing DB works | Pass |
+| test_database_preserves_data_across_migrations | Data not lost during migration | Pass |
+
+### Upgrade Scenarios
+
+Tests simulating database upgrades.
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_upgrade_from_version_zero | DB at v0 upgrades to latest | Pass |
+| test_already_migrated_database_no_op | Already current = no migration runs | Pass |
+| test_migration_repr | Migration has useful repr | Pass |
