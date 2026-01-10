@@ -8,6 +8,15 @@ from loguru import logger
 
 from ..core.types import RankedResult, SearchResult
 from ..search.pipeline import HybridSearchPipeline, SearchPipelineConfig
+from ..search.adapters import (
+    FTS5TextSearcher,
+    EmbeddingVectorSearcher,
+    TagRetrieverAdapter,
+    LexicalTagInferencer,
+    LLMQueryExpanderAdapter,
+    LLMRerankerAdapter,
+    OntologyMetadataBooster,
+)
 
 if TYPE_CHECKING:
     from .container import ServiceContainer
@@ -145,12 +154,14 @@ class SearchService:
         min_score: float = 0.0,
         enable_query_expansion: bool = False,
         enable_reranking: bool = False,
+        enable_tag_retrieval: bool = False,
+        enable_metadata_boost: bool = False,
     ) -> list[RankedResult]:
         """Execute hybrid search combining FTS and vector search.
 
         Uses Reciprocal Rank Fusion (RRF) to combine results from FTS5
-        and vector search, with optional LLM-based query expansion
-        and reranking.
+        and vector search, with optional LLM-based query expansion,
+        reranking, tag-based retrieval, and metadata boosting.
 
         Args:
             query: Search query string.
@@ -159,6 +170,8 @@ class SearchService:
             min_score: Minimum score threshold.
             enable_query_expansion: Enable LLM query expansion.
             enable_reranking: Enable LLM reranking.
+            enable_tag_retrieval: Enable tag-based retrieval in RRF.
+            enable_metadata_boost: Enable metadata-based score boosting.
 
         Returns:
             List of RankedResult objects with combined scores.
@@ -168,19 +181,59 @@ class SearchService:
         logger.debug(
             f"Hybrid search: query={query!r}, limit={limit}, "
             f"collection={collection_name}, expansion={enable_query_expansion}, "
-            f"reranking={enable_reranking}"
+            f"reranking={enable_reranking}, tags={enable_tag_retrieval}, "
+            f"boost={enable_metadata_boost}"
         )
 
-        # Get components
-        embedding_generator = await self._container.get_embedding_generator()
-        query_expander = (
-            await self._container.get_query_expander()
-            if enable_query_expansion
-            else None
-        )
-        reranker = (
-            await self._container.get_reranker() if enable_reranking else None
-        )
+        # Create port adapters from container resources
+        text_searcher = FTS5TextSearcher(self._container.fts_repo)
+
+        # Vector searcher (requires embedding generator)
+        vector_searcher = None
+        if self._container.vec_available:
+            embedding_generator = await self._container.get_embedding_generator()
+            vector_searcher = EmbeddingVectorSearcher(embedding_generator)
+
+        # Query expander adapter
+        query_expander = None
+        if enable_query_expansion:
+            llm_expander = await self._container.get_query_expander()
+            query_expander = LLMQueryExpanderAdapter(llm_expander)
+
+        # Reranker adapter
+        reranker = None
+        if enable_reranking:
+            llm_reranker = await self._container.get_reranker()
+            reranker = LLMRerankerAdapter(llm_reranker)
+
+        # Tag inferencer (used by both tag retrieval and metadata boost)
+        tag_inferencer = None
+        tag_searcher = None
+        metadata_booster = None
+
+        if enable_tag_retrieval or enable_metadata_boost:
+            # Get tag matcher and optionally ontology
+            tag_matcher = self._container.get_tag_matcher()
+            ontology = self._container.get_ontology()
+
+            if tag_matcher:
+                tag_inferencer = LexicalTagInferencer(tag_matcher, ontology)
+
+                # Tag searcher for tag-based retrieval
+                if enable_tag_retrieval:
+                    tag_retriever = self._container.get_tag_retriever()
+                    if tag_retriever:
+                        tag_searcher = TagRetrieverAdapter(tag_retriever)
+
+                # Metadata booster for score boosting
+                if enable_metadata_boost:
+                    metadata_repo = self._container.get_metadata_repo()
+                    if metadata_repo:
+                        metadata_booster = OntologyMetadataBooster(
+                            self._container.db,
+                            metadata_repo,
+                            ontology,
+                        )
 
         # Configure pipeline
         pipeline_config = SearchPipelineConfig(
@@ -190,15 +243,20 @@ class SearchService:
             rerank_candidates=self._container.config.search.rerank_candidates,
             enable_query_expansion=enable_query_expansion,
             enable_reranking=enable_reranking,
+            enable_tag_retrieval=enable_tag_retrieval,
+            enable_metadata_boost=enable_metadata_boost,
         )
 
-        # Create and execute pipeline
+        # Create and execute pipeline with port adapters
         pipeline = HybridSearchPipeline(
-            self._container.fts_repo,
-            config=pipeline_config,
+            text_searcher=text_searcher,
+            vector_searcher=vector_searcher,
+            tag_searcher=tag_searcher,
             query_expander=query_expander,
             reranker=reranker,
-            embedding_generator=embedding_generator,
+            metadata_booster=metadata_booster,
+            tag_inferencer=tag_inferencer,
+            config=pipeline_config,
         )
 
         results = await pipeline.search(

@@ -19,6 +19,10 @@ from ..store.search import FTS5SearchRepository
 
 if TYPE_CHECKING:
     from ..llm.base import LLMProvider
+    from ..metadata.query.inference import LexicalTagMatcher
+    from ..metadata.query.retrieval import TagRetriever
+    from ..metadata.model.ontology import Ontology
+    from ..metadata.store import DocumentMetadataRepository
     from .indexing import IndexingService
     from .search import SearchService
     from .status import StatusService
@@ -90,6 +94,12 @@ class ServiceContainer:
         self._embedding_generator: EmbeddingGenerator | None = None
         self._query_expander: QueryExpander | None = None
         self._reranker: DocumentReranker | None = None
+
+        # Lazy-initialized metadata components
+        self._tag_matcher: "LexicalTagMatcher | None" = None
+        self._ontology: "Ontology | None" = None
+        self._tag_retriever: "TagRetriever | None" = None
+        self._metadata_repo: "DocumentMetadataRepository | None" = None
 
     def connect(self) -> None:
         """Connect to database.
@@ -203,6 +213,62 @@ class ServiceContainer:
             provider = await self.get_llm_provider()
             self._reranker = DocumentReranker(provider)
         return self._reranker
+
+    # --- Metadata component accessors ---
+
+    def get_tag_matcher(self) -> "LexicalTagMatcher | None":
+        """Get or create LexicalTagMatcher.
+
+        Returns:
+            Configured tag matcher, or None if not available.
+        """
+        if self._tag_matcher is None:
+            try:
+                from ..metadata import create_default_matcher
+                self._tag_matcher = create_default_matcher()
+            except Exception as e:
+                logger.debug(f"Failed to create tag matcher: {e}")
+                return None
+        return self._tag_matcher
+
+    def get_ontology(self) -> "Ontology | None":
+        """Get or create Ontology.
+
+        Returns:
+            Configured ontology, or None if not available.
+        """
+        if self._ontology is None:
+            try:
+                from ..metadata import load_default_ontology
+                self._ontology = load_default_ontology()
+            except Exception as e:
+                logger.debug(f"Failed to load ontology: {e}")
+                return None
+        return self._ontology
+
+    def get_tag_retriever(self) -> "TagRetriever | None":
+        """Get or create TagRetriever.
+
+        Returns:
+            Configured tag retriever, or None if metadata repo not available.
+        """
+        if self._tag_retriever is None:
+            metadata_repo = self.get_metadata_repo()
+            if metadata_repo:
+                from ..metadata import create_tag_retriever
+                self._tag_retriever = create_tag_retriever(self.db, metadata_repo)
+        return self._tag_retriever
+
+    def get_metadata_repo(self) -> "DocumentMetadataRepository | None":
+        """Get or create DocumentMetadataRepository.
+
+        Returns:
+            Document metadata repository.
+        """
+        if self._metadata_repo is None:
+            from ..metadata import DocumentMetadataRepository
+            self._metadata_repo = DocumentMetadataRepository(self.db)
+        return self._metadata_repo
 
     # --- Service accessors ---
 

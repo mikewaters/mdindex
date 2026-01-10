@@ -4,6 +4,78 @@ Test cases for pmd (personal metadata) search system.
 
 ## Search Pipeline (tests/unit/search/)
 
+### Pipeline Contract Tests (tests/unit/search/test_pipeline_contracts.py)
+
+Contract tests for HybridSearchPipeline using in-memory fakes. These tests verify
+pipeline behavior without database or LLM infrastructure dependencies.
+
+#### Basic Search Flow
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_fts_only_search | Returns FTS results when only text_searcher provided | Pass |
+| test_fts_and_vector_search | Combines FTS and vector results via RRF | Pass |
+| test_collection_filter_applied | Collection ID passed through to searchers | Pass |
+
+#### RRF Fusion
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_documents_found_by_multiple_sources_ranked_higher | Docs in multiple lists get boosted | Pass |
+| test_rrf_weights_affect_ranking | Different FTS/vec weights affect ranking | Pass |
+
+#### Metadata Boost
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_metadata_boost_disabled_by_default | Not applied unless enabled | Pass |
+| test_metadata_boost_increases_scores | Matching tags boost scores | Pass |
+| test_metadata_boost_with_no_query_tags | No boost when no tags inferred | Pass |
+
+#### Reranking
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_reranking_disabled_by_default | Not applied unless enabled | Pass |
+| test_reranking_reorders_results | Reranker scores affect ordering | Pass |
+
+#### Query Expansion
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_expansion_disabled_by_default | Not used unless enabled | Pass |
+| test_expansion_adds_results | Expanded queries contribute results | Pass |
+
+#### Tag Retrieval
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_tag_retrieval_disabled_by_default | Not included in RRF unless enabled | Pass |
+| test_tag_retrieval_adds_to_rrf | Tag results included in RRF when enabled | Pass |
+
+#### Score Normalization
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_scores_normalized_by_default | Scores normalized to 0-1 range | Pass |
+| test_normalization_can_be_disabled | Normalization disabled via config | Pass |
+
+#### Error Handling
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_empty_results | Handles empty result lists gracefully | Pass |
+| test_min_score_filter | Results below min_score filtered | Pass |
+| test_limit_respected | Result count respects limit | Pass |
+
+#### Configuration Defaults
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_default_weights | Default weight values are reasonable | Pass |
+| test_default_features_disabled | Optional features disabled by default | Pass |
+| test_default_normalization_enabled | Score normalization enabled by default | Pass |
+
 ### Pipeline Metadata Boost Integration
 
 Tests for `_apply_metadata_boost` method in HybridSearchPipeline.
