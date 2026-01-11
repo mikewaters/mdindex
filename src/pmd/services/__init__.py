@@ -2,7 +2,7 @@
 
 This module provides high-level services that orchestrate business logic,
 abstracting the details of database access, LLM operations, and search
-from the CLI and MCP interfaces.
+from the CLI interface.
 
 Example usage:
 
@@ -20,6 +20,7 @@ Example usage:
         status = app.status.get_index_status()
 """
 
+from .caching import DocumentCacher
 from .indexing import CleanupResult, EmbedResult, IndexingService, IndexResult
 from .loading import EagerLoadResult, LoadedDocument, LoadingService, LoadResult
 from .loading_llamaindex import LlamaIndexLoaderAdapter
@@ -27,6 +28,7 @@ from .search import SearchService
 from .status import StatusService
 
 __all__ = [
+    "DocumentCacher",
     "IndexingService",
     "SearchService",
     "StatusService",

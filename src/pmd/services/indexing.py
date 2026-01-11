@@ -109,6 +109,7 @@ class IndexingService:
         embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]] | None = None,
         llm_available_check: Callable[[], Awaitable[bool]] | None = None,
         source_registry: SourceRegistry | None = None,
+        cacher: "DocumentCacher | None" = None,
     ):
         """Initialize IndexingService.
 
@@ -123,6 +124,7 @@ class IndexingService:
             embedding_generator_factory: Async factory for embedding generator.
             llm_available_check: Async function to check if LLM is available.
             source_registry: Optional source registry for creating sources.
+            cacher: Optional document cacher for local file caching.
         """
         self._db = db
         self._source_collection_repo = source_collection_repo
@@ -134,6 +136,7 @@ class IndexingService:
         self._embedding_generator_factory = embedding_generator_factory
         self._llm_available_check = llm_available_check
         self._source_registry = source_registry or get_default_registry()
+        self._cacher = cacher
 
     @property
     def vec_available(self) -> bool:
@@ -220,6 +223,7 @@ class IndexingService:
             fts_repo=self._fts_repo,
             loader=self._loader,  # type: ignore
             db=self._db,
+            cacher=self._cacher,
         )
 
         # Execute the ingestion workflow

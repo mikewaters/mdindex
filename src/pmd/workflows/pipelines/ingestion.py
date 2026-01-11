@@ -34,6 +34,7 @@ if TYPE_CHECKING:
         LoadingServiceProtocol,
         DatabaseProtocol,
     )
+    from pmd.services.caching import DocumentCacher
     from pmd.workflows.contracts import IngestionRequest
     from pmd.services.loading import LoadedDocument
     from pmd.store.source_metadata import SourceMetadataRepository
@@ -72,6 +73,7 @@ class IngestionPipeline:
         fts_repo: "FTSRepositoryProtocol",
         loader: "LoadingServiceProtocol",
         db: "DatabaseProtocol",
+        cacher: "DocumentCacher | None" = None,
     ):
         """Initialize IngestionPipeline.
 
@@ -81,12 +83,14 @@ class IngestionPipeline:
             fts_repo: Repository for FTS indexing.
             loader: LoadingService for document retrieval.
             db: Database for direct SQL operations.
+            cacher: Optional cacher for document content.
         """
         self._source_collection_repo = source_collection_repo
         self._document_repo = document_repo
         self._fts_repo = fts_repo
         self._loader = loader
         self._db = db
+        self._cacher = cacher
 
     async def execute(self, request: "IngestionRequest") -> "IndexResult":
         """Execute the ingestion pipeline.
@@ -151,6 +155,10 @@ class IngestionPipeline:
         async for doc in load_result.documents:
             processed += 1
             try:
+                # Cache the document content if cacher is enabled
+                if self._cacher and self._cacher.enabled:
+                    doc = self._cache_document(collection_name, doc)
+
                 result = await self._persist_document(
                     doc,
                     source_metadata_repo,
@@ -301,6 +309,9 @@ class IngestionPipeline:
                 doc_id = self._get_document_id(source_collection.id, doc.filepath)
                 if doc_id is not None:
                     self._fts_repo.remove_from_index(doc_id)
+                # Remove from cache
+                if self._cacher and self._cacher.enabled:
+                    self._cacher.remove_document(collection_name, doc.filepath)
                 stale_count += 1
 
         return stale_count
@@ -316,3 +327,37 @@ class IngestionPipeline:
             Document ID or None if not found.
         """
         return self._document_repo.get_id(source_collection_id, path)
+
+    def _cache_document(
+        self,
+        collection_name: str,
+        doc: "LoadedDocument",
+    ) -> "LoadedDocument":
+        """Cache document content and return updated document with cached URI.
+
+        Args:
+            collection_name: Name of the collection.
+            doc: Document to cache.
+
+        Returns:
+            LoadedDocument with updated ref.uri pointing to cached file.
+        """
+        from dataclasses import replace
+
+        from pmd.sources.content.base import DocumentReference
+
+        if not self._cacher:
+            return doc
+
+        # Cache the content and get the new URI
+        cached_uri = self._cacher.cache_document(
+            collection_name,
+            doc.path,
+            doc.content,
+        )
+
+        # Create new DocumentReference with cached URI
+        new_ref = replace(doc.ref, uri=cached_uri)
+
+        # Return new LoadedDocument with updated reference
+        return replace(doc, ref=new_ref)

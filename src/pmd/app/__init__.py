@@ -244,6 +244,7 @@ async def create_application(config: "Config") -> Application:
         TagRetriever,
         DocumentMetadataRepository,
     )
+    from pmd.services.caching import DocumentCacher
 
     # Create and connect database
     db = Database(config.db_path)
@@ -303,6 +304,9 @@ async def create_application(config: "Config") -> Application:
     # Create source registry
     source_registry = get_default_registry()
 
+    # Create document cacher (if enabled in config)
+    cacher = DocumentCacher(config.cache) if config.cache.enabled else None
+
     # Create loading service
     loading = LoadingService(
         db=db,
@@ -324,6 +328,7 @@ async def create_application(config: "Config") -> Application:
         embedding_generator_factory=get_embedding_generator, # type: ignore
         llm_available_check=is_llm_available,
         source_registry=source_registry,
+        cacher=cacher,
     )
 
     search = SearchService(

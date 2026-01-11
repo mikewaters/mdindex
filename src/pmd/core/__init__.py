@@ -1,6 +1,7 @@
 """Core business logic and types for PMD."""
 
 from .config import (
+    CacheConfig,
     ChunkConfig,
     Config,
     LMStudioConfig,
@@ -30,7 +31,6 @@ from .types import (
     EmbeddingResult,
     IndexStatus,
     OutputFormat,
-    PathContext,
     RankedResult,
     RerankDocumentResult,
     RerankResult,
@@ -42,6 +42,7 @@ from .types import (
 )
 
 __all__ = [
+    "CacheConfig",
     "Config",
     "LMStudioConfig",
     "OpenRouterConfig",
@@ -71,7 +72,6 @@ __all__ = [
     "EmbeddingResult",
     "RerankDocumentResult",
     "RerankResult",
-    "PathContext",
     "Chunk",
     "SnippetResult",
     "DocumentNotFound",

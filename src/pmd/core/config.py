@@ -124,6 +124,32 @@ class MetadataConfig:
     tag_namespace_map: dict[str, str] = field(default_factory=dict)
 
 
+def _default_cache_path() -> Path:
+    """Get default cache path for document files."""
+    cache_dir = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    return cache_dir / "pmd" / "files"
+
+
+@dataclass
+class CacheConfig:
+    """Document cache configuration.
+
+    Controls caching of ingested document files to a local directory.
+    Cached files use file:// URIs and provide local-first access to content.
+
+    Example TOML:
+        [cache]
+        enabled = true
+        base_path = "~/.cache/pmd/files"
+    """
+
+    # Whether caching is enabled
+    enabled: bool = False
+
+    # Base path for cached files (expanded with ~ support)
+    base_path: Path = field(default_factory=_default_cache_path)
+
+
 def _default_db_path() -> Path:
     """Get default database path."""
     cache_dir = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
@@ -143,6 +169,7 @@ class Config:
     chunk: ChunkConfig = field(default_factory=ChunkConfig)
     tracing: TracingConfig = field(default_factory=TracingConfig)
     metadata: MetadataConfig = field(default_factory=MetadataConfig)
+    cache: CacheConfig = field(default_factory=CacheConfig)
 
     @property
     def db_url_sync(self) -> str:
@@ -226,6 +253,12 @@ def _apply_toml(config: Config, data: dict[str, Any]) -> None:
         _update_dataclass(config.tracing, data["tracing"])
     if isinstance(data.get("metadata"), dict):
         _update_dataclass(config.metadata, data["metadata"])
+    if isinstance(data.get("cache"), dict):
+        cache_data = data["cache"]
+        if "enabled" in cache_data:
+            config.cache.enabled = cache_data["enabled"]
+        if "base_path" in cache_data:
+            config.cache.base_path = Path(cache_data["base_path"]).expanduser()
 
 def _update_dataclass(target: Any, values: dict[str, Any]) -> None:
     """Update dataclass fields from a dict (ignores unknown keys)."""
@@ -269,3 +302,9 @@ def _apply_env(config: Config) -> None:
             config.tracing.sample_rate = float(sample_rate)
         except ValueError:
             pass
+
+    # Cache configuration
+    if os.environ.get("PMD_CACHE_ENABLED", "").lower() in ("1", "true", "yes"):
+        config.cache.enabled = True
+    if cache_path := os.environ.get("PMD_CACHE_PATH"):
+        config.cache.base_path = Path(cache_path).expanduser()
