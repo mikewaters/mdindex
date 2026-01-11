@@ -106,10 +106,6 @@ class SourceCollection:
         return base
 
 
-# Backwards compatibility alias (deprecated)
-Collection = SourceCollection
-
-
 @dataclass
 class DocumentResult:
     """Represents a retrieved document."""

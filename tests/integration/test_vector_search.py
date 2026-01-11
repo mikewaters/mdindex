@@ -42,7 +42,7 @@ def get_document_id(db: Database, collection_id: int, path: str) -> int:
         Document ID.
     """
     cursor = db.execute(
-        "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
+        "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
         (collection_id, path),
     )
     row = cursor.fetchone()
@@ -221,7 +221,7 @@ class TestVectorSearchBasics:
 
         # Search only collection 1
         results = embedding_repo.search_vectors(
-            query_emb.embedding, limit=5, collection_id=coll1.id
+            query_emb.embedding, limit=5, source_collection_id=coll1.id
         )
 
         # Should only find document from collection 1

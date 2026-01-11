@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from pmd.search.metadata.retrieval import (
+from pmd.metadata import (
     TagRetriever,
     TagSearchConfig,
     create_tag_retriever,
@@ -95,7 +95,7 @@ class TestTagRetrieverScoring:
             "path": "doc.md",
             "title": "Test Doc",
             "hash": "abc123",
-            "collection_id": 1,
+            "source_collection_id": 1,
             "modified_at": "2024-01-01",
             "body": "Test content",
         }]
@@ -121,8 +121,8 @@ class TestTagRetrieverScoring:
         ]
 
         db.execute.return_value.fetchall.return_value = [
-            {"id": 1, "path": "doc1.md", "title": "Doc 1", "hash": "abc", "collection_id": 1, "modified_at": "2024-01-01", "body": "Content 1"},
-            {"id": 2, "path": "doc2.md", "title": "Doc 2", "hash": "def", "collection_id": 1, "modified_at": "2024-01-01", "body": "Content 2"},
+            {"id": 1, "path": "doc1.md", "title": "Doc 1", "hash": "abc", "source_collection_id": 1, "modified_at": "2024-01-01", "body": "Content 1"},
+            {"id": 2, "path": "doc2.md", "title": "Doc 2", "hash": "def", "source_collection_id": 1, "modified_at": "2024-01-01", "body": "Content 2"},
         ]
 
         query_tags = {"python": 1.0, "ml": 0.5}
@@ -146,7 +146,7 @@ class TestTagRetrieverScoring:
 
         db.execute.return_value.fetchall.return_value = [{
             "id": 1, "path": "doc.md", "title": "Test", "hash": "abc",
-            "collection_id": 1, "modified_at": "2024-01-01", "body": "Content",
+            "source_collection_id": 1, "modified_at": "2024-01-01", "body": "Content",
         }]
 
         query_tags = {"python": 1.0, "ml": 0.5}
@@ -169,8 +169,8 @@ class TestTagRetrieverScoring:
         ]
 
         db.execute.return_value.fetchall.return_value = [
-            {"id": 1, "path": "doc1.md", "title": "Doc 1", "hash": "abc", "collection_id": 1, "modified_at": "2024-01-01", "body": "Content 1"},
-            {"id": 2, "path": "doc2.md", "title": "Doc 2", "hash": "def", "collection_id": 1, "modified_at": "2024-01-01", "body": "Content 2"},
+            {"id": 1, "path": "doc1.md", "title": "Doc 1", "hash": "abc", "source_collection_id": 1, "modified_at": "2024-01-01", "body": "Content 1"},
+            {"id": 2, "path": "doc2.md", "title": "Doc 2", "hash": "def", "source_collection_id": 1, "modified_at": "2024-01-01", "body": "Content 2"},
         ]
 
         # Only python and ml are searched, rust won't contribute
@@ -195,10 +195,10 @@ class TestTagRetrieverCollectionFilter:
         metadata_repo.get_tags.side_effect = [{"python"}, {"python"}]
 
         db.execute.return_value.fetchall.return_value = [
-            {"id": 1, "path": "doc1.md", "title": "Doc 1", "hash": "abc", "collection_id": 1, "modified_at": "2024-01-01", "body": "Content 1"},
+            {"id": 1, "path": "doc1.md", "title": "Doc 1", "hash": "abc", "source_collection_id": 1, "modified_at": "2024-01-01", "body": "Content 1"},
         ]  # Only doc from collection 1 returned
 
-        results = retriever.search({"python"}, limit=10, collection_id=1)
+        results = retriever.search({"python"}, limit=10, source_collection_id=1)
 
         # Check that collection filter was added to SQL
         call_args = db.execute.call_args
@@ -223,7 +223,7 @@ class TestTagRetrieverResults:
             "path": "docs/python.md",
             "title": "Python Guide",
             "hash": "abc123def456",
-            "collection_id": 42,
+            "source_collection_id": 42,
             "modified_at": "2024-01-15T10:30:00",
             "body": "This is the body content of the document.",
         }]
@@ -237,7 +237,7 @@ class TestTagRetrieverResults:
         assert result.display_path == "docs/python.md"
         assert result.title == "Python Guide"
         assert result.hash == "abc123def456"
-        assert result.collection_id == 42
+        assert result.source_collection_id == 42
         assert result.modified_at == "2024-01-15T10:30:00"
         assert result.body == "This is the body content of the document."
         assert result.body_length == len("This is the body content of the document.")
@@ -257,9 +257,9 @@ class TestTagRetrieverResults:
         ]
 
         db.execute.return_value.fetchall.return_value = [
-            {"id": 1, "path": "doc1.md", "title": "Doc 1", "hash": "a", "collection_id": 1, "modified_at": "2024-01-01", "body": "A"},
-            {"id": 2, "path": "doc2.md", "title": "Doc 2", "hash": "b", "collection_id": 1, "modified_at": "2024-01-01", "body": "B"},
-            {"id": 3, "path": "doc3.md", "title": "Doc 3", "hash": "c", "collection_id": 1, "modified_at": "2024-01-01", "body": "C"},
+            {"id": 1, "path": "doc1.md", "title": "Doc 1", "hash": "a", "source_collection_id": 1, "modified_at": "2024-01-01", "body": "A"},
+            {"id": 2, "path": "doc2.md", "title": "Doc 2", "hash": "b", "source_collection_id": 1, "modified_at": "2024-01-01", "body": "B"},
+            {"id": 3, "path": "doc3.md", "title": "Doc 3", "hash": "c", "source_collection_id": 1, "modified_at": "2024-01-01", "body": "C"},
         ]
 
         query_tags = {"python": 1.0, "ml": 0.5}
@@ -283,7 +283,7 @@ class TestTagRetrieverResults:
 
         db.execute.return_value.fetchall.return_value = [
             {"id": i, "path": f"doc{i}.md", "title": f"Doc {i}", "hash": f"h{i}",
-             "collection_id": 1, "modified_at": "2024-01-01", "body": "Content"}
+             "source_collection_id": 1, "modified_at": "2024-01-01", "body": "Content"}
             for i in range(1, 6)
         ]
 
@@ -335,7 +335,7 @@ class TestTagRetrieverEdgeCases:
             "path": "doc.md",
             "title": "Doc",
             "hash": "abc",
-            "collection_id": 1,
+            "source_collection_id": 1,
             "modified_at": "2024-01-01",
             "body": None,
         }]
@@ -357,7 +357,7 @@ class TestTagRetrieverEdgeCases:
 
         db.execute.return_value.fetchall.return_value = [{
             "id": 1, "path": "doc.md", "title": "Doc", "hash": "abc",
-            "collection_id": 1, "modified_at": "2024-01-01", "body": "Content",
+            "source_collection_id": 1, "modified_at": "2024-01-01", "body": "Content",
         }]
 
         # Query for python, but doc has rust
@@ -377,7 +377,7 @@ class TestTagRetrieverEdgeCases:
 
         db.execute.return_value.fetchall.return_value = [{
             "id": 1, "path": "doc.md", "title": None, "hash": "abc",
-            "collection_id": 1, "modified_at": "2024-01-01", "body": "Content",
+            "source_collection_id": 1, "modified_at": "2024-01-01", "body": "Content",
         }]
 
         results = retriever.search({"python"}, limit=10)
@@ -396,7 +396,7 @@ class TestTagRetrieverEdgeCases:
 
         db.execute.return_value.fetchall.return_value = [{
             "id": 1, "path": "doc.md", "title": "Doc", "hash": "abc",
-            "collection_id": 1, "modified_at": "2024-01-01", "body": "Content",
+            "source_collection_id": 1, "modified_at": "2024-01-01", "body": "Content",
         }]
 
         results = retriever.search({"python": 1.0}, limit=10)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Awaitable
 
@@ -26,7 +25,7 @@ class StatusService:
     - Collection information
     - LLM provider availability
 
-    Example with explicit dependencies (recommended):
+    Example:
 
         status_service = StatusService(
             db=db,
@@ -34,23 +33,15 @@ class StatusService:
             db_path=config.db_path,
         )
         status = status_service.get_index_status()
-
-    Example with ServiceContainer (deprecated):
-
-        async with ServiceContainer(config) as services:
-            status = services.status.get_index_status()
     """
 
     def __init__(
         self,
-        # Explicit dependencies (new API)
-        db: DatabaseProtocol | None = None,
-        source_collection_repo: SourceCollectionRepositoryProtocol | None = None,
+        db: DatabaseProtocol,
+        source_collection_repo: SourceCollectionRepositoryProtocol,
         db_path: Path | None = None,
         llm_provider: str = "unknown",
         llm_available_check: Callable[[], Awaitable[bool]] | None = None,
-        # Deprecated: ServiceContainer
-        container: "ServiceContainer | None" = None,
     ):
         """Initialize StatusService.
 
@@ -60,33 +51,12 @@ class StatusService:
             db_path: Path to the database file.
             llm_provider: Name of the LLM provider.
             llm_available_check: Async function to check if LLM is available.
-            container: DEPRECATED. Use explicit dependencies instead.
         """
-        # Support backward compatibility with container
-        if container is not None:
-            warnings.warn(
-                "Passing 'container' to StatusService is deprecated. "
-                "Use explicit dependencies instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            self._container = container
-            self._db = container.db
-            self._source_collection_repo = container.source_collection_repo
-            self._db_path = container.config.db_path
-            self._llm_provider = container.config.llm_provider
-            self._llm_available_check = container.is_llm_available
-        else:
-            self._container = None
-            if db is None or source_collection_repo is None:
-                raise ValueError(
-                    "StatusService requires db and source_collection_repo"
-                )
-            self._db = db
-            self._source_collection_repo = source_collection_repo
-            self._db_path = db_path
-            self._llm_provider = llm_provider
-            self._llm_available_check = llm_available_check
+        self._db = db
+        self._source_collection_repo = source_collection_repo
+        self._db_path = db_path
+        self._llm_provider = llm_provider
+        self._llm_available_check = llm_available_check
 
     @classmethod
     def from_container(cls, container: "ServiceContainer") -> "StatusService":

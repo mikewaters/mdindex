@@ -31,7 +31,6 @@ from .types import (
     DatabaseProtocol,
     # Repository protocols
     SourceCollectionRepositoryProtocol,
-    CollectionRepositoryProtocol,  # Deprecated alias
     DocumentRepositoryProtocol,
     FTSRepositoryProtocol,
     EmbeddingRepositoryProtocol,
@@ -52,7 +51,6 @@ from .types import (
     SearchConfigProtocol,
     # Type aliases
     SourceCollectionRepo,
-    CollectionRepo,  # Deprecated alias
     DocumentRepo,
     FTSRepo,
     EmbeddingRepo,
@@ -66,7 +64,6 @@ __all__ = [
     "DatabaseProtocol",
     # Repositories
     "SourceCollectionRepositoryProtocol",
-    "CollectionRepositoryProtocol",  # Deprecated alias
     "DocumentRepositoryProtocol",
     "FTSRepositoryProtocol",
     "EmbeddingRepositoryProtocol",
@@ -87,7 +84,6 @@ __all__ = [
     "SearchConfigProtocol",
     # Aliases
     "SourceCollectionRepo",
-    "CollectionRepo",  # Deprecated alias
     "DocumentRepo",
     "FTSRepo",
     "EmbeddingRepo",
@@ -219,7 +215,7 @@ async def create_application(config: "Config") -> Application:
     db.connect()
 
     # Create repositories
-    source_source_collection_repo = SourceCollectionRepository(db)
+    source_collection_repo = SourceCollectionRepository(db)
     document_repo = DocumentRepository(db)
     fts_repo = FTS5SearchRepository(db)
     embedding_repo = EmbeddingRepository(db)

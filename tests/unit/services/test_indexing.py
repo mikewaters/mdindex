@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 from pmd.core.config import Config
-from pmd.core.exceptions import CollectionNotFoundError
+from pmd.core.exceptions import SourceCollectionNotFoundError
 from pmd.services import IndexResult, CleanupResult, ServiceContainer
 from pmd.services.indexing import IndexingService
 from pmd.sources import FileSystemSource, SourceConfig, SourceListError
@@ -33,21 +33,22 @@ class TestIndexingServiceInit:
         """IndexingService should work with explicit dependencies."""
         service = IndexingService(
             db=connected_container.db,
-            collection_repo=connected_container.collection_repo,
+            source_collection_repo=connected_container.collection_repo,
             document_repo=connected_container.document_repo,
             fts_repo=connected_container.fts_repo,
+            loader=connected_container.loading,
             embedding_repo=connected_container.embedding_repo,
         )
 
         assert service._db is connected_container.db
-        assert service._collection_repo is connected_container.collection_repo
+        assert service._source_collection_repo is connected_container.collection_repo
 
     def test_from_container_factory(self, connected_container: ServiceContainer):
         """IndexingService.from_container should create service with container deps."""
         service = IndexingService.from_container(connected_container)
 
         assert service._db is connected_container.db
-        assert service._collection_repo is connected_container.collection_repo
+        assert service._source_collection_repo is connected_container.collection_repo
         assert service._fts_repo is connected_container.fts_repo
 
 
@@ -59,7 +60,7 @@ class TestIndexingServiceIndexCollection:
         """index_collection should raise for unknown collection."""
         async with ServiceContainer(config) as services:
             dummy_source = FileSystemSource(SourceConfig(uri="file:///tmp"))
-            with pytest.raises(CollectionNotFoundError):
+            with pytest.raises(SourceCollectionNotFoundError):
                 await services.indexing.index_collection("nonexistent", dummy_source)
 
     @pytest.mark.asyncio
@@ -377,7 +378,7 @@ class TestIndexingServiceEmbedCollection:
             # Force vec_available for this test
             services._vec_available = True
 
-            with pytest.raises(CollectionNotFoundError):
+            with pytest.raises(SourceCollectionNotFoundError):
                 await services.indexing.embed_collection("nonexistent")
 
     @pytest.mark.asyncio
@@ -599,10 +600,10 @@ class TestIndexingServiceBackfillMetadata:
             # Create collection with source_config
             services.collection_repo.create("docs", str(tmp_path), "**/*.md")
 
-            # Manually set source_config to test JSON parsing (line 710)
+            # Manually set source_config to test JSON parsing
             source_config = json.dumps({"metadata_profile": "generic"})
             services.db.execute(
-                "UPDATE collections SET source_config = ? WHERE name = ?",
+                "UPDATE source_collections SET source_config = ? WHERE name = ?",
                 (source_config, "docs"),
             )
 
@@ -632,7 +633,7 @@ class TestIndexingServiceBackfillMetadata:
 
             # Ensure source_config is NULL
             services.db.execute(
-                "UPDATE collections SET source_config = NULL WHERE name = ?",
+                "UPDATE source_collections SET source_config = NULL WHERE name = ?",
                 ("docs",),
             )
 
@@ -667,7 +668,7 @@ class TestIndexingServiceBackfillMetadata:
             # Set metadata_profile to obsidian in source_config
             source_config = json.dumps({"metadata_profile": "obsidian"})
             services.db.execute(
-                "UPDATE collections SET source_config = ? WHERE name = ?",
+                "UPDATE source_collections SET source_config = ? WHERE name = ?",
                 (source_config, "docs"),
             )
 
@@ -683,7 +684,7 @@ class TestIndexingServiceBackfillMetadata:
             assert stats["updated"] == 1
 
             # Verify Obsidian profile was used (expands nested tags)
-            from pmd.store.document_metadata import DocumentMetadataRepository
+            from pmd.metadata import DocumentMetadataRepository
             metadata_repo = DocumentMetadataRepository(services.db)
 
             cursor = services.db.execute(
@@ -747,7 +748,7 @@ class TestIndexingServiceBackfillMetadata:
             assert stats2["updated"] == 1
 
             # Verify tags were extracted
-            from pmd.store.document_metadata import DocumentMetadataRepository
+            from pmd.metadata import DocumentMetadataRepository
             metadata_repo = DocumentMetadataRepository(services.db)
             cursor = services.db.execute("SELECT id FROM documents WHERE path = 'doc.md'")
             doc_id = cursor.fetchone()["id"]
@@ -789,7 +790,7 @@ class TestIndexingServiceBackfillMetadata:
 
             # Set source_config to empty string
             services.db.execute(
-                "UPDATE collections SET source_config = '' WHERE name = ?",
+                "UPDATE source_collections SET source_config = '' WHERE name = ?",
                 ("docs",),
             )
 

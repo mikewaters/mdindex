@@ -2,7 +2,7 @@
 
 import pytest
 
-from pmd.search.metadata.inference import (
+from pmd.metadata import (
     LexicalTagMatcher,
     TagMatch,
     create_default_matcher,

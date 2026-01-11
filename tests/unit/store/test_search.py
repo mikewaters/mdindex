@@ -133,7 +133,7 @@ class TestFTS5Search:
             "Python Guide",
             "Learn Python programming language",
         )
-        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.source_collection_id, doc.filepath, doc.body)
 
         results = fts_repo.search("Python")
 
@@ -153,7 +153,7 @@ class TestFTS5Search:
             "Test",
             "Searchable content",
         )
-        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.source_collection_id, doc.filepath, doc.body)
 
         results = fts_repo.search("Searchable")
 
@@ -202,14 +202,14 @@ class TestFTS5Search:
         doc1, _ = document_repo.add_or_update(coll1.id, "doc1.md", "Doc 1", "Target keyword")
         doc2, _ = document_repo.add_or_update(coll2.id, "doc2.md", "Doc 2", "Target keyword")
 
-        fts_repo.index_document(doc1.collection_id, doc1.filepath, doc1.body)
-        fts_repo.index_document(doc2.collection_id, doc2.filepath, doc2.body)
+        fts_repo.index_document(doc1.source_collection_id, doc1.filepath, doc1.body)
+        fts_repo.index_document(doc2.source_collection_id, doc2.filepath, doc2.body)
 
         # Search only in collection 1
-        results = fts_repo.search("Target", collection_id=coll1.id)
+        results = fts_repo.search("Target", source_collection_id=coll1.id)
 
         assert len(results) == 1
-        assert results[0].collection_id == coll1.id
+        assert results[0].source_collection_id == coll1.id
 
     def test_search_min_score_filter(
         self,
@@ -224,7 +224,7 @@ class TestFTS5Search:
             "Test",
             "Searchable content",
         )
-        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.source_collection_id, doc.filepath, doc.body)
 
         # Very high min_score should return no results
         results = fts_repo.search("Searchable", min_score=999.0)
@@ -250,7 +250,7 @@ class TestFTS5SearchScoring:
             "Test",
             "Searchable content",
         )
-        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.source_collection_id, doc.filepath, doc.body)
 
         results = fts_repo.search("Searchable")
 
@@ -359,7 +359,7 @@ class TestFTS5QueryPreparation:
             "Test",
             "Simple content here",
         )
-        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.source_collection_id, doc.filepath, doc.body)
 
         results = fts_repo.search("simple")
 
@@ -378,7 +378,7 @@ class TestFTS5QueryPreparation:
             "Test",
             "Python programming tutorial content",
         )
-        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.source_collection_id, doc.filepath, doc.body)
 
         results = fts_repo.search("Python programming")
 
@@ -397,7 +397,7 @@ class TestFTS5QueryPreparation:
             "Test",
             "UPPERCASE content lowercase",
         )
-        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.source_collection_id, doc.filepath, doc.body)
 
         # Both cases should find results
         results_lower = fts_repo.search("uppercase")
@@ -423,7 +423,7 @@ class TestSearchResultAttributes:
             "Test",
             "Content",
         )
-        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.source_collection_id, doc.filepath, doc.body)
 
         results = fts_repo.search("Content")
 
@@ -442,7 +442,7 @@ class TestSearchResultAttributes:
             "My Title",
             "Content here",
         )
-        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.source_collection_id, doc.filepath, doc.body)
 
         results = fts_repo.search("Content")
 
@@ -461,11 +461,11 @@ class TestSearchResultAttributes:
             "Test",
             "Content",
         )
-        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.source_collection_id, doc.filepath, doc.body)
 
         results = fts_repo.search("Content")
 
-        assert results[0].collection_id == sample_collection.id
+        assert results[0].source_collection_id == sample_collection.id
 
     def test_result_has_hash(
         self,
@@ -480,7 +480,7 @@ class TestSearchResultAttributes:
             "Test",
             "Content",
         )
-        fts_repo.index_document(doc.collection_id, doc.filepath, doc.body)
+        fts_repo.index_document(doc.source_collection_id, doc.filepath, doc.body)
 
         results = fts_repo.search("Content")
 

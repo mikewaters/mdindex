@@ -99,7 +99,7 @@ class SourceCollectionRepositoryProtocol(Protocol):
         """Get source collection by name."""
         ...
 
-    def get_by_id(self, source_source_collection_id: int) -> "SourceCollection | None":
+    def get_by_id(self, source_collection_id: int) -> "SourceCollection | None":
         """Get source collection by ID."""
         ...
 
@@ -114,17 +114,13 @@ class SourceCollectionRepositoryProtocol(Protocol):
         """Create a new source collection."""
         ...
 
-    def remove(self, source_source_collection_id: int) -> tuple[int, int]:
+    def remove(self, source_collection_id: int) -> tuple[int, int]:
         """Remove a source collection and return (docs_deleted, orphans_cleaned)."""
         ...
 
-    def rename(self, source_source_collection_id: int, new_name: str) -> None:
+    def rename(self, source_collection_id: int, new_name: str) -> None:
         """Rename a source collection."""
         ...
-
-
-# Backwards compatibility alias
-CollectionRepositoryProtocol = SourceCollectionRepositoryProtocol
 
 
 @runtime_checkable
@@ -491,7 +487,6 @@ class LoadingServiceProtocol(Protocol):
 # These can be used for type hints when the full protocol isn't needed
 
 SourceCollectionRepo = SourceCollectionRepositoryProtocol
-CollectionRepo = SourceCollectionRepositoryProtocol  # Deprecated alias
 DocumentRepo = DocumentRepositoryProtocol
 FTSRepo = FTSRepositoryProtocol
 EmbeddingRepo = EmbeddingRepositoryProtocol

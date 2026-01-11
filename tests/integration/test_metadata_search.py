@@ -98,7 +98,7 @@ def metadata_db(tmp_path):
 
         # Get document ID
         cursor = db.execute(
-            "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
+            "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
             (collection.id, doc["path"]),
         )
         row = cursor.fetchone()

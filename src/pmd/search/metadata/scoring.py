@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from pmd.store.document_metadata import DocumentMetadataRepository
+    from pmd.metadata import DocumentMetadataRepository
 
 
 class ScoredResult(Protocol):

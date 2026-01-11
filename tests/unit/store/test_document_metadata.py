@@ -6,7 +6,7 @@ from datetime import datetime
 from pmd.store.database import Database
 from pmd.store.documents import DocumentRepository
 from pmd.store.collections import CollectionRepository
-from pmd.store.document_metadata import DocumentMetadataRepository, StoredDocumentMetadata
+from pmd.metadata import DocumentMetadataRepository, StoredDocumentMetadata
 
 
 @pytest.fixture
@@ -470,7 +470,7 @@ class TestDocumentMetadataAggregations:
 def _get_doc_id(document_repo: DocumentRepository, collection_id: int, path: str) -> int:
     """Helper to get document ID from repository's database."""
     cursor = document_repo.db.execute(
-        "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
+        "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
         (collection_id, path),
     )
     return cursor.fetchone()["id"]

@@ -61,14 +61,14 @@ class InMemoryTextSearcher:
         self,
         query: str,
         limit: int,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
     ) -> list[SearchResult]:
         """Search for results matching the query.
 
         Args:
             query: Search query string.
             limit: Maximum number of results.
-            collection_id: Optional collection filter.
+            source_collection_id: Optional collection filter.
 
         Returns:
             List of SearchResult objects.
@@ -80,8 +80,8 @@ class InMemoryTextSearcher:
             results = self._results
 
         # Apply collection filter if specified
-        if collection_id is not None:
-            results = [r for r in results if r.collection_id == collection_id]
+        if source_collection_id is not None:
+            results = [r for r in results if r.source_collection_id == source_collection_id]
 
         # Sort by score descending and limit
         results = sorted(results, key=lambda r: r.score, reverse=True)
@@ -116,14 +116,14 @@ class InMemoryVectorSearcher:
         self,
         query: str,
         limit: int,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
     ) -> list[SearchResult]:
         """Search for results matching the query (async).
 
         Args:
             query: Search query string.
             limit: Maximum number of results.
-            collection_id: Optional collection filter.
+            source_collection_id: Optional collection filter.
 
         Returns:
             List of SearchResult objects.
@@ -133,8 +133,8 @@ class InMemoryVectorSearcher:
         else:
             results = self._results
 
-        if collection_id is not None:
-            results = [r for r in results if r.collection_id == collection_id]
+        if source_collection_id is not None:
+            results = [r for r in results if r.source_collection_id == source_collection_id]
 
         results = sorted(results, key=lambda r: r.score, reverse=True)
         return results[:limit]
@@ -160,7 +160,7 @@ class InMemoryTagSearcher:
         filepath: str,
         tags: set[str],
         score: float = 1.0,
-        collection_id: int = 1,
+        source_collection_id: int = 1,
         title: str = "",
         body: str = "",
     ) -> None:
@@ -170,7 +170,7 @@ class InMemoryTagSearcher:
             filepath: Document path.
             tags: Set of tags for this document.
             score: Base score for the document.
-            collection_id: Collection ID.
+            source_collection_id: Collection ID.
             title: Document title.
             body: Document body.
         """
@@ -180,7 +180,7 @@ class InMemoryTagSearcher:
             title=title or filepath,
             context=None,
             hash=f"hash_{filepath}",
-            collection_id=collection_id,
+            source_collection_id=source_collection_id,
             modified_at="2024-01-01T00:00:00",
             body_length=len(body),
             body=body,
@@ -193,14 +193,14 @@ class InMemoryTagSearcher:
         self,
         tags: dict[str, float] | set[str],
         limit: int,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
     ) -> list[SearchResult]:
         """Search documents by tag matches.
 
         Args:
             tags: Tags to search for (dict with weights or set).
             limit: Maximum number of results.
-            collection_id: Optional collection filter.
+            source_collection_id: Optional collection filter.
 
         Returns:
             List of SearchResult objects sorted by score.
@@ -213,7 +213,7 @@ class InMemoryTagSearcher:
         results: list[SearchResult] = []
 
         for result, doc_tags in self._documents:
-            if collection_id is not None and result.collection_id != collection_id:
+            if source_collection_id is not None and result.source_collection_id != source_collection_id:
                 continue
 
             # Calculate score based on tag overlap
@@ -230,7 +230,7 @@ class InMemoryTagSearcher:
                     title=result.title,
                     context=result.context,
                     hash=result.hash,
-                    collection_id=result.collection_id,
+                    source_collection_id=result.source_collection_id,
                     modified_at=result.modified_at,
                     body_length=result.body_length,
                     body=result.body,
@@ -504,7 +504,7 @@ def make_search_result(
     filepath: str,
     score: float = 0.5,
     source: SearchSource = SearchSource.FTS,
-    collection_id: int = 1,
+    source_collection_id: int = 1,
     title: str = "",
     body: str = "",
 ) -> SearchResult:
@@ -514,7 +514,7 @@ def make_search_result(
         filepath: Document path.
         score: Result score.
         source: Search source type.
-        collection_id: Collection ID.
+        source_collection_id: Collection ID.
         title: Document title.
         body: Document body.
 
@@ -527,7 +527,7 @@ def make_search_result(
         title=title or filepath,
         context=None,
         hash=f"hash_{filepath}",
-        collection_id=collection_id,
+        source_collection_id=source_collection_id,
         modified_at="2024-01-01T00:00:00",
         body_length=len(body),
         body=body,

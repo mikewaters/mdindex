@@ -76,9 +76,8 @@ def search_repo(fts_repo: FTS5SearchRepository) -> FTS5SearchRepository:
 def test_corpus_collection(
     collection_repo: CollectionRepository,
     test_corpus_path: Path,
-) -> "Collection":
+) -> "SourceCollection":
     """Create a collection pointing to the test corpus."""
-    from pmd.core.types import Collection
     return collection_repo.create("test-corpus", str(test_corpus_path), "**/*.md")
 
 

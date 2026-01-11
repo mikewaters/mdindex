@@ -11,10 +11,11 @@ from pmd.services.search import SearchService
 from pmd.services.status import StatusService
 from tests.fakes import (
     InMemoryDatabase,
-    InMemoryCollectionRepository,
+    InMemorySourceCollectionRepository,
     InMemoryDocumentRepository,
     InMemoryFTSRepository,
     InMemoryEmbeddingRepository,
+    InMemoryLoadingService,
 )
 
 
@@ -24,35 +25,40 @@ class TestIndexingServiceWithFakes:
     def test_can_construct_with_fakes(self):
         """IndexingService should accept in-memory fakes."""
         db = InMemoryDatabase()
-        collection_repo = InMemoryCollectionRepository()
+        collection_repo = InMemorySourceCollectionRepository()
         document_repo = InMemoryDocumentRepository()
         fts_repo = InMemoryFTSRepository()
+        loader = InMemoryLoadingService()
 
         service = IndexingService(
             db=db,
-            collection_repo=collection_repo,
+            source_collection_repo=collection_repo,
             document_repo=document_repo,
             fts_repo=fts_repo,
+            loader=loader,
         )
 
         assert service._db is db
-        assert service._collection_repo is collection_repo
+        assert service._source_collection_repo is collection_repo
         assert service._document_repo is document_repo
         assert service._fts_repo is fts_repo
+        assert service._loader is loader
 
     def test_can_construct_with_optional_embedding_repo(self):
         """IndexingService should accept optional embedding repo."""
         db = InMemoryDatabase()
-        collection_repo = InMemoryCollectionRepository()
+        collection_repo = InMemorySourceCollectionRepository()
         document_repo = InMemoryDocumentRepository()
         fts_repo = InMemoryFTSRepository()
+        loader = InMemoryLoadingService()
         embedding_repo = InMemoryEmbeddingRepository()
 
         service = IndexingService(
             db=db,
-            collection_repo=collection_repo,
+            source_collection_repo=collection_repo,
             document_repo=document_repo,
             fts_repo=fts_repo,
+            loader=loader,
             embedding_repo=embedding_repo,
         )
 
@@ -65,16 +71,18 @@ class TestIndexingServiceWithFakes:
 
         service_with = IndexingService(
             db=db_with_vec,
-            collection_repo=InMemoryCollectionRepository(),
+            source_collection_repo=InMemorySourceCollectionRepository(),
             document_repo=InMemoryDocumentRepository(),
             fts_repo=InMemoryFTSRepository(),
+            loader=InMemoryLoadingService(),
         )
 
         service_without = IndexingService(
             db=db_without_vec,
-            collection_repo=InMemoryCollectionRepository(),
+            source_collection_repo=InMemorySourceCollectionRepository(),
             document_repo=InMemoryDocumentRepository(),
             fts_repo=InMemoryFTSRepository(),
+            loader=InMemoryLoadingService(),
         )
 
         assert service_with.vec_available is True
@@ -88,23 +96,23 @@ class TestSearchServiceWithFakes:
         """SearchService should accept in-memory fakes."""
         db = InMemoryDatabase()
         fts_repo = InMemoryFTSRepository()
-        collection_repo = InMemoryCollectionRepository()
+        collection_repo = InMemorySourceCollectionRepository()
 
         service = SearchService(
             db=db,
             fts_repo=fts_repo,
-            collection_repo=collection_repo,
+            source_collection_repo=collection_repo,
         )
 
         assert service._db is db
         assert service._fts_repo is fts_repo
-        assert service._collection_repo is collection_repo
+        assert service._source_collection_repo is collection_repo
 
     def test_can_construct_with_all_optional_deps(self):
         """SearchService should accept all optional dependencies."""
         db = InMemoryDatabase()
         fts_repo = InMemoryFTSRepository()
-        collection_repo = InMemoryCollectionRepository()
+        collection_repo = InMemorySourceCollectionRepository()
         embedding_repo = InMemoryEmbeddingRepository()
 
         async def fake_embedding_generator():
@@ -113,7 +121,7 @@ class TestSearchServiceWithFakes:
         service = SearchService(
             db=db,
             fts_repo=fts_repo,
-            collection_repo=collection_repo,
+            source_collection_repo=collection_repo,
             embedding_repo=embedding_repo,
             embedding_generator_factory=fake_embedding_generator,
             fts_weight=2.0,
@@ -129,7 +137,7 @@ class TestSearchServiceWithFakes:
     def test_fts_search_with_fake_repo(self):
         """FTS search should work with fake repo."""
         db = InMemoryDatabase()
-        collection_repo = InMemoryCollectionRepository()
+        collection_repo = InMemorySourceCollectionRepository()
         fts_repo = InMemoryFTSRepository()
 
         # Pre-configure results using make_search_result helper
@@ -145,7 +153,7 @@ class TestSearchServiceWithFakes:
         service = SearchService(
             db=db,
             fts_repo=fts_repo,
-            collection_repo=collection_repo,
+            source_collection_repo=collection_repo,
         )
 
         results = service.fts_search("query")
@@ -161,29 +169,29 @@ class TestStatusServiceWithFakes:
     def test_can_construct_with_fakes(self):
         """StatusService should accept in-memory fakes."""
         db = InMemoryDatabase()
-        collection_repo = InMemoryCollectionRepository()
+        collection_repo = InMemorySourceCollectionRepository()
 
         service = StatusService(
             db=db,
-            collection_repo=collection_repo,
+            source_collection_repo=collection_repo,
         )
 
         assert service._db is db
-        assert service._collection_repo is collection_repo
+        assert service._source_collection_repo is collection_repo
 
     def test_can_construct_with_all_optional_deps(self):
         """StatusService should accept all optional dependencies."""
         from pathlib import Path
 
         db = InMemoryDatabase()
-        collection_repo = InMemoryCollectionRepository()
+        collection_repo = InMemorySourceCollectionRepository()
 
         async def fake_llm_check():
             return True
 
         service = StatusService(
             db=db,
-            collection_repo=collection_repo,
+            source_collection_repo=collection_repo,
             db_path=Path("/tmp/test.db"),
             llm_provider="test-provider",
             llm_available_check=fake_llm_check,
@@ -195,35 +203,35 @@ class TestStatusServiceWithFakes:
     def test_get_index_status_with_empty_fakes(self):
         """get_index_status should work with empty fakes."""
         db = InMemoryDatabase()
-        collection_repo = InMemoryCollectionRepository()
+        collection_repo = InMemorySourceCollectionRepository()
 
         service = StatusService(
             db=db,
-            collection_repo=collection_repo,
+            source_collection_repo=collection_repo,
         )
 
         status = service.get_index_status()
 
         assert status.total_documents == 0
-        assert status.collections == []
+        assert status.source_collections == []
 
     def test_get_index_status_with_collections(self):
         """get_index_status should list collections from fake repo."""
         db = InMemoryDatabase()
-        collection_repo = InMemoryCollectionRepository()
+        collection_repo = InMemorySourceCollectionRepository()
 
         # Add a collection
         collection_repo.create("test-collection", "/path/to/docs")
 
         service = StatusService(
             db=db,
-            collection_repo=collection_repo,
+            source_collection_repo=collection_repo,
         )
 
         status = service.get_index_status()
 
-        assert len(status.collections) == 1
-        assert status.collections[0].name == "test-collection"
+        assert len(status.source_collections) == 1
+        assert status.source_collections[0].name == "test-collection"
 
 
 class TestServiceIsolation:
@@ -238,20 +246,21 @@ class TestServiceIsolation:
 
         indexing = IndexingService(
             db=indexing_db,
-            collection_repo=InMemoryCollectionRepository(),
+            source_collection_repo=InMemorySourceCollectionRepository(),
             document_repo=InMemoryDocumentRepository(),
             fts_repo=InMemoryFTSRepository(),
+            loader=InMemoryLoadingService(),
         )
 
         search = SearchService(
             db=search_db,
             fts_repo=InMemoryFTSRepository(),
-            collection_repo=InMemoryCollectionRepository(),
+            source_collection_repo=InMemorySourceCollectionRepository(),
         )
 
         status = StatusService(
             db=status_db,
-            collection_repo=InMemoryCollectionRepository(),
+            source_collection_repo=InMemorySourceCollectionRepository(),
         )
 
         # Each service should work independently
@@ -263,24 +272,25 @@ class TestServiceIsolation:
         """Services can share repository instances for integration tests."""
         # Shared infrastructure
         db = InMemoryDatabase()
-        collection_repo = InMemoryCollectionRepository()
+        collection_repo = InMemorySourceCollectionRepository()
 
         # Create collection in shared repo
         collection_repo.create("shared", "/path")
 
         indexing = IndexingService(
             db=db,
-            collection_repo=collection_repo,
+            source_collection_repo=collection_repo,
             document_repo=InMemoryDocumentRepository(),
             fts_repo=InMemoryFTSRepository(),
+            loader=InMemoryLoadingService(),
         )
 
         status = StatusService(
             db=db,
-            collection_repo=collection_repo,
+            source_collection_repo=collection_repo,
         )
 
         # Both services see the same collection
         status_result = status.get_index_status()
-        assert len(status_result.collections) == 1
-        assert status_result.collections[0].name == "shared"
+        assert len(status_result.source_collections) == 1
+        assert status_result.source_collections[0].name == "shared"

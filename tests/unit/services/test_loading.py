@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 from pmd.core.config import Config
-from pmd.core.exceptions import CollectionNotFoundError
+from pmd.core.exceptions import SourceCollectionNotFoundError
 from pmd.services import ServiceContainer
 from pmd.services.loading import LoadingService, LoadedDocument, EagerLoadResult, LoadResult
 from pmd.sources import FileSystemSource, SourceConfig, SourceFetchError
@@ -41,7 +41,7 @@ class TestLoadingServiceEager:
             from pmd.sources import get_default_registry
             loader = LoadingService(
                 db=services.db,
-                collection_repo=services.collection_repo,
+                source_collection_repo=services.collection_repo,
                 document_repo=services.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
@@ -69,7 +69,7 @@ class TestLoadingServiceEager:
             from pmd.sources import get_default_registry
             loader = LoadingService(
                 db=services.db,
-                collection_repo=services.collection_repo,
+                source_collection_repo=services.collection_repo,
                 document_repo=services.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
@@ -92,13 +92,13 @@ class TestLoadingServiceEager:
             from pmd.sources import get_default_registry
             loader = LoadingService(
                 db=services.db,
-                collection_repo=services.collection_repo,
+                source_collection_repo=services.collection_repo,
                 document_repo=services.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
             )
 
-            with pytest.raises(CollectionNotFoundError):
+            with pytest.raises(SourceCollectionNotFoundError):
                 await loader.load_collection_eager("nonexistent")
 
     @pytest.mark.asyncio
@@ -113,7 +113,7 @@ class TestLoadingServiceEager:
             from pmd.sources import get_default_registry
             loader = LoadingService(
                 db=services.db,
-                collection_repo=services.collection_repo,
+                source_collection_repo=services.collection_repo,
                 document_repo=services.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
@@ -143,7 +143,7 @@ class TestLoadingServiceStream:
             from pmd.sources import get_default_registry
             loader = LoadingService(
                 db=services.db,
-                collection_repo=services.collection_repo,
+                source_collection_repo=services.collection_repo,
                 document_repo=services.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
@@ -181,7 +181,7 @@ class TestLoadingServiceChangeDetection:
             from pmd.sources import get_default_registry
             loader = LoadingService(
                 db=services.db,
-                collection_repo=services.collection_repo,
+                source_collection_repo=services.collection_repo,
                 document_repo=services.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
@@ -220,7 +220,7 @@ class TestLoadingServiceChangeDetection:
             from pmd.sources import get_default_registry
             loader = LoadingService(
                 db=services.db,
-                collection_repo=services.collection_repo,
+                source_collection_repo=services.collection_repo,
                 document_repo=services.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
@@ -258,7 +258,7 @@ class TestLoadingServiceTitleExtraction:
             from pmd.sources import get_default_registry
             loader = LoadingService(
                 db=services.db,
-                collection_repo=services.collection_repo,
+                source_collection_repo=services.collection_repo,
                 document_repo=services.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
@@ -283,7 +283,7 @@ class TestLoadingServiceTitleExtraction:
             from pmd.sources import get_default_registry
             loader = LoadingService(
                 db=services.db,
-                collection_repo=services.collection_repo,
+                source_collection_repo=services.collection_repo,
                 document_repo=services.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
@@ -330,7 +330,7 @@ class TestLoadingServiceErrorHandling:
             from pmd.sources import get_default_registry
             loader = LoadingService(
                 db=services.db,
-                collection_repo=services.collection_repo,
+                source_collection_repo=services.collection_repo,
                 document_repo=services.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
@@ -357,7 +357,7 @@ class TestLoadedDocumentAccessors:
             fetch_result=fetch_result,
             title="Test",
             fetch_duration_ms=100,
-            collection_id=1,
+            source_collection_id=1,
         )
 
         assert doc.content == "Test content"
@@ -372,7 +372,7 @@ class TestLoadedDocumentAccessors:
             fetch_result=fetch_result,
             title="Test",
             fetch_duration_ms=100,
-            collection_id=1,
+            source_collection_id=1,
         )
 
         assert doc.content_type == "text/markdown"
@@ -387,7 +387,7 @@ class TestLoadedDocumentAccessors:
             fetch_result=fetch_result,
             title="Test",
             fetch_duration_ms=100,
-            collection_id=1,
+            source_collection_id=1,
         )
 
         assert doc.path == "docs/test.md"

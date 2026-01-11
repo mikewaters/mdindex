@@ -78,13 +78,13 @@ class TestBasicSearchFlow:
     async def test_collection_filter_applied(self):
         """Collection ID is passed through to searchers."""
         text_searcher = InMemoryTextSearcher()
-        text_searcher.add_result(make_search_result("doc1.md", score=0.9, collection_id=1))
-        text_searcher.add_result(make_search_result("doc2.md", score=0.7, collection_id=2))
+        text_searcher.add_result(make_search_result("doc1.md", score=0.9, source_collection_id=1))
+        text_searcher.add_result(make_search_result("doc2.md", score=0.7, source_collection_id=2))
 
         pipeline = HybridSearchPipeline(text_searcher=text_searcher)
 
         # Search in collection 1 only
-        results = await pipeline.search("test", limit=5, collection_id=1)
+        results = await pipeline.search("test", limit=5, source_collection_id=1)
 
         assert len(results) == 1
         assert results[0].file == "doc1.md"

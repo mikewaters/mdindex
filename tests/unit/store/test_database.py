@@ -53,10 +53,10 @@ class TestDatabaseConnection:
 class TestDatabaseSchema:
     """Tests for schema initialization."""
 
-    def test_schema_creates_collections_table(self, db: Database):
-        """Schema should create collections table."""
+    def test_schema_creates_source_collections_table(self, db: Database):
+        """Schema should create source_collections table."""
         cursor = db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='collections'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='source_collections'"
         )
         assert cursor.fetchone() is not None
 
@@ -95,7 +95,7 @@ class TestDatabaseSchema:
         )
         indexes = {row[0] for row in cursor.fetchall()}
 
-        assert "idx_documents_collection" in indexes
+        assert "idx_documents_source_collection" in indexes
         assert "idx_documents_hash" in indexes
 
 
@@ -106,12 +106,12 @@ class TestDatabaseTransactions:
         """Successful transaction should commit."""
         with db.transaction() as cursor:
             cursor.execute(
-                "INSERT INTO collections (name, pwd, glob_pattern, created_at, updated_at) "
+                "INSERT INTO source_collections (name, pwd, glob_pattern, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, ?)",
                 ("test", "/tmp", "**/*.md", "2024-01-01", "2024-01-01"),
             )
 
-        cursor = db.execute("SELECT name FROM collections WHERE name = 'test'")
+        cursor = db.execute("SELECT name FROM source_collections WHERE name = 'test'")
         assert cursor.fetchone() is not None
 
     def test_transaction_rollbacks_on_error(self, db: Database):
@@ -119,7 +119,7 @@ class TestDatabaseTransactions:
         try:
             with db.transaction() as cursor:
                 cursor.execute(
-                    "INSERT INTO collections (name, pwd, glob_pattern, created_at, updated_at) "
+                    "INSERT INTO source_collections (name, pwd, glob_pattern, created_at, updated_at) "
                     "VALUES (?, ?, ?, ?, ?)",
                     ("test-rollback", "/tmp", "**/*.md", "2024-01-01", "2024-01-01"),
                 )
@@ -127,7 +127,7 @@ class TestDatabaseTransactions:
         except DatabaseError:
             pass
 
-        cursor = db.execute("SELECT name FROM collections WHERE name = 'test-rollback'")
+        cursor = db.execute("SELECT name FROM source_collections WHERE name = 'test-rollback'")
         assert cursor.fetchone() is None
 
     def test_transaction_without_connection_raises(self, test_db_path: Path):
@@ -173,13 +173,13 @@ class TestDatabaseExecutescript:
     def test_executescript_multiple_statements(self, db: Database):
         """Executescript should handle multiple statements."""
         db.executescript("""
-            INSERT INTO collections (name, pwd, glob_pattern, created_at, updated_at)
+            INSERT INTO source_collections (name, pwd, glob_pattern, created_at, updated_at)
             VALUES ('script1', '/tmp', '**/*.md', '2024-01-01', '2024-01-01');
-            INSERT INTO collections (name, pwd, glob_pattern, created_at, updated_at)
+            INSERT INTO source_collections (name, pwd, glob_pattern, created_at, updated_at)
             VALUES ('script2', '/tmp', '**/*.md', '2024-01-01', '2024-01-01');
         """)
 
-        cursor = db.execute("SELECT COUNT(*) as count FROM collections")
+        cursor = db.execute("SELECT COUNT(*) as count FROM source_collections")
         assert cursor.fetchone()["count"] == 2
 
     def test_executescript_without_connection_raises(self, test_db_path: Path):

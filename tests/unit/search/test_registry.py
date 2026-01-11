@@ -2,14 +2,14 @@
 
 import pytest
 
-from pmd.sources.metadata import (
+from pmd.metadata import (
     MetadataProfileRegistry,
     get_default_profile_registry,
     GenericProfile,
     ObsidianProfile,
     DraftsProfile,
 )
-from pmd.sources.metadata.registry import ProfileRegistration
+from pmd.metadata.extraction.registry import ProfileRegistration
 
 
 class MockProfile:

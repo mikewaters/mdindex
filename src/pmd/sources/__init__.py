@@ -32,9 +32,8 @@ from .content import (
     get_default_registry,
     reset_default_registry,
 )
-from .metadata import (
+from pmd.metadata import (
     GenericProfile,
-
     MetadataProfileRegistry,
     get_default_profile_registry,
     ObsidianProfile,

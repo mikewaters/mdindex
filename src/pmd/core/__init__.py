@@ -9,9 +9,6 @@ from .config import (
     SearchConfig,
 )
 from .exceptions import (
-    CollectionError,  # Deprecated alias
-    CollectionExistsError,  # Deprecated alias
-    CollectionNotFoundError,  # Deprecated alias
     DatabaseError,
     DocumentError,
     DocumentNotFoundError,
@@ -28,7 +25,6 @@ from .exceptions import (
 )
 from .types import (
     Chunk,
-    Collection,  # Deprecated alias
     DocumentNotFound,
     DocumentResult,
     EmbeddingResult,
@@ -57,9 +53,6 @@ __all__ = [
     "SourceCollectionError",
     "SourceCollectionNotFoundError",
     "SourceCollectionExistsError",
-    "CollectionError",  # Deprecated alias
-    "CollectionNotFoundError",  # Deprecated alias
-    "CollectionExistsError",  # Deprecated alias
     "DocumentError",
     "DocumentNotFoundError",
     "LLMError",
@@ -72,7 +65,6 @@ __all__ = [
     "OutputFormat",
     "VirtualPath",
     "SourceCollection",
-    "Collection",  # Deprecated alias
     "DocumentResult",
     "SearchResult",
     "RankedResult",

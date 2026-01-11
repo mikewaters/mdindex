@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pmd.core.types import Collection
+from pmd.core.types import SourceCollection
 from pmd.sources import (
     DocumentSource,
     SourceRegistry,
@@ -23,7 +23,7 @@ def registry():
 @pytest.fixture
 def mock_collection():
     """Create a mock Collection for testing."""
-    return Collection(
+    return SourceCollection(
         id=1,
         name="test-collection",
         pwd="/tmp/test-docs",
@@ -168,7 +168,7 @@ class TestDefaultRegistry:
     def test_create_filesystem_source_from_collection(self, tmp_path):
         """Create FileSystemSource from Collection."""
         # Create a real collection with a valid path
-        collection = Collection(
+        collection = SourceCollection(
             id=1,
             name="test-collection",
             pwd=str(tmp_path),
@@ -188,7 +188,7 @@ class TestDefaultRegistry:
 
     def test_create_filesystem_source_with_source_config(self, tmp_path):
         """Create FileSystemSource respects source_config."""
-        collection = Collection(
+        collection = SourceCollection(
             id=1,
             name="test-collection",
             pwd=str(tmp_path),

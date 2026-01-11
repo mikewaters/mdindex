@@ -1,73 +1,11 @@
-"""Tests for metadata module integration and deprecation shims.
+"""Tests for metadata module integration.
 
 Tests verify:
-1. Deprecation shims raise warnings when importing from old paths
-2. Cross-module interactions work correctly
-3. Types are compatible across submodules
+1. Cross-module interactions work correctly
+2. Types are compatible across submodules
 """
 
-import importlib
-import sys
-import warnings
 import pytest
-
-
-class TestDeprecationShims:
-    """Test that old import paths raise deprecation warnings.
-
-    Note: These tests use importlib.reload() to force re-execution of module
-    initialization code, since modules are cached after first import.
-    """
-
-    def test_sources_metadata_shim_warns(self):
-        """Importing from pmd.sources.metadata raises DeprecationWarning."""
-        import pmd.sources.metadata as mod
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            # Reload triggers the warning again
-            importlib.reload(mod)
-
-            # Find our deprecation warning
-            deprecation_warnings = [
-                warning for warning in w
-                if issubclass(warning.category, DeprecationWarning)
-                and "pmd.sources.metadata" in str(warning.message)
-            ]
-            assert len(deprecation_warnings) >= 1
-            assert "pmd.metadata" in str(deprecation_warnings[0].message)
-
-    def test_search_metadata_shim_warns(self):
-        """Importing from pmd.search.metadata raises DeprecationWarning."""
-        import pmd.search.metadata as mod
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            importlib.reload(mod)
-
-            deprecation_warnings = [
-                warning for warning in w
-                if issubclass(warning.category, DeprecationWarning)
-                and "pmd.search.metadata" in str(warning.message)
-            ]
-            assert len(deprecation_warnings) >= 1
-            assert "pmd.metadata" in str(deprecation_warnings[0].message)
-
-    def test_store_document_metadata_shim_warns(self):
-        """Importing from pmd.store.document_metadata raises DeprecationWarning."""
-        import pmd.store.document_metadata as mod
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            importlib.reload(mod)
-
-            deprecation_warnings = [
-                warning for warning in w
-                if issubclass(warning.category, DeprecationWarning)
-                and "pmd.store.document_metadata" in str(warning.message)
-            ]
-            assert len(deprecation_warnings) >= 1
-            assert "pmd.metadata" in str(deprecation_warnings[0].message)
 
 
 class TestCrossModuleInteractions:

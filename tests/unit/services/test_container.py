@@ -101,13 +101,13 @@ class TestServiceContainerRepositories:
 
     def test_collection_repo_lazy_init(self, connected_container: ServiceContainer):
         """collection_repo should be lazily initialized."""
-        assert connected_container._collection_repo is None
+        assert connected_container._source_collection_repo is None
 
         repo = connected_container.collection_repo
 
         assert repo is not None
         assert isinstance(repo, CollectionRepository)
-        assert connected_container._collection_repo is repo
+        assert connected_container._source_collection_repo is repo
 
     def test_document_repo_lazy_init(self, connected_container: ServiceContainer):
         """document_repo should be lazily initialized."""

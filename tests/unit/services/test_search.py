@@ -17,13 +17,13 @@ class TestSearchServiceInit:
         service = SearchService(
             db=connected_container.db,
             fts_repo=connected_container.fts_repo,
-            collection_repo=connected_container.collection_repo,
+            source_collection_repo=connected_container.collection_repo,
             embedding_repo=connected_container.embedding_repo,
         )
 
         assert service._db is connected_container.db
         assert service._fts_repo is connected_container.fts_repo
-        assert service._collection_repo is connected_container.collection_repo
+        assert service._source_collection_repo is connected_container.collection_repo
 
     def test_from_container_factory(self, connected_container: ServiceContainer):
         """SearchService.from_container should create service with container deps."""
@@ -31,7 +31,7 @@ class TestSearchServiceInit:
 
         assert service._db is connected_container.db
         assert service._fts_repo is connected_container.fts_repo
-        assert service._collection_repo is connected_container.collection_repo
+        assert service._source_collection_repo is connected_container.collection_repo
 
 
 class TestSearchServiceFtsSearch:
@@ -66,7 +66,7 @@ class TestSearchServiceFtsSearch:
 
         # Get doc_id for FTS indexing
         cursor = connected_container.db.execute(
-            "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
+            "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
             (collection.id, "test.md"),
         )
         doc_id = cursor.fetchone()["id"]
@@ -101,7 +101,7 @@ class TestSearchServiceFtsSearch:
                 f"# Document {i}\n\nThis is test content number {i}.",
             )
             cursor = connected_container.db.execute(
-                "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
+                "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
                 (collection.id, f"doc{i}.md"),
             )
             doc_id = cursor.fetchone()["id"]
@@ -133,7 +133,7 @@ class TestSearchServiceFtsSearch:
             coll1.id, "doc.md", "Unique Doc", "# Unique content here"
         )
         cursor = connected_container.db.execute(
-            "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
+            "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
             (coll1.id, "doc.md"),
         )
         doc_id = cursor.fetchone()["id"]
@@ -290,7 +290,7 @@ class TestSearchServiceVectorSearch:
 
             mock_search.assert_called_once()
             call_args = mock_search.call_args
-            assert call_args.kwargs["collection_id"] == collection.id
+            assert call_args.kwargs["source_collection_id"] == collection.id
 
     @pytest.mark.asyncio
     async def test_vector_search_returns_results(
@@ -306,7 +306,7 @@ class TestSearchServiceVectorSearch:
             title="Document",
             context=None,
             hash="abc123",
-            collection_id=1,
+            source_collection_id=1,
             modified_at="2024-01-01",
             body_length=100,
             body=None,
@@ -343,7 +343,7 @@ class TestSearchServiceHybridSearch:
                 collection.id, "doc.md", "Test Doc", "# Test content"
             )
             cursor = services.db.execute(
-                "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
+                "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
                 (collection.id, "doc.md"),
             )
             doc_id = cursor.fetchone()["id"]
@@ -370,7 +370,7 @@ class TestSearchServiceHybridSearch:
                     f"# Document\n\nSearchable content here.",
                 )
                 cursor = services.db.execute(
-                    "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
+                    "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
                     (collection.id, f"doc{i}.md"),
                 )
                 doc_id = cursor.fetchone()["id"]

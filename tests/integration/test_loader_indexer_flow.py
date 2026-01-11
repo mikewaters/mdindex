@@ -28,7 +28,7 @@ class TestLoaderIndexerIntegration:
             # Create collection
             app.db.execute(
                 """
-                INSERT INTO collections (name, pwd, glob_pattern, source_type, created_at, updated_at)
+                INSERT INTO source_collections (name, pwd, glob_pattern, source_type, created_at, updated_at)
                 VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
                 """,
                 ("test", str(tmp_path), "**/*.md", "filesystem"),
@@ -62,7 +62,7 @@ class TestLoaderIndexerIntegration:
             # Create collection
             app.db.execute(
                 """
-                INSERT INTO collections (name, pwd, glob_pattern, source_type, created_at, updated_at)
+                INSERT INTO source_collections (name, pwd, glob_pattern, source_type, created_at, updated_at)
                 VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
                 """,
                 ("test", str(tmp_path), "**/*.md", "filesystem"),
@@ -79,7 +79,7 @@ class TestLoaderIndexerIntegration:
             result2 = await app.indexing.index_collection("test")
             # doc1 unchanged, doc2 removed
             assert result2.indexed == 0  # doc1 skipped (unchanged)
-            assert result2.skipped == 0  # Actually should be 0 since unchanged docs are skipped before persist
+            assert result2.skipped == 1  # doc1 skipped during load
 
             # Verify doc2 is marked inactive
             cursor = app.db.execute(
@@ -111,7 +111,7 @@ class TestLoaderIndexerIntegration:
             # Create collection
             app.db.execute(
                 """
-                INSERT INTO collections (name, pwd, glob_pattern, source_type, created_at, updated_at)
+                INSERT INTO source_collections (name, pwd, glob_pattern, source_type, created_at, updated_at)
                 VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
                 """,
                 ("test", str(tmp_path), "**/*.md", "filesystem"),

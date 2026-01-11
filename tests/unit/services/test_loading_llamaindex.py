@@ -7,7 +7,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 from pmd.core.config import Config
-from pmd.core.exceptions import CollectionNotFoundError
+from pmd.core.exceptions import SourceCollectionNotFoundError
 from pmd.services import ServiceContainer
 from pmd.services.loading import LoadingService
 from pmd.services.loading_llamaindex import LlamaIndexLoaderAdapter
@@ -384,7 +384,7 @@ class TestLoadingServiceIntegration:
             source_metadata_repo = SourceMetadataRepository(services.db)
             loading_service = LoadingService(
                 db=services.db,
-                collection_repo=services.collection_repo,
+                source_collection_repo=services.collection_repo,
                 document_repo=services.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
@@ -394,11 +394,11 @@ class TestLoadingServiceIntegration:
 
             assert len(result.documents) == 1
             # collection_id should be injected (not 0)
-            assert result.documents[0].collection_id > 0
+            assert result.documents[0].source_collection_id > 0
 
     @pytest.mark.asyncio
     async def test_collection_not_found(self, config: Config):
-        """Raises CollectionNotFoundError for unknown collection."""
+        """Raises SourceCollectionNotFoundError for unknown collection."""
         doc = MockLlamaIndexDocument(
             text="Content",
             metadata={"path": "test.md"},
@@ -415,13 +415,13 @@ class TestLoadingServiceIntegration:
             source_metadata_repo = SourceMetadataRepository(services.db)
             loading_service = LoadingService(
                 db=services.db,
-                collection_repo=services.collection_repo,
+                source_collection_repo=services.collection_repo,
                 document_repo=services.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
             )
 
-            with pytest.raises(CollectionNotFoundError):
+            with pytest.raises(SourceCollectionNotFoundError):
                 await loading_service.load_from_llamaindex("nonexistent", adapter)
 
     @pytest.mark.asyncio
@@ -446,7 +446,7 @@ class TestLoadingServiceIntegration:
             source_metadata_repo = SourceMetadataRepository(services.db)
             loading_service = LoadingService(
                 db=services.db,
-                collection_repo=services.collection_repo,
+                source_collection_repo=services.collection_repo,
                 document_repo=services.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),

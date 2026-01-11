@@ -40,10 +40,8 @@ from .repos import (
     InMemoryDocumentRepository,
     InMemoryFTSRepository,
     InMemoryEmbeddingRepository,
+    InMemoryLoadingService,
 )
-
-# Backwards compatibility alias
-InMemoryCollectionRepository = InMemorySourceCollectionRepository
 
 # Use search module's make_search_result
 make_search_result = make_search_result_search
@@ -63,8 +61,8 @@ __all__ = [
     "InMemoryDatabase",
     "InMemoryCursor",
     "InMemorySourceCollectionRepository",
-    "InMemoryCollectionRepository",  # Backwards compatibility alias
     "InMemoryDocumentRepository",
     "InMemoryFTSRepository",
     "InMemoryEmbeddingRepository",
+    "InMemoryLoadingService",
 ]

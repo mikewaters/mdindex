@@ -2,8 +2,8 @@
 
 import pytest
 
-from pmd.sources.metadata import ExtractedMetadata
-from pmd.sources.metadata import (
+from pmd.metadata import (
+    ExtractedMetadata,
     GenericProfile,
     ObsidianProfile,
     DraftsProfile,

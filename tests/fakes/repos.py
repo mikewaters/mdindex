@@ -309,3 +309,50 @@ class InMemoryEmbeddingRepository:
     def set_search_results(self, results: list[SearchResult]) -> None:
         """Set all search results."""
         self._search_results = results
+
+
+@dataclass
+class InMemoryLoadingService:
+    """In-memory loading service fake for testing.
+
+    Implements LoadingServiceProtocol for testing IndexingService
+    without needing actual file I/O.
+    """
+
+    _documents: list = field(default_factory=list)
+    _errors: list = field(default_factory=list)
+    _enumerated_paths: set = field(default_factory=set)
+
+    async def load_collection_eager(
+        self,
+        collection_name: str,
+        source: Any = None,
+        force: bool = False,
+    ):
+        """Return configured documents for testing."""
+        from pmd.services.loading import EagerLoadResult
+
+        return EagerLoadResult(
+            documents=list(self._documents),
+            enumerated_paths=set(self._enumerated_paths),
+            errors=list(self._errors),
+        )
+
+    # Test helpers
+    def add_document(self, doc) -> None:
+        """Add a document to be returned by load_collection_eager."""
+        self._documents.append(doc)
+
+    def add_error(self, path: str, error: str) -> None:
+        """Add an error to be returned by load_collection_eager."""
+        self._errors.append((path, error))
+
+    def add_enumerated_path(self, path: str) -> None:
+        """Add an enumerated path."""
+        self._enumerated_paths.add(path)
+
+    def clear(self) -> None:
+        """Clear all configured data."""
+        self._documents.clear()
+        self._errors.clear()
+        self._enumerated_paths.clear()

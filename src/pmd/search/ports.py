@@ -18,7 +18,7 @@ Usage:
     from pmd.search.ports import TextSearcher, VectorSearcher
 
     class MyCustomSearcher:
-        def search(self, query: str, limit: int, collection_id: int | None = None):
+        def search(self, query: str, limit: int, source_collection_id: int | None = None):
             # Custom implementation
             ...
 
@@ -83,14 +83,14 @@ class TextSearcher(Protocol):
         self,
         query: str,
         limit: int,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
     ) -> list["SearchResult"]:
         """Search documents using full-text search.
 
         Args:
             query: Search query string.
             limit: Maximum number of results to return.
-            collection_id: Optional collection to scope search.
+            source_collection_id: Optional collection to scope search.
 
         Returns:
             List of SearchResult objects sorted by relevance score.
@@ -112,14 +112,14 @@ class VectorSearcher(Protocol):
         self,
         query: str,
         limit: int,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
     ) -> list["SearchResult"]:
         """Search documents using vector similarity.
 
         Args:
             query: Search query string (will be embedded internally).
             limit: Maximum number of results to return.
-            collection_id: Optional collection to scope search.
+            source_collection_id: Optional collection to scope search.
 
         Returns:
             List of SearchResult objects sorted by similarity score.
@@ -141,7 +141,7 @@ class TagSearcher(Protocol):
         self,
         tags: dict[str, float] | set[str],
         limit: int,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
     ) -> list["SearchResult"]:
         """Search documents by tag matches.
 
@@ -150,7 +150,7 @@ class TagSearcher(Protocol):
                 - dict[str, float]: Weighted tags (from ontology expansion)
                 - set[str]: Simple tag set (all weight 1.0)
             limit: Maximum number of results to return.
-            collection_id: Optional collection to scope search.
+            source_collection_id: Optional collection to scope search.
 
         Returns:
             List of SearchResult objects sorted by tag match score.

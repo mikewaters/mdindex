@@ -12,12 +12,12 @@ def test_vector_search_delegates_to_embedding_repo():
 
     repo = VectorSearchRepository(embedding_repo)
 
-    result = repo.search([0.1, 0.2], limit=7, collection_id=3, min_score=0.42)
+    result = repo.search([0.1, 0.2], limit=7, source_collection_id=3, min_score=0.42)
 
     embedding_repo.search_vectors.assert_called_once_with(
         query_embedding=[0.1, 0.2],
         limit=7,
-        collection_id=3,
+        source_collection_id=3,
         min_score=0.42,
     )
     assert result == ["result"]

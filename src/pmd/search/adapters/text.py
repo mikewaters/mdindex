@@ -37,16 +37,16 @@ class FTS5TextSearcher:
         self,
         query: str,
         limit: int,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
     ) -> list["SearchResult"]:
         """Search documents using full-text search.
 
         Args:
             query: Search query string.
             limit: Maximum number of results to return.
-            collection_id: Optional collection to scope search.
+            source_collection_id: Optional collection to scope search.
 
         Returns:
             List of SearchResult objects sorted by relevance score.
         """
-        return self._repo.search(query, limit=limit, collection_id=collection_id)
+        return self._repo.search(query, limit=limit, source_collection_id=source_collection_id)

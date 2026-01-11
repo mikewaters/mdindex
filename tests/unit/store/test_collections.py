@@ -5,8 +5,8 @@ from pathlib import Path
 
 from pmd.store.database import Database
 from pmd.store.collections import CollectionRepository
-from pmd.core.exceptions import CollectionExistsError, CollectionNotFoundError
-from pmd.core.types import Collection
+from pmd.core.exceptions import SourceCollectionExistsError, SourceCollectionNotFoundError
+from pmd.core.types import SourceCollection
 
 
 class TestCollectionCreate:
@@ -16,7 +16,7 @@ class TestCollectionCreate:
         """Create should return a Collection object."""
         collection = collection_repo.create("notes", str(tmp_path), "**/*.md")
 
-        assert isinstance(collection, Collection)
+        assert isinstance(collection, SourceCollection)
         assert collection.name == "notes"
         assert collection.pwd == str(tmp_path)
         assert collection.glob_pattern == "**/*.md"
@@ -38,7 +38,7 @@ class TestCollectionCreate:
         """Creating duplicate collection should raise."""
         collection_repo.create("notes", str(tmp_path))
 
-        with pytest.raises(CollectionExistsError, match="already exists"):
+        with pytest.raises(SourceCollectionExistsError, match="already exists"):
             collection_repo.create("notes", str(tmp_path))
 
     def test_create_sets_timestamps(self, collection_repo: CollectionRepository, tmp_path: Path):
@@ -164,12 +164,12 @@ class TestCollectionRename:
         collection_repo.create("target-name", str(tmp_path))
         collection = collection_repo.create("source-name", str(tmp_path))
 
-        with pytest.raises(CollectionExistsError, match="already exists"):
+        with pytest.raises(SourceCollectionExistsError, match="already exists"):
             collection_repo.rename(collection.id, "target-name")
 
     def test_rename_nonexistent_raises(self, collection_repo: CollectionRepository):
         """Rename nonexistent collection should raise."""
-        with pytest.raises(CollectionNotFoundError):
+        with pytest.raises(SourceCollectionNotFoundError):
             collection_repo.rename(99999, "new-name")
 
 
@@ -193,7 +193,7 @@ class TestCollectionRemove:
 
     def test_remove_nonexistent_raises(self, collection_repo: CollectionRepository):
         """Remove nonexistent collection should raise."""
-        with pytest.raises(CollectionNotFoundError):
+        with pytest.raises(SourceCollectionNotFoundError):
             collection_repo.remove(99999)
 
     def test_remove_cleans_up_documents(
@@ -221,37 +221,37 @@ class TestCollectionUpdatePath:
     """Tests for updating collection path."""
 
     def test_update_path_success(self, collection_repo: CollectionRepository, tmp_path: Path):
-        """update_collection_path should update pwd."""
+        """update_path should update pwd."""
         collection = collection_repo.create("notes", str(tmp_path))
         new_path = str(tmp_path / "new-location")
 
-        collection_repo.update_collection_path(collection.id, new_path)
+        collection_repo.update_path(collection.id, new_path)
 
         found = collection_repo.get_by_id(collection.id)
         assert found.pwd == new_path
 
     def test_update_path_with_pattern(self, collection_repo: CollectionRepository, tmp_path: Path):
-        """update_collection_path should update glob pattern."""
+        """update_path should update glob pattern."""
         collection = collection_repo.create("notes", str(tmp_path), "**/*.md")
         new_path = str(tmp_path / "new-location")
 
-        collection_repo.update_collection_path(collection.id, new_path, "*.txt")
+        collection_repo.update_path(collection.id, new_path, "*.txt")
 
         found = collection_repo.get_by_id(collection.id)
         assert found.pwd == new_path
         assert found.glob_pattern == "*.txt"
 
     def test_update_path_nonexistent_raises(self, collection_repo: CollectionRepository):
-        """update_collection_path on nonexistent should raise."""
-        with pytest.raises(CollectionNotFoundError):
-            collection_repo.update_collection_path(99999, "/new/path")
+        """update_path on nonexistent should raise."""
+        with pytest.raises(SourceCollectionNotFoundError):
+            collection_repo.update_path(99999, "/new/path")
 
     def test_update_path_updates_timestamp(self, collection_repo: CollectionRepository, tmp_path: Path):
-        """update_collection_path should update updated_at."""
+        """update_path should update updated_at."""
         collection = collection_repo.create("notes", str(tmp_path))
         original_updated = collection.updated_at
 
-        collection_repo.update_collection_path(collection.id, str(tmp_path / "new"))
+        collection_repo.update_path(collection.id, str(tmp_path / "new"))
 
         found = collection_repo.get_by_id(collection.id)
         assert found.updated_at >= original_updated

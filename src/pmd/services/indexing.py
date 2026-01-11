@@ -3,30 +3,21 @@
 from __future__ import annotations
 
 import time
-import warnings
 from dataclasses import dataclass
-from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Awaitable
 
 from loguru import logger
 
 from pmd.core.exceptions import SourceCollectionNotFoundError
 from pmd.core.types import SourceCollection
-from pmd.search.text import is_indexable
 from pmd.sources import (
-    DocumentReference,
     DocumentSource,
-    FetchResult,
-    SourceFetchError,
-    SourceListError,
     SourceRegistry,
     get_default_registry,
 )
 from pmd.metadata import (
     ExtractedMetadata, get_default_profile_registry, DocumentMetadataRepository
 )
-from pmd.store.source_metadata import SourceMetadata, SourceMetadataRepository
 from pmd.app.types import (
     SourceCollectionRepositoryProtocol,
     DatabaseProtocol,
@@ -39,7 +30,6 @@ from pmd.app.types import (
 
 if TYPE_CHECKING:
     from .container import ServiceContainer
-    from .loading import LoadedDocument
 
 
 @dataclass
@@ -89,7 +79,7 @@ class IndexingService:
     - Embedding generation for vector search
     - Cleanup of orphaned data
 
-    Example with explicit dependencies (recommended):
+    Example:
 
         indexing = IndexingService(
             db=db,
@@ -97,29 +87,22 @@ class IndexingService:
             document_repo=document_repo,
             fts_repo=fts_repo,
             embedding_repo=embedding_repo,
+            loader=loading_service,
         )
         result = await indexing.index_collection("my-docs", source=source)
-
-    Example with ServiceContainer (deprecated):
-
-        async with ServiceContainer(config) as services:
-            result = await services.indexing.index_collection("my-docs", source=source)
     """
 
     def __init__(
         self,
-        # Explicit dependencies (new API)
-        db: DatabaseProtocol | None = None,
-        source_collection_repo: SourceCollectionRepositoryProtocol | None = None,
-        document_repo: DocumentRepositoryProtocol | None = None,
-        fts_repo: FTSRepositoryProtocol | None = None,
+        db: DatabaseProtocol,
+        source_collection_repo: SourceCollectionRepositoryProtocol,
+        document_repo: DocumentRepositoryProtocol,
+        fts_repo: FTSRepositoryProtocol,
+        loader: LoadingServiceProtocol,
         embedding_repo: EmbeddingRepositoryProtocol | None = None,
         embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]] | None = None,
         llm_available_check: Callable[[], Awaitable[bool]] | None = None,
         source_registry: SourceRegistry | None = None,
-        loader: LoadingServiceProtocol | None = None,
-        # Deprecated: ServiceContainer
-        container: "ServiceContainer | None" = None,
     ):
         """Initialize IndexingService.
 
@@ -128,45 +111,21 @@ class IndexingService:
             source_collection_repo: Repository for collection operations.
             document_repo: Repository for document operations.
             fts_repo: Repository for FTS indexing.
+            loader: Loading service for document retrieval.
             embedding_repo: Repository for embedding storage.
             embedding_generator_factory: Async factory for embedding generator.
             llm_available_check: Async function to check if LLM is available.
             source_registry: Optional source registry for creating sources.
-            loader: Optional loading service for document retrieval.
-            container: DEPRECATED. Use explicit dependencies instead.
         """
-        self._source_registry = source_registry or get_default_registry()
+        self._db = db
+        self._source_collection_repo = source_collection_repo
+        self._document_repo = document_repo
+        self._fts_repo = fts_repo
         self._loader = loader
-
-        # Support backward compatibility with container
-        if container is not None:
-            warnings.warn(
-                "Passing 'container' to IndexingService is deprecated. "
-                "Use explicit dependencies instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            self._container = container
-            self._db = container.db
-            self._source_collection_repo = container.source_collection_repo
-            self._document_repo = container.document_repo
-            self._fts_repo = container.fts_repo
-            self._embedding_repo = container.embedding_repo
-            self._embedding_generator_factory = container.get_embedding_generator
-            self._llm_available_check = container.is_llm_available
-        else:
-            self._container = None
-            if db is None or source_collection_repo is None or document_repo is None or fts_repo is None:
-                raise ValueError(
-                    "IndexingService requires db, source_collection_repo, document_repo, and fts_repo"
-                )
-            self._db = db
-            self._source_collection_repo = source_collection_repo
-            self._document_repo = document_repo
-            self._fts_repo = fts_repo
-            self._embedding_repo = embedding_repo
-            self._embedding_generator_factory = embedding_generator_factory
-            self._llm_available_check = llm_available_check
+        self._embedding_repo = embedding_repo
+        self._embedding_generator_factory = embedding_generator_factory
+        self._llm_available_check = llm_available_check
+        self._source_registry = source_registry or get_default_registry()
 
     @classmethod
     def from_container(
@@ -195,6 +154,7 @@ class IndexingService:
             embedding_generator_factory=container.get_embedding_generator,
             llm_available_check=container.is_llm_available,
             source_registry=source_registry,
+            loader=container.loading,
         )
 
     @property
@@ -225,7 +185,7 @@ class IndexingService:
 
         Raises:
             SourceCollectionNotFoundError: If collection does not exist.
-            SourceListError: If the source cannot enumerate documents.
+            RuntimeError: If no loader is configured.
         """
         source_collection = self._source_collection_repo.get_by_name(collection_name)
         if not source_collection:
@@ -237,22 +197,11 @@ class IndexingService:
         )
         start_time = time.perf_counter()
 
-        # Use loader if available, otherwise fall back to legacy path
-        if self._loader is not None:
-            result = await self._index_via_loader(
-                collection_name=collection_name,
-                source=source,
-                force=force,
-            )
-        else:
-            # Legacy path: resolve source and iterate directly
-            if source is None:
-                source = self._source_registry.create_source(source_collection)
-            result = await self._index_via_legacy(
-                source_collection=source_collection,
-                source=source,
-                force=force,
-            )
+        result = await self._index_via_loader(
+            collection_name=collection_name,
+            source=source,
+            force=force,
+        )
 
         elapsed = (time.perf_counter() - start_time) * 1000
         logger.info(
@@ -271,302 +220,37 @@ class IndexingService:
         source: DocumentSource | None,
         force: bool,
     ) -> IndexResult:
-        """Index collection using the LoadingService.
+        """Index collection using the IngestionPipeline workflow.
+
+        This method delegates to IngestionPipeline for document loading,
+        persistence, and cleanup. The pipeline uses LoadingService internally.
 
         Args:
             collection_name: Name of the collection to index.
-            source: Optional source override.
+            source: Optional source override (currently not passed to pipeline).
             force: If True, reload all documents.
 
         Returns:
             IndexResult with counts.
         """
-        # Get repositories
-        source_metadata_repo = SourceMetadataRepository(self._db)  # type: ignore
-        document_metadata_repo = DocumentMetadataRepository(self._db)  # type: ignore
+        from pmd.workflows import IngestionPipeline, IngestionRequest
 
-        # Load documents via loader (streaming mode)
-        load_result = await self._loader.load_collection_stream(  # type: ignore
-            collection_name,
-            source=source,
+        # Create pipeline with required dependencies
+        pipeline = IngestionPipeline(
+            source_collection_repo=self._source_collection_repo,
+            document_repo=self._document_repo,
+            fts_repo=self._fts_repo,
+            loader=self._loader,  # type: ignore
+            db=self._db,
+        )
+
+        # Execute the ingestion workflow
+        request = IngestionRequest(
+            collection_name=collection_name,
             force=force,
         )
 
-        indexed_count = 0
-        skipped_count = 0
-        persist_errors: list[tuple[str, str]] = []
-
-        # Process each loaded document
-        async for doc in load_result.documents:
-            try:
-                result = await self._persist_document(
-                    doc,
-                    source_metadata_repo,
-                    document_metadata_repo,
-                )
-                if result == "indexed":
-                    indexed_count += 1
-                else:
-                    skipped_count += 1
-            except Exception as e:
-                persist_errors.append((doc.path, str(e)))
-                logger.warning(f"Failed to persist document: {doc.path}: {e}")
-
-        # Cleanup stale documents using enumerated paths
-        stale_count = await self._cleanup_stale_documents(
-            collection_name,
-            load_result.enumerated_paths,
-        )
-        if stale_count > 0:
-            logger.info(f"Marked {stale_count} stale documents as inactive")
-
-        # Combine errors from loader and persistence
-        all_errors = load_result.errors + persist_errors
-
-        return IndexResult(
-            indexed=indexed_count,
-            skipped=skipped_count,
-            errors=all_errors,
-        )
-
-    async def _index_via_legacy(
-        self,
-        source_collection: SourceCollection,
-        source: DocumentSource,
-        force: bool,
-    ) -> IndexResult:
-        """Index collection using the legacy direct iteration path.
-
-        Args:
-            source_collection: SourceCollection to index.
-            source: Document source.
-            force: If True, reindex all.
-
-        Returns:
-            IndexResult with counts.
-        """
-        indexed_count = 0
-        skipped_count = 0
-        errors: list[tuple[str, str]] = []
-
-        # Get source metadata repository for tracking fetch info
-        metadata_repo = SourceMetadataRepository(self._db)  # type: ignore
-
-        try:
-            for ref in source.list_documents():
-                try:
-                    result = await self._index_document(
-                        source_collection=source_collection,
-                        source=source,
-                        ref=ref,
-                        source_metadata_repo=metadata_repo,
-                        force=force,
-                    )
-                    if result == "indexed":
-                        indexed_count += 1
-                    elif result == "skipped":
-                        skipped_count += 1
-                except SourceFetchError as e:
-                    errors.append((ref.path, str(e)))
-                    logger.warning(f"Failed to fetch document: {ref.path}: {e}")
-                except Exception as e:
-                    errors.append((ref.path, str(e)))
-                    logger.warning(f"Failed to index document: {ref.path}: {e}")
-
-        except SourceListError as e:
-            logger.error(f"Failed to list documents from source: {e}")
-            raise
-
-        return IndexResult(
-            indexed=indexed_count,
-            skipped=skipped_count,
-            errors=errors,
-        )
-
-    async def _index_document(
-        self,
-        source_collection: SourceCollection,
-        source: DocumentSource,
-        ref: DocumentReference,
-        source_metadata_repo: "SourceMetadataRepository",
-        force: bool,
-    ) -> str:
-        """Index a single document from a source.
-
-        Args:
-            collection: The collection being indexed.
-            source: Document source to fetch from.
-            ref: Reference to the document.
-            metadata_repo: Repository for source metadata.
-            force: If True, reindex even if unchanged.
-
-        Returns:
-            "indexed" if document was indexed, "skipped" if unchanged.
-        """
-        from ..utils.hashing import sha256_hash
-
-        # Get existing document and metadata for change detection
-        existing_doc = self._document_repo.get(source_collection.id, ref.path)
-        doc_id = self._get_document_id(source_collection.id, ref.path) if existing_doc else None
-        stored_metadata = {}
-        document_metadata_repo = DocumentMetadataRepository(self._db) # type: ignore
-
-        if doc_id and not force:
-            meta = source_metadata_repo.get_by_document(doc_id)
-            if meta:
-                stored_metadata = meta.extra.copy()
-                stored_metadata["etag"] = meta.etag
-                stored_metadata["last_modified"] = meta.last_modified
-
-            # Check if source says document is modified
-            if not await source.check_modified(ref, stored_metadata):
-                return "skipped"
-
-        # Fetch content
-        fetch_start = time.perf_counter()
-        fetch_result = await source.fetch_content(ref)
-        fetch_duration_ms = int((time.perf_counter() - fetch_start) * 1000)
-
-        content = fetch_result.content
-        extracted_metadata = fetch_result.extracted_metadata
-
-        # Check content hash if we have existing document
-        if existing_doc and not force:
-            content_hash = sha256_hash(content)
-            if existing_doc.hash == content_hash:
-                # Content unchanged, but update metadata
-                if doc_id:
-                    self._update_source_metadata(
-                        source_metadata_repo, doc_id, ref, fetch_result, fetch_duration_ms
-                    )
-                return "skipped"
-
-        # Extract title
-        title = ref.title or self._extract_title(content, Path(ref.path).stem)
-
-        # Store document
-        doc_result, is_new = self._document_repo.add_or_update(
-            source_collection.id,
-            ref.path,
-            title,
-            content,
-        )
-
-        # Get document ID for FTS indexing
-        doc_id = self._get_document_id(source_collection.id, ref.path)
-
-        # Index in FTS5 if document has sufficient quality
-        if doc_id is not None:
-            if is_indexable(content):
-                self._fts_repo.index_document(doc_id, ref.path, content)
-            else:
-                self._fts_repo.remove_from_index(doc_id)
-
-            # Store source metadata for remote sources
-            self._update_source_metadata(
-                source_metadata_repo, doc_id, ref, fetch_result, fetch_duration_ms
-            )
-
-            # Extract and store document metadata (tags, attributes)
-            metadata = extracted_metadata or self._extract_metadata_via_profiles(
-                content,
-                ref.path,
-                collection,
-            )
-            if metadata:
-                self._persist_document_metadata(
-                    doc_id,
-                    metadata,
-                    document_metadata_repo
-                )
-
-        logger.debug(f"Indexed: {ref.path} ({len(content)} chars)")
-        return "indexed"
-
-    def _update_source_metadata(
-        self,
-        metadata_repo: "SourceMetadataRepository",
-        doc_id: int,
-        ref: DocumentReference,
-        fetch_result: "FetchResult",
-        fetch_duration_ms: int,
-    ) -> None:
-        """Update source metadata after fetching a document.
-
-        Args:
-            metadata_repo: Repository for source metadata.
-            doc_id: Document ID.
-            ref: Document reference.
-            fetch_result: Result from fetching content.
-            fetch_duration_ms: How long the fetch took.
-        """
-        from ..sources import FetchResult
-
-        metadata = SourceMetadata(
-            document_id=doc_id,
-            source_uri=ref.uri,
-            last_fetched_at=datetime.utcnow().isoformat(),
-            etag=fetch_result.metadata.get("etag"),
-            last_modified=fetch_result.metadata.get("last_modified"),
-            fetch_duration_ms=fetch_duration_ms,
-            http_status=fetch_result.metadata.get("http_status"),
-            content_type=fetch_result.content_type,
-            extra=fetch_result.metadata,
-        )
-        metadata_repo.upsert(metadata)
-
-    async def _persist_document(
-        self,
-        doc: "LoadedDocument",
-        source_metadata_repo: "SourceMetadataRepository",
-        document_metadata_repo: DocumentMetadataRepository,
-    ) -> str:
-        """Persist a loaded document to storage.
-
-        Args:
-            doc: Document that has been loaded and prepared.
-            source_metadata_repo: Repository for source metadata.
-            document_metadata_repo: Repository for document metadata.
-
-        Returns:
-            "indexed" if persisted, "skipped" if content unchanged.
-        """
-        # Store document
-        doc_result, is_new = self._document_repo.add_or_update(
-            doc.source_collection_id,
-            doc.path,
-            doc.title,
-            doc.content,
-        )
-
-        doc_id = self._get_document_id(doc.source_collection_id, doc.path)
-
-        # Index in FTS5 if document has sufficient quality
-        if doc_id is not None:
-            if is_indexable(doc.content):
-                self._fts_repo.index_document(doc_id, doc.path, doc.content)
-            else:
-                self._fts_repo.remove_from_index(doc_id)
-
-            # Store source metadata
-            self._update_source_metadata(
-                source_metadata_repo,
-                doc_id,
-                doc.ref,
-                doc.fetch_result,
-                doc.fetch_duration_ms,
-            )
-
-            # Store document metadata
-            if doc.extracted_metadata:
-                self._persist_document_metadata(
-                    doc_id,
-                    doc.extracted_metadata,
-                    document_metadata_repo,
-                )
-
-        logger.debug(f"Indexed: {doc.path} ({len(doc.content)} chars)")
-        return "indexed"
+        return await pipeline.execute(request)
 
     async def _cleanup_stale_documents(
         self,
@@ -608,6 +292,8 @@ class IndexingService:
     ) -> EmbedResult:
         """Generate embeddings for all documents in a collection.
 
+        This method delegates to EmbeddingPipeline for the actual embedding work.
+
         Args:
             collection_name: Name of the collection to embed.
             force: If True, regenerate embeddings even if they exist.
@@ -619,71 +305,28 @@ class IndexingService:
             SourceCollectionNotFoundError: If collection does not exist.
             RuntimeError: If vector storage or LLM provider is not available.
         """
-        if not self.vec_available:
-            raise RuntimeError(
-                "Vector storage not available (sqlite-vec extension not loaded)"
-            )
+        from pmd.workflows import EmbeddingPipeline, EmbedRequest
 
-        if self._llm_available_check and not await self._llm_available_check():
-            raise RuntimeError("LLM provider not available (is it running?)")
-
-        source_collection = self._source_collection_repo.get_by_name(collection_name)
-        if not source_collection:
-            raise SourceCollectionNotFoundError(f"Collection '{collection_name}' not found")
-
-        logger.info(f"Embedding collection: name={source_collection.name!r}, force={force}")
-        start_time = time.perf_counter()
-
-        # Get embedding generator
+        # Validate prerequisites before creating pipeline
         if not self._embedding_generator_factory:
             raise RuntimeError("Embedding generator not configured")
-        embedding_generator = await self._embedding_generator_factory()
 
-        # Get all documents in collection
-        cursor = self._db.execute(
-            """
-            SELECT d.path, d.hash, c.doc
-            FROM documents d
-            JOIN content c ON d.hash = c.hash
-            WHERE d.source_collection_id = ? AND d.active = 1
-            """,
-            (source_collection.id,),
-        )
-        documents = cursor.fetchall()
-
-        embedded_count = 0
-        skipped_count = 0
-        chunks_total = 0
-
-        for doc in documents:
-            # Check if already embedded (unless force)
-            if not force and self._embedding_repo and self._embedding_repo.has_embeddings(doc["hash"]):
-                skipped_count += 1
-                continue
-
-            # Generate and store embeddings
-            chunks_embedded = await embedding_generator.embed_document(
-                doc["hash"],
-                doc["doc"],
-                force=force,
-            )
-
-            if chunks_embedded > 0:
-                embedded_count += 1
-                chunks_total += chunks_embedded
-                logger.debug(f"Embedded: {doc['path']} ({chunks_embedded} chunks)")
-
-        elapsed = (time.perf_counter() - start_time) * 1000
-        logger.info(
-            f"Embedding complete: name={source_collection.name!r}, embedded={embedded_count}, "
-            f"skipped={skipped_count}, chunks={chunks_total}, {elapsed:.1f}ms"
+        # Create pipeline with required dependencies
+        pipeline = EmbeddingPipeline(
+            source_collection_repo=self._source_collection_repo,
+            embedding_generator_factory=self._embedding_generator_factory,
+            embedding_repo=self._embedding_repo,
+            db=self._db,
+            llm_available_check=self._llm_available_check,
         )
 
-        return EmbedResult(
-            embedded=embedded_count,
-            skipped=skipped_count,
-            chunks_total=chunks_total,
+        # Execute the embedding workflow
+        request = EmbedRequest(
+            collection_name=collection_name,
+            force=force,
         )
+
+        return await pipeline.execute(request)
 
     async def update_all_collections(self, embed: bool = False) -> dict[str, IndexResult]:
         """Update all collections by reindexing modified documents.
@@ -846,10 +489,7 @@ class IndexingService:
     ) -> None:
         """Persist extracted metadata to the repository."""
         from datetime import datetime
-
-        from ..store.document_metadata import (
-            StoredDocumentMetadata,
-        )
+        from pmd.metadata import StoredDocumentMetadata
 
         stored = StoredDocumentMetadata(
             document_id=doc_id,

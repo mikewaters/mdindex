@@ -84,7 +84,7 @@ class TagRetriever:
         self,
         query_tags: dict[str, float] | set[str],
         limit: int = 10,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
     ) -> list[SearchResult]:
         """Search for documents matching the given tags.
 
@@ -96,7 +96,7 @@ class TagRetriever:
                 - dict[str, float]: Weighted tags (from ontology expansion)
                 - set[str]: Simple tag set (all weight 1.0)
             limit: Maximum number of results to return.
-            collection_id: Optional collection ID to limit scope.
+            source_collection_id: Optional collection ID to limit scope.
 
         Returns:
             List of SearchResult objects sorted by score (highest first).
@@ -134,7 +134,7 @@ class TagRetriever:
         results = self._score_and_fetch(
             matching_doc_ids,
             tags_dict,
-            collection_id,
+            source_collection_id,
         )
 
         # Sort by score descending
@@ -154,14 +154,14 @@ class TagRetriever:
         self,
         doc_ids: list[int],
         query_tags: dict[str, float],
-        collection_id: int | None,
+        source_collection_id: int | None,
     ) -> list[SearchResult]:
         """Calculate scores and fetch document details.
 
         Args:
             doc_ids: Document IDs to process.
             query_tags: Weighted tags for scoring.
-            collection_id: Optional collection filter.
+            source_collection_id: Optional collection filter.
 
         Returns:
             List of SearchResult objects with scores.
@@ -179,9 +179,9 @@ class TagRetriever:
         collection_filter = ""
         params: list = list(doc_ids)
 
-        if collection_id is not None:
-            collection_filter = " AND d.collection_id = ?"
-            params.append(collection_id)
+        if source_collection_id is not None:
+            collection_filter = " AND d.source_collection_id = ?"
+            params.append(source_collection_id)
 
         cursor = self.db.execute(
             f"""
@@ -190,7 +190,7 @@ class TagRetriever:
                 d.path,
                 d.title,
                 d.hash,
-                d.collection_id,
+                d.source_collection_id,
                 d.modified_at,
                 c.doc as body
             FROM documents d
@@ -227,7 +227,7 @@ class TagRetriever:
                 title=row["title"] or "",
                 context=body[:200] if body else None,
                 hash=row["hash"],
-                collection_id=row["collection_id"],
+                source_collection_id=row["source_collection_id"],
                 modified_at=row["modified_at"],
                 body_length=len(body),
                 body=body,

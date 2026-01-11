@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from typing import TYPE_CHECKING, Callable, Awaitable
 
 from loguru import logger
@@ -44,28 +43,23 @@ class SearchService:
     - Vector semantic search
     - Hybrid search combining FTS and vector with optional reranking
 
-    Example with explicit dependencies (recommended):
+    Example:
 
         search = SearchService(
             db=db,
             fts_repo=fts_repo,
             source_collection_repo=source_collection_repo,
-            search_config=SearchConfig(fts_weight=1.0, vec_weight=1.0),
+            fts_weight=1.0,
+            vec_weight=1.0,
         )
         results = search.fts_search("machine learning", limit=10)
-
-    Example with ServiceContainer (deprecated):
-
-        async with ServiceContainer(config) as services:
-            results = await services.search.hybrid_search("query")
     """
 
     def __init__(
         self,
-        # Explicit dependencies (new API)
-        db: DatabaseProtocol | None = None,
-        fts_repo: FTSRepositoryProtocol | None = None,
-        source_collection_repo: SourceCollectionRepositoryProtocol | None = None,
+        db: DatabaseProtocol,
+        fts_repo: FTSRepositoryProtocol,
+        source_collection_repo: SourceCollectionRepositoryProtocol,
         embedding_repo: EmbeddingRepositoryProtocol | None = None,
         embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]] | None = None,
         query_expander_factory: Callable[[], Awaitable[QueryExpanderProtocol]] | None = None,
@@ -78,8 +72,6 @@ class SearchService:
         vec_weight: float = 1.0,
         rrf_k: int = 60,
         rerank_candidates: int = 30,
-        # Deprecated: ServiceContainer
-        container: "ServiceContainer | None" = None,
     ):
         """Initialize SearchService.
 
@@ -99,53 +91,22 @@ class SearchService:
             vec_weight: Weight for vector results in hybrid search.
             rrf_k: RRF parameter k.
             rerank_candidates: Number of candidates for reranking.
-            container: DEPRECATED. Use explicit dependencies instead.
         """
-        # Support backward compatibility with container
-        if container is not None:
-            warnings.warn(
-                "Passing 'container' to SearchService is deprecated. "
-                "Use explicit dependencies instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            self._container = container
-            self._db = container.db
-            self._fts_repo = container.fts_repo
-            self._source_collection_repo = container.source_collection_repo
-            self._embedding_repo = container.embedding_repo
-            self._embedding_generator_factory = container.get_embedding_generator
-            self._query_expander_factory = container.get_query_expander
-            self._reranker_factory = container.get_reranker
-            self._tag_matcher_factory = container.get_tag_matcher
-            self._ontology_factory = container.get_ontology
-            self._tag_retriever_factory = container.get_tag_retriever
-            self._metadata_repo_factory = container.get_metadata_repo
-            self._fts_weight = container.config.search.fts_weight
-            self._vec_weight = container.config.search.vec_weight
-            self._rrf_k = container.config.search.rrf_k
-            self._rerank_candidates = container.config.search.rerank_candidates
-        else:
-            self._container = None
-            if db is None or fts_repo is None or source_collection_repo is None:
-                raise ValueError(
-                    "SearchService requires db, fts_repo, and source_collection_repo"
-                )
-            self._db = db
-            self._fts_repo = fts_repo
-            self._source_collection_repo = source_collection_repo
-            self._embedding_repo = embedding_repo
-            self._embedding_generator_factory = embedding_generator_factory
-            self._query_expander_factory = query_expander_factory
-            self._reranker_factory = reranker_factory
-            self._tag_matcher_factory = tag_matcher_factory
-            self._ontology_factory = ontology_factory
-            self._tag_retriever_factory = tag_retriever_factory
-            self._metadata_repo_factory = metadata_repo_factory
-            self._fts_weight = fts_weight
-            self._vec_weight = vec_weight
-            self._rrf_k = rrf_k
-            self._rerank_candidates = rerank_candidates
+        self._db = db
+        self._fts_repo = fts_repo
+        self._source_collection_repo = source_collection_repo
+        self._embedding_repo = embedding_repo
+        self._embedding_generator_factory = embedding_generator_factory
+        self._query_expander_factory = query_expander_factory
+        self._reranker_factory = reranker_factory
+        self._tag_matcher_factory = tag_matcher_factory
+        self._ontology_factory = ontology_factory
+        self._tag_retriever_factory = tag_retriever_factory
+        self._metadata_repo_factory = metadata_repo_factory
+        self._fts_weight = fts_weight
+        self._vec_weight = vec_weight
+        self._rrf_k = rrf_k
+        self._rerank_candidates = rerank_candidates
 
     @classmethod
     def from_container(cls, container: "ServiceContainer") -> "SearchService":
@@ -213,7 +174,7 @@ class SearchService:
         results = self._fts_repo.search(
             query,
             limit=limit,
-            collection_id=collection_id,
+            source_collection_id=collection_id,
             min_score=min_score,
         )
 
@@ -274,7 +235,7 @@ class SearchService:
         results = self._embedding_repo.search_vectors(
             query_embedding,
             limit=limit,
-            collection_id=collection_id,
+            source_collection_id=collection_id,
             min_score=min_score,
         )
 
@@ -397,7 +358,7 @@ class SearchService:
         results = await pipeline.search(
             query,
             limit=limit,
-            collection_id=collection_id,
+            source_collection_id=collection_id,
             min_score=min_score,
         )
 

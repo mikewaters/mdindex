@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from ..metadata.model.ontology import Ontology
     from ..metadata.store import DocumentMetadataRepository
     from .indexing import IndexingService
+    from .loading import LoadingService
     from .search import SearchService
     from .status import StatusService
 
@@ -80,6 +81,7 @@ class ServiceContainer:
         self._connected = False
 
         # Lazy-initialized services
+        self._loading: LoadingService | None = None
         self._indexing: IndexingService | None = None
         self._search: SearchService | None = None
         self._status: StatusService | None = None
@@ -277,6 +279,27 @@ class ServiceContainer:
         return self._metadata_repo
 
     # --- Service accessors ---
+
+    @property
+    def loading(self) -> "LoadingService":
+        """Get LoadingService instance.
+
+        Returns:
+            LoadingService for document loading operations.
+        """
+        if self._loading is None:
+            from .loading import LoadingService
+            from ..store.source_metadata import SourceMetadataRepository
+            from ..sources import get_default_registry
+
+            self._loading = LoadingService(
+                db=self.db,
+                source_collection_repo=self.source_collection_repo,
+                document_repo=self.document_repo,
+                source_metadata_repo=SourceMetadataRepository(self.db),
+                source_registry=get_default_registry(),
+            )
+        return self._loading
 
     @property
     def indexing(self) -> "IndexingService":

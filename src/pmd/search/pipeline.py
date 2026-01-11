@@ -230,7 +230,7 @@ class HybridSearchPipeline:
         self,
         query: str,
         limit: int = 5,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
         min_score: float = 0.0,
     ) -> list[RankedResult]:
         """Execute full hybrid search pipeline asynchronously.
@@ -248,14 +248,14 @@ class HybridSearchPipeline:
         Args:
             query: Search query string.
             limit: Maximum results to return.
-            collection_id: Optional collection ID to limit scope.
+            source_collection_id: Optional collection ID to limit scope.
             min_score: Minimum score threshold for results.
 
         Returns:
             List of RankedResult objects sorted by relevance.
         """
         query_preview = query[:50] + "..." if len(query) > 50 else query
-        logger.info(f"Hybrid search: {query_preview!r}, limit={limit}, collection_id={collection_id}")
+        logger.info(f"Hybrid search: {query_preview!r}, limit={limit}, source_collection_id={source_collection_id}")
         start_time = time.perf_counter()
 
         # Step 1: Query expansion
@@ -266,7 +266,7 @@ class HybridSearchPipeline:
             logger.debug(f"Query expansion: {len(queries)} queries (original + {len(expansions)} expansions)")
 
         # Step 2: Parallel FTS5, vector, and tag search for all query variants
-        all_results, weights = await self._parallel_search(queries, limit * 3, collection_id)
+        all_results, weights = await self._parallel_search(queries, limit * 3, source_collection_id)
 
         # Step 3: Reciprocal Rank Fusion
         fused = reciprocal_rank_fusion(
@@ -337,7 +337,7 @@ class HybridSearchPipeline:
         self,
         queries: list[str],
         limit: int,
-        collection_id: int | None,
+        source_collection_id: int | None,
     ) -> tuple[list[list[SearchResult]], list[float]]:
         """Run FTS5, vector, and tag search in parallel for all queries.
 
@@ -346,7 +346,7 @@ class HybridSearchPipeline:
         Args:
             queries: List of query strings to search.
             limit: Results per query.
-            collection_id: Optional collection ID.
+            source_collection_id: Optional collection ID.
 
         Returns:
             Tuple of (result_lists, weights) where:
@@ -367,7 +367,7 @@ class HybridSearchPipeline:
             weight_factor = self.config.expansion_weight if not is_original else 1.0
 
             # FTS search using TextSearcher port
-            fts_results = self.text_searcher.search(query, limit, collection_id)
+            fts_results = self.text_searcher.search(query, limit, source_collection_id)
             results.append(fts_results)
             weights.append(self.config.fts_weight * weight_factor)
             total_fts += len(fts_results)
@@ -376,7 +376,7 @@ class HybridSearchPipeline:
             vec_results: list[SearchResult] = []
             if self.vector_searcher:
                 try:
-                    vec_results = await self.vector_searcher.search(query, limit, collection_id)
+                    vec_results = await self.vector_searcher.search(query, limit, source_collection_id)
                 except Exception as e:
                     logger.debug(f"Vector search failed for query: {e}")
 
@@ -392,7 +392,7 @@ class HybridSearchPipeline:
                     query_tags = self.tag_inferencer.infer_tags(query)
                     if query_tags:
                         expanded_tags = self.tag_inferencer.expand_tags(query_tags)
-                        tag_results = self.tag_searcher.search(expanded_tags, limit, collection_id)
+                        tag_results = self.tag_searcher.search(expanded_tags, limit, source_collection_id)
                 except Exception as e:
                     logger.debug(f"Tag search failed for query: {e}")
 

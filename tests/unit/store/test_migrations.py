@@ -148,7 +148,7 @@ class TestMigrationRunner:
 
         expected_tables = {
             "content",
-            "collections",
+            "source_collections",
             "documents",
             "documents_fts",
             "content_vectors",
@@ -195,7 +195,7 @@ class TestDatabaseMigrationIntegration:
         db2.connect()
 
         # Should still work
-        cursor = db2.execute("SELECT COUNT(*) FROM collections")
+        cursor = db2.execute("SELECT COUNT(*) FROM source_collections")
         count = cursor.fetchone()[0]
         assert count == 0  # Empty but table exists
 
@@ -211,7 +211,7 @@ class TestDatabaseMigrationIntegration:
 
         db.execute(
             """
-            INSERT INTO collections (name, pwd, glob_pattern, created_at, updated_at)
+            INSERT INTO source_collections (name, pwd, glob_pattern, created_at, updated_at)
             VALUES ('test', '/path', '*.md', datetime('now'), datetime('now'))
             """
         )
@@ -222,7 +222,7 @@ class TestDatabaseMigrationIntegration:
         db2 = Database(db_path)
         db2.connect()
 
-        cursor = db2.execute("SELECT name FROM collections")
+        cursor = db2.execute("SELECT name FROM source_collections")
         row = cursor.fetchone()
         assert row["name"] == "test"
 

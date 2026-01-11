@@ -23,7 +23,7 @@ def make_search_result(
         title=title,
         context=None,
         hash="hash_" + filepath,
-        collection_id=1,
+        source_collection_id=1,
         modified_at="2024-01-01T00:00:00",
         body_length=100,
         body="Test content",

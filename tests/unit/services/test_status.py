@@ -17,19 +17,19 @@ class TestStatusServiceInit:
         """StatusService should work with explicit dependencies."""
         service = StatusService(
             db=connected_container.db,
-            collection_repo=connected_container.collection_repo,
+            source_collection_repo=connected_container.collection_repo,
             db_path=connected_container.config.db_path,
         )
 
         assert service._db is connected_container.db
-        assert service._collection_repo is connected_container.collection_repo
+        assert service._source_collection_repo is connected_container.collection_repo
 
     def test_from_container_factory(self, connected_container: ServiceContainer):
         """StatusService.from_container should create service with container deps."""
         service = StatusService.from_container(connected_container)
 
         assert service._db is connected_container.db
-        assert service._collection_repo is connected_container.collection_repo
+        assert service._source_collection_repo is connected_container.collection_repo
 
 
 class TestStatusServiceGetIndexStatus:
@@ -51,7 +51,7 @@ class TestStatusServiceGetIndexStatus:
 
         assert status.total_documents == 0
         assert status.embedded_documents == 0
-        assert status.collections == []
+        assert status.source_collections == []
         assert status.cache_entries == 0
 
     def test_get_index_status_with_collections(
@@ -62,8 +62,8 @@ class TestStatusServiceGetIndexStatus:
 
         status = connected_container.status.get_index_status()
 
-        assert len(status.collections) == 1
-        assert status.collections[0].name == "test"
+        assert len(status.source_collections) == 1
+        assert status.source_collections[0].name == "test"
 
     def test_get_index_status_with_documents(
         self, connected_container: ServiceContainer, tmp_path: Path
@@ -101,8 +101,8 @@ class TestStatusServiceGetFullStatus:
         async with ServiceContainer(config) as services:
             status = await services.status.get_full_status()
 
-            assert "collections_count" in status
-            assert "collections" in status
+            assert "source_collections_count" in status
+            assert "source_collections" in status
             assert "total_documents" in status
             assert "embedded_documents" in status
             assert "index_size_bytes" in status
@@ -121,11 +121,11 @@ class TestStatusServiceGetFullStatus:
 
             status = await services.status.get_full_status()
 
-            assert status["collections_count"] == 1
-            assert len(status["collections"]) == 1
-            assert status["collections"][0]["name"] == "my-collection"
-            assert status["collections"][0]["path"] == str(tmp_path)
-            assert status["collections"][0]["glob_pattern"] == "*.txt"
+            assert status["source_collections_count"] == 1
+            assert len(status["source_collections"]) == 1
+            assert status["source_collections"][0]["name"] == "my-collection"
+            assert status["source_collections"][0]["path"] == str(tmp_path)
+            assert status["source_collections"][0]["glob_pattern"] == "*.txt"
 
 
 class TestStatusServiceGetCollectionStats:
@@ -202,7 +202,7 @@ class TestStatusServiceGetIndexSyncReport:
 
         # Add FTS entry
         cursor = connected_container.db.execute(
-            "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
+            "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
             (collection.id, doc.filepath),
         )
         doc_id = cursor.fetchone()["id"]

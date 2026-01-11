@@ -31,12 +31,6 @@ class SourceCollectionExistsError(SourceCollectionError):
     pass
 
 
-# Backwards compatibility aliases (deprecated)
-CollectionError = SourceCollectionError
-CollectionNotFoundError = SourceCollectionNotFoundError
-CollectionExistsError = SourceCollectionExistsError
-
-
 class DocumentError(PMDError):
     """Document operation failed."""
 

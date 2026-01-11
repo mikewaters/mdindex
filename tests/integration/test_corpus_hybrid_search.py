@@ -132,7 +132,7 @@ def indexed_corpus(mlx_provider, mlx_config, tmp_path_factory):
 
                 # Get document ID for FTS indexing
                 cursor = db.execute(
-                    "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
+                    "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
                     (collection.id, filepath.name),
                 )
                 row = cursor.fetchone()
@@ -589,7 +589,7 @@ class TestHybridCollectionFiltering:
         results = await pipeline.search(
             "machine learning",
             limit=10,
-            collection_id=collection.id,
+            source_collection_id=collection.id,
         )
 
         # Should return results (we only have one collection)

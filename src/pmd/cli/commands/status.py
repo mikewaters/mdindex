@@ -66,16 +66,16 @@ def _print_status(status) -> None:
     """
     print("PMD Index Status")
     print("=" * 50)
-    print(f"Collections: {len(status.collections)}")
+    print(f"Collections: {len(status.source_collections)}")
     print(f"Documents: {status.total_documents}")
     print(f"Embedded: {status.embedded_documents}")
     print(f"Index Size: {status.index_size_bytes} bytes")
     print(f"Embeddings: {status.cache_entries}")
     print()
 
-    if status.collections:
+    if status.source_collections:
         print("Collections:")
-        for coll in status.collections:
+        for coll in status.source_collections:
             print(f"  • {coll.name} ({coll.pwd})")
     else:
         print("No collections indexed yet.")

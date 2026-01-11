@@ -39,7 +39,7 @@ class TagRetrieverAdapter:
         self,
         tags: dict[str, float] | set[str],
         limit: int,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
     ) -> list["SearchResult"]:
         """Search documents by tag matches.
 
@@ -48,12 +48,12 @@ class TagRetrieverAdapter:
                 - dict[str, float]: Weighted tags (from ontology expansion)
                 - set[str]: Simple tag set (all weight 1.0)
             limit: Maximum number of results to return.
-            collection_id: Optional collection to scope search.
+            source_collection_id: Optional collection to scope search.
 
         Returns:
             List of SearchResult objects sorted by tag match score.
         """
-        return self._retriever.search(tags, limit=limit, collection_id=collection_id)
+        return self._retriever.search(tags, limit=limit, source_collection_id=source_collection_id)
 
 
 class LexicalTagInferencer:

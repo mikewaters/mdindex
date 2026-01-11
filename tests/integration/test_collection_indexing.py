@@ -7,7 +7,7 @@ that collections can be created, documents indexed, and searched correctly.
 import pytest
 from pathlib import Path
 
-from pmd.core.exceptions import CollectionNotFoundError
+from pmd.core.exceptions import SourceCollectionNotFoundError
 from pmd.core.types import SearchSource
 from pmd.services import IndexResult, ServiceContainer
 from pmd.sources import FileSystemSource, SourceConfig, SourceListError
@@ -30,7 +30,7 @@ def get_document_id(db: Database, collection_id: int, path: str) -> int:
         Document ID (integer primary key).
     """
     cursor = db.execute(
-        "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
+        "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
         (collection_id, path),
     )
     row = cursor.fetchone()
@@ -330,7 +330,7 @@ class TestFullTextSearch:
         results = search_repo.search(
             "the",
             limit=10,
-            collection_id=test_corpus_collection.id,
+            source_collection_id=test_corpus_collection.id,
         )
 
         assert len(results) > 0
@@ -346,7 +346,7 @@ class TestFullTextSearch:
         results = search_repo.search(
             "the",
             limit=3,
-            collection_id=test_corpus_collection.id,
+            source_collection_id=test_corpus_collection.id,
         )
 
         assert len(results) <= 3
@@ -361,7 +361,7 @@ class TestFullTextSearch:
         results = search_repo.search(
             "markdown",
             limit=5,
-            collection_id=test_corpus_collection.id,
+            source_collection_id=test_corpus_collection.id,
         )
 
         if len(results) > 0:
@@ -381,7 +381,7 @@ class TestFullTextSearch:
         results = search_repo.search(
             "xyzzy123nonsensequery",
             limit=10,
-            collection_id=test_corpus_collection.id,
+            source_collection_id=test_corpus_collection.id,
         )
 
         assert len(results) == 0
@@ -419,14 +419,14 @@ class TestFullTextSearch:
         results1 = search_repo.search(
             sample_file.stem,
             limit=10,
-            collection_id=coll1.id,
+            source_collection_id=coll1.id,
         )
 
         # Search in collection 2 should not find it
         results2 = search_repo.search(
             sample_file.stem,
             limit=10,
-            collection_id=coll2.id,
+            source_collection_id=coll2.id,
         )
 
         assert len(results1) >= 0  # May or may not match depending on content
@@ -777,7 +777,7 @@ class TestIndexingService:
             results = services.fts_repo.search(
                 "the",
                 limit=10,
-                collection_id=collection.id,
+                source_collection_id=collection.id,
             )
 
             assert len(results) > 0
@@ -787,10 +787,10 @@ class TestIndexingService:
         self,
         config,
     ):
-        """index_collection should raise CollectionNotFoundError for unknown name."""
+        """index_collection should raise SourceCollectionNotFoundError for unknown name."""
         async with ServiceContainer(config) as services:
             dummy_source = FileSystemSource(SourceConfig(uri="file:///tmp"))
-            with pytest.raises(CollectionNotFoundError):
+            with pytest.raises(SourceCollectionNotFoundError):
                 await services.indexing.index_collection(
                     "nonexistent-collection",
                     source=dummy_source,

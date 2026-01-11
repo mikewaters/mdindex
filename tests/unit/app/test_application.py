@@ -7,6 +7,7 @@ from unittest.mock import patch, AsyncMock, MagicMock
 from pmd.core.config import Config
 from pmd.app import Application, create_application
 from pmd.services.indexing import IndexingService
+from pmd.services.loading import LoadingService
 from pmd.services.search import SearchService
 from pmd.services.status import StatusService
 
@@ -18,6 +19,7 @@ class TestApplication:
         """Application should initialize with provided dependencies."""
         db = MagicMock()
         llm_provider = MagicMock()
+        loading = MagicMock(spec=LoadingService)
         indexing = MagicMock(spec=IndexingService)
         search = MagicMock(spec=SearchService)
         status = MagicMock(spec=StatusService)
@@ -25,6 +27,7 @@ class TestApplication:
         app = Application(
             db=db,
             llm_provider=llm_provider,
+            loading=loading,
             indexing=indexing,
             search=search,
             status=status,
@@ -33,6 +36,7 @@ class TestApplication:
 
         assert app._db is db
         assert app._llm_provider is llm_provider
+        assert app.loading is loading
         assert app.indexing is indexing
         assert app.search is search
         assert app.status is status
@@ -45,6 +49,7 @@ class TestApplication:
         app = Application(
             db=db,
             llm_provider=None,
+            loading=MagicMock(),
             indexing=MagicMock(),
             search=MagicMock(),
             status=MagicMock(),
@@ -58,6 +63,7 @@ class TestApplication:
         app = Application(
             db=MagicMock(),
             llm_provider=None,
+            loading=MagicMock(),
             indexing=MagicMock(),
             search=MagicMock(),
             status=MagicMock(),
@@ -74,6 +80,7 @@ class TestApplication:
         app = Application(
             db=db,
             llm_provider=None,
+            loading=MagicMock(),
             indexing=MagicMock(),
             search=MagicMock(),
             status=MagicMock(),
@@ -94,6 +101,7 @@ class TestApplication:
         app = Application(
             db=db,
             llm_provider=llm_provider,
+            loading=MagicMock(),
             indexing=MagicMock(),
             search=MagicMock(),
             status=MagicMock(),
@@ -113,6 +121,7 @@ class TestApplication:
         app = Application(
             db=db,
             llm_provider=None,
+            loading=MagicMock(),
             indexing=MagicMock(),
             search=MagicMock(),
             status=MagicMock(),
@@ -131,6 +140,7 @@ class TestApplication:
         app = Application(
             db=db,
             llm_provider=None,
+            loading=MagicMock(),
             indexing=MagicMock(),
             search=MagicMock(),
             status=MagicMock(),
@@ -206,5 +216,5 @@ class TestCreateApplication:
             # SearchService should have repository access
             assert hasattr(app.search, "_fts_repo")
 
-            # StatusService should have collection_repo access
-            assert hasattr(app.status, "_collection_repo")
+            # StatusService should have source_collection_repo access
+            assert hasattr(app.status, "_source_collection_repo")

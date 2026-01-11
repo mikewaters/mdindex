@@ -40,7 +40,7 @@ class EmbeddingVectorSearcher:
         self,
         query: str,
         limit: int,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
     ) -> list["SearchResult"]:
         """Search documents using vector similarity.
 
@@ -49,7 +49,7 @@ class EmbeddingVectorSearcher:
         Args:
             query: Search query string (will be embedded internally).
             limit: Maximum number of results to return.
-            collection_id: Optional collection to scope search.
+            source_collection_id: Optional collection to scope search.
 
         Returns:
             List of SearchResult objects sorted by similarity score.
@@ -66,5 +66,5 @@ class EmbeddingVectorSearcher:
         return self._generator.embedding_repo.search_vectors(
             query_embedding,
             limit=limit,
-            collection_id=collection_id,
+            source_collection_id=source_collection_id,
         )
