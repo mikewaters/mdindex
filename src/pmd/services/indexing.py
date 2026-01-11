@@ -28,8 +28,6 @@ from pmd.app.types import (
     LoadingServiceProtocol,
 )
 
-if TYPE_CHECKING:
-    from .container import ServiceContainer
 
 
 @dataclass
@@ -126,36 +124,6 @@ class IndexingService:
         self._embedding_generator_factory = embedding_generator_factory
         self._llm_available_check = llm_available_check
         self._source_registry = source_registry or get_default_registry()
-
-    @classmethod
-    def from_container(
-        cls,
-        container: "ServiceContainer",
-        source_registry: SourceRegistry | None = None,
-    ) -> "IndexingService":
-        """Create IndexingService from a ServiceContainer.
-
-        This is a convenience method for backward compatibility.
-        Prefer using explicit dependencies in new code.
-
-        Args:
-            container: Service container with shared resources.
-            source_registry: Optional source registry.
-
-        Returns:
-            IndexingService instance.
-        """
-        return cls(
-            db=container.db,
-            source_collection_repo=container.source_collection_repo,
-            document_repo=container.document_repo,
-            fts_repo=container.fts_repo,
-            embedding_repo=container.embedding_repo,
-            embedding_generator_factory=container.get_embedding_generator,
-            llm_available_check=container.is_llm_available,
-            source_registry=source_registry,
-            loader=container.loading,
-        )
 
     @property
     def vec_available(self) -> bool:

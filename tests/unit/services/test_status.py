@@ -3,51 +3,44 @@
 import pytest
 from pathlib import Path
 
+from pmd.app import create_application
 from pmd.core.config import Config
 from pmd.core.types import IndexStatus
-from pmd.services import ServiceContainer
 from pmd.services.status import StatusService
+from pmd.store.collections import SourceCollectionRepository
+from pmd.store.database import Database
+from pmd.store.documents import DocumentRepository
+from pmd.store.embeddings import EmbeddingRepository
+from pmd.store.search import FTS5SearchRepository
 from pmd.store.schema import EMBEDDING_DIMENSION
-
-
-class TestStatusServiceInit:
-    """Tests for StatusService initialization."""
-
-    def test_init_with_explicit_deps(self, connected_container: ServiceContainer):
-        """StatusService should work with explicit dependencies."""
-        service = StatusService(
-            db=connected_container.db,
-            source_collection_repo=connected_container.collection_repo,
-            db_path=connected_container.config.db_path,
-        )
-
-        assert service._db is connected_container.db
-        assert service._source_collection_repo is connected_container.collection_repo
-
-    def test_from_container_factory(self, connected_container: ServiceContainer):
-        """StatusService.from_container should create service with container deps."""
-        service = StatusService.from_container(connected_container)
-
-        assert service._db is connected_container.db
-        assert service._source_collection_repo is connected_container.collection_repo
 
 
 class TestStatusServiceGetIndexStatus:
     """Tests for StatusService.get_index_status method."""
 
-    def test_get_index_status_returns_index_status(
-        self, connected_container: ServiceContainer
-    ):
+    def test_get_index_status_returns_index_status(self, db: Database, config: Config):
         """get_index_status should return IndexStatus object."""
-        status = connected_container.status.get_index_status()
+        source_collection_repo = SourceCollectionRepository(db)
+        service = StatusService(
+            db=db,
+            source_collection_repo=source_collection_repo,
+            db_path=config.db_path,
+        )
+
+        status = service.get_index_status()
 
         assert isinstance(status, IndexStatus)
 
-    def test_get_index_status_empty_database(
-        self, connected_container: ServiceContainer
-    ):
+    def test_get_index_status_empty_database(self, db: Database, config: Config):
         """get_index_status should return zeros for empty database."""
-        status = connected_container.status.get_index_status()
+        source_collection_repo = SourceCollectionRepository(db)
+        service = StatusService(
+            db=db,
+            source_collection_repo=source_collection_repo,
+            db_path=config.db_path,
+        )
+
+        status = service.get_index_status()
 
         assert status.total_documents == 0
         assert status.embedded_documents == 0
@@ -55,31 +48,46 @@ class TestStatusServiceGetIndexStatus:
         assert status.cache_entries == 0
 
     def test_get_index_status_with_collections(
-        self, connected_container: ServiceContainer, tmp_path: Path
+        self, db: Database, config: Config, tmp_path: Path
     ):
         """get_index_status should include collections."""
-        connected_container.collection_repo.create("test", str(tmp_path), "**/*.md")
+        source_collection_repo = SourceCollectionRepository(db)
+        service = StatusService(
+            db=db,
+            source_collection_repo=source_collection_repo,
+            db_path=config.db_path,
+        )
 
-        status = connected_container.status.get_index_status()
+        source_collection_repo.create("test", str(tmp_path), "**/*.md")
+
+        status = service.get_index_status()
 
         assert len(status.source_collections) == 1
         assert status.source_collections[0].name == "test"
 
     def test_get_index_status_with_documents(
-        self, connected_container: ServiceContainer, tmp_path: Path
+        self, db: Database, config: Config, tmp_path: Path
     ):
         """get_index_status should count documents."""
-        collection = connected_container.collection_repo.create(
+        source_collection_repo = SourceCollectionRepository(db)
+        document_repo = DocumentRepository(db)
+        service = StatusService(
+            db=db,
+            source_collection_repo=source_collection_repo,
+            db_path=config.db_path,
+        )
+
+        collection = source_collection_repo.create(
             "test", str(tmp_path), "**/*.md"
         )
-        connected_container.document_repo.add_or_update(
+        document_repo.add_or_update(
             collection.id, "doc1.md", "Doc 1", "# Content 1"
         )
-        connected_container.document_repo.add_or_update(
+        document_repo.add_or_update(
             collection.id, "doc2.md", "Doc 2", "# Content 2"
         )
 
-        status = connected_container.status.get_index_status()
+        status = service.get_index_status()
 
         assert status.total_documents == 2
 
@@ -90,16 +98,16 @@ class TestStatusServiceGetFullStatus:
     @pytest.mark.asyncio
     async def test_get_full_status_returns_dict(self, config: Config):
         """get_full_status should return a dictionary."""
-        async with ServiceContainer(config) as services:
-            status = await services.status.get_full_status()
+        async with await create_application(config) as app:
+            status = await app.status.get_full_status()
 
             assert isinstance(status, dict)
 
     @pytest.mark.asyncio
     async def test_get_full_status_includes_required_keys(self, config: Config):
         """get_full_status should include all required keys."""
-        async with ServiceContainer(config) as services:
-            status = await services.status.get_full_status()
+        async with await create_application(config) as app:
+            status = await app.status.get_full_status()
 
             assert "source_collections_count" in status
             assert "source_collections" in status
@@ -116,10 +124,10 @@ class TestStatusServiceGetFullStatus:
         self, config: Config, tmp_path: Path
     ):
         """get_full_status should include collection details."""
-        async with ServiceContainer(config) as services:
-            services.collection_repo.create("my-collection", str(tmp_path), "*.txt")
+        async with await create_application(config) as app:
+            app.source_collection_repo.create("my-collection", str(tmp_path), "*.txt")
 
-            status = await services.status.get_full_status()
+            status = await app.status.get_full_status()
 
             assert status["source_collections_count"] == 1
             assert len(status["source_collections"]) == 1
@@ -131,21 +139,33 @@ class TestStatusServiceGetFullStatus:
 class TestStatusServiceGetCollectionStats:
     """Tests for StatusService.get_collection_stats method."""
 
-    def test_get_collection_stats_not_found(
-        self, connected_container: ServiceContainer
-    ):
+    def test_get_collection_stats_not_found(self, db: Database, config: Config):
         """get_collection_stats should return None for unknown collection."""
-        stats = connected_container.status.get_collection_stats("nonexistent")
+        source_collection_repo = SourceCollectionRepository(db)
+        service = StatusService(
+            db=db,
+            source_collection_repo=source_collection_repo,
+            db_path=config.db_path,
+        )
+
+        stats = service.get_collection_stats("nonexistent")
 
         assert stats is None
 
     def test_get_collection_stats_found(
-        self, connected_container: ServiceContainer, tmp_path: Path
+        self, db: Database, config: Config, tmp_path: Path
     ):
         """get_collection_stats should return stats for existing collection."""
-        connected_container.collection_repo.create("test", str(tmp_path), "**/*.md")
+        source_collection_repo = SourceCollectionRepository(db)
+        service = StatusService(
+            db=db,
+            source_collection_repo=source_collection_repo,
+            db_path=config.db_path,
+        )
 
-        stats = connected_container.status.get_collection_stats("test")
+        source_collection_repo.create("test", str(tmp_path), "**/*.md")
+
+        stats = service.get_collection_stats("test")
 
         assert stats is not None
         assert stats["name"] == "test"
@@ -155,17 +175,25 @@ class TestStatusServiceGetCollectionStats:
         assert stats["embedded"] == 0
 
     def test_get_collection_stats_with_documents(
-        self, connected_container: ServiceContainer, tmp_path: Path
+        self, db: Database, config: Config, tmp_path: Path
     ):
         """get_collection_stats should count documents."""
-        collection = connected_container.collection_repo.create(
+        source_collection_repo = SourceCollectionRepository(db)
+        document_repo = DocumentRepository(db)
+        service = StatusService(
+            db=db,
+            source_collection_repo=source_collection_repo,
+            db_path=config.db_path,
+        )
+
+        collection = source_collection_repo.create(
             "test", str(tmp_path), "**/*.md"
         )
-        connected_container.document_repo.add_or_update(
+        document_repo.add_or_update(
             collection.id, "doc1.md", "Doc 1", "# Content"
         )
 
-        stats = connected_container.status.get_collection_stats("test")
+        stats = service.get_collection_stats("test")
 
         assert stats["documents"] == 1
 
@@ -174,46 +202,64 @@ class TestStatusServiceGetIndexSyncReport:
     """Tests for StatusService.get_index_sync_report method."""
 
     def test_sync_report_missing_fts_and_vectors(
-        self, connected_container: ServiceContainer, tmp_path: Path
+        self, db: Database, config: Config, tmp_path: Path
     ):
         """Report should flag documents missing FTS and vectors."""
-        collection = connected_container.collection_repo.create(
+        source_collection_repo = SourceCollectionRepository(db)
+        document_repo = DocumentRepository(db)
+        service = StatusService(
+            db=db,
+            source_collection_repo=source_collection_repo,
+            db_path=config.db_path,
+        )
+
+        collection = source_collection_repo.create(
             "test", str(tmp_path), "**/*.md"
         )
-        connected_container.document_repo.add_or_update(
+        document_repo.add_or_update(
             collection.id, "doc1.md", "Doc 1", "# Content 1"
         )
 
-        report = connected_container.status.get_index_sync_report()
+        report = service.get_index_sync_report()
 
         assert report["missing_fts_count"] == 1
         assert report["missing_vectors_count"] == 1
 
     def test_sync_report_with_fts_and_vectors(
-        self, connected_container: ServiceContainer, tmp_path: Path
+        self, db: Database, config: Config, tmp_path: Path
     ):
         """Report should show zero missing when FTS and vectors are present."""
-        collection = connected_container.collection_repo.create(
+        source_collection_repo = SourceCollectionRepository(db)
+        document_repo = DocumentRepository(db)
+        fts_repo = FTS5SearchRepository(db)
+        embedding_repo = EmbeddingRepository(db)
+        service = StatusService(
+            db=db,
+            source_collection_repo=source_collection_repo,
+            db_path=config.db_path,
+        )
+
+        collection = source_collection_repo.create(
             "test", str(tmp_path), "**/*.md"
         )
-        doc, _ = connected_container.document_repo.add_or_update(
+        doc, _ = document_repo.add_or_update(
             collection.id, "doc1.md", "Doc 1", "# Content 1"
         )
 
         # Add FTS entry
-        cursor = connected_container.db.execute(
+        cursor = db.execute(
             "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
             (collection.id, doc.filepath),
         )
         doc_id = cursor.fetchone()["id"]
-        connected_container.fts_repo.index_document(doc_id, doc.filepath, "# Content 1")
+        fts_repo.index_document(doc_id, doc.filepath, "# Content 1")
 
         # Add vector metadata entry
-        connected_container.embedding_repo.store_embedding(
+        embedding_repo.store_embedding(
             doc.hash, 0, 0, [0.1] * EMBEDDING_DIMENSION, "test-model"
         )
 
-        report = connected_container.status.get_index_sync_report()
+        report = service.get_index_sync_report()
 
         assert report["missing_fts_count"] == 0
         assert report["missing_vectors_count"] == 0

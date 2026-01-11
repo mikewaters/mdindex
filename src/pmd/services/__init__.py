@@ -6,28 +6,20 @@ from the CLI and MCP interfaces.
 
 Example usage:
 
-    from pmd.services import ServiceContainer
-    from pmd.sources import get_default_registry
+    from pmd.app import create_application
+    from pmd.core.config import Config
 
-    async with ServiceContainer(config) as services:
-        # Index a collection using source registry
-        collection = services.collection_repo.get_by_name("my-docs")
-        registry = get_default_registry()
-        source = registry.create_source(collection)
-        result = await services.indexing.index_collection(
-            "my-docs",
-            force=True,
-            source=source,
-        )
+    async with await create_application(Config()) as app:
+        # Index a collection
+        result = await app.indexing.index_collection("my-docs", force=True)
 
         # Search
-        results = await services.search.hybrid_search("machine learning", limit=10)
+        results = await app.search.hybrid_search("machine learning", limit=10)
 
         # Get status
-        status = services.status.get_index_status()
+        status = app.status.get_index_status()
 """
 
-from .container import ServiceContainer
 from .indexing import CleanupResult, EmbedResult, IndexingService, IndexResult
 from .loading import EagerLoadResult, LoadedDocument, LoadingService, LoadResult
 from .loading_llamaindex import LlamaIndexLoaderAdapter
@@ -35,7 +27,6 @@ from .search import SearchService
 from .status import StatusService
 
 __all__ = [
-    "ServiceContainer",
     "IndexingService",
     "SearchService",
     "StatusService",

@@ -9,7 +9,8 @@ from pathlib import Path
 
 from pmd.core.exceptions import SourceCollectionNotFoundError
 from pmd.core.types import SearchSource
-from pmd.services import IndexResult, ServiceContainer
+from pmd.app import Application, create_application
+from pmd.services import IndexResult
 from pmd.sources import FileSystemSource, SourceConfig, SourceListError
 from pmd.store.collections import CollectionRepository
 from pmd.store.database import Database
@@ -46,8 +47,8 @@ def _filesystem_source_for(collection) -> FileSystemSource:
     )
 
 
-def _filesystem_source_for_name(services: ServiceContainer, name: str) -> FileSystemSource:
-    collection = services.collection_repo.get_by_name(name)
+def _filesystem_source_for_name(app: Application, name: str) -> FileSystemSource:
+    collection = app.source_collection_repo.get_by_name(name)
     assert collection is not None
     return _filesystem_source_for(collection)
 
@@ -79,15 +80,15 @@ class TestCollectionCreation:
         test_corpus_path: Path,
     ):
         """Should create a collection and index it via IndexingService."""
-        async with ServiceContainer(config) as services:
-            collection = services.collection_repo.create(
+        async with await create_application(config) as app:
+            collection = app.source_collection_repo.create(
                 "my-corpus",
                 str(test_corpus_path),
                 "**/*.md",
             )
             source = _filesystem_source_for(collection)
 
-            index_result = await services.indexing.index_collection(
+            index_result = await app.indexing.index_collection(
                 "my-corpus",
                 source,
                 force=False,
@@ -641,15 +642,15 @@ class TestIndexingService:
         test_corpus_path: Path,
     ):
         """index_collection should index all files matching the glob pattern."""
-        async with ServiceContainer(config) as services:
-            services.collection_repo.create(
+        async with await create_application(config) as app:
+            app.source_collection_repo.create(
                 "test-corpus",
                 str(test_corpus_path),
                 "**/*.md",
             )
-            source = _filesystem_source_for_name(services, "test-corpus")
+            source = _filesystem_source_for_name(app, "test-corpus")
 
-            result = await services.indexing.index_collection(
+            result = await app.indexing.index_collection(
                 "test-corpus",
                 source,
                 force=True,
@@ -666,15 +667,15 @@ class TestIndexingService:
         test_corpus_path: Path,
     ):
         """index_collection should return an IndexResult with correct fields."""
-        async with ServiceContainer(config) as services:
-            services.collection_repo.create(
+        async with await create_application(config) as app:
+            app.source_collection_repo.create(
                 "test-corpus",
                 str(test_corpus_path),
                 "**/*.md",
             )
-            source = _filesystem_source_for_name(services, "test-corpus")
+            source = _filesystem_source_for_name(app, "test-corpus")
 
-            result = await services.indexing.index_collection(
+            result = await app.indexing.index_collection(
                 "test-corpus",
                 source,
                 force=True,
@@ -694,23 +695,23 @@ class TestIndexingService:
         test_corpus_path: Path,
     ):
         """index_collection should skip unchanged files when force=False."""
-        async with ServiceContainer(config) as services:
-            services.collection_repo.create(
+        async with await create_application(config) as app:
+            app.source_collection_repo.create(
                 "test-corpus",
                 str(test_corpus_path),
                 "**/*.md",
             )
-            source = _filesystem_source_for_name(services, "test-corpus")
+            source = _filesystem_source_for_name(app, "test-corpus")
 
             # First index
-            result1 = await services.indexing.index_collection(
+            result1 = await app.indexing.index_collection(
                 "test-corpus",
                 source,
                 force=True,
             )
 
             # Second index without force - should skip all
-            result2 = await services.indexing.index_collection(
+            result2 = await app.indexing.index_collection(
                 "test-corpus",
                 source,
                 force=False,
@@ -727,23 +728,23 @@ class TestIndexingService:
         test_corpus_path: Path,
     ):
         """index_collection with force=True should reindex all documents."""
-        async with ServiceContainer(config) as services:
-            services.collection_repo.create(
+        async with await create_application(config) as app:
+            app.source_collection_repo.create(
                 "test-corpus",
                 str(test_corpus_path),
                 "**/*.md",
             )
-            source = _filesystem_source_for_name(services, "test-corpus")
+            source = _filesystem_source_for_name(app, "test-corpus")
 
             # First index
-            result1 = await services.indexing.index_collection(
+            result1 = await app.indexing.index_collection(
                 "test-corpus",
                 source,
                 force=True,
             )
 
             # Second index with force - should reindex all
-            result2 = await services.indexing.index_collection(
+            result2 = await app.indexing.index_collection(
                 "test-corpus",
                 source,
                 force=True,
@@ -759,25 +760,25 @@ class TestIndexingService:
         test_corpus_path: Path,
     ):
         """Documents indexed via index_collection should be searchable via FTS."""
-        async with ServiceContainer(config) as services:
-            collection = services.collection_repo.create(
+        async with await create_application(config) as app:
+            collection = app.source_collection_repo.create(
                 "test-corpus",
                 str(test_corpus_path),
                 "**/*.md",
             )
             source = _filesystem_source_for(collection)
 
-            await services.indexing.index_collection(
+            await app.indexing.index_collection(
                 "test-corpus",
                 source,
                 force=True,
             )
 
-            # Search for a common term
-            results = services.fts_repo.search(
+            # Search for a common term using FTS search service
+            results = app.search.fts_search(
                 "the",
                 limit=10,
-                source_collection_id=collection.id,
+                collection_name="test-corpus",
             )
 
             assert len(results) > 0
@@ -788,10 +789,10 @@ class TestIndexingService:
         config,
     ):
         """index_collection should raise SourceCollectionNotFoundError for unknown name."""
-        async with ServiceContainer(config) as services:
+        async with await create_application(config) as app:
             dummy_source = FileSystemSource(SourceConfig(uri="file:///tmp"))
             with pytest.raises(SourceCollectionNotFoundError):
-                await services.indexing.index_collection(
+                await app.indexing.index_collection(
                     "nonexistent-collection",
                     source=dummy_source,
                 )
@@ -802,17 +803,17 @@ class TestIndexingService:
         config,
     ):
         """index_collection should raise SourceListError if collection path doesn't exist."""
-        async with ServiceContainer(config) as services:
+        async with await create_application(config) as app:
             # Create collection with non-existent path
-            services.collection_repo.create(
+            app.source_collection_repo.create(
                 "nonexistent",
                 "/nonexistent/path/that/does/not/exist",
                 "**/*.md",
             )
-            source = _filesystem_source_for_name(services, "nonexistent")
+            source = _filesystem_source_for_name(app, "nonexistent")
 
             with pytest.raises(SourceListError, match="does not exist"):
-                await services.indexing.index_collection("nonexistent", source)
+                await app.indexing.index_collection("nonexistent", source)
 
     @pytest.mark.asyncio
     async def test_index_collection_extracts_titles_from_headings(
@@ -821,22 +822,22 @@ class TestIndexingService:
         test_corpus_path: Path,
     ):
         """index_collection should extract titles from markdown headings."""
-        async with ServiceContainer(config) as services:
-            collection = services.collection_repo.create(
+        async with await create_application(config) as app:
+            collection = app.source_collection_repo.create(
                 "test-corpus",
                 str(test_corpus_path),
                 "**/*.md",
             )
             source = _filesystem_source_for(collection)
 
-            await services.indexing.index_collection(
+            await app.indexing.index_collection(
                 "test-corpus",
                 source,
                 force=True,
             )
 
             # Check a document that should have a heading-based title
-            documents = services.document_repo.list_by_collection(collection.id)
+            documents = app.document_repo.list_by_collection(collection.id)
 
             # At least some documents should have titles different from filename
             titles_from_headings = [
@@ -852,20 +853,20 @@ class TestIndexingService:
         test_corpus_path: Path,
     ):
         """index_collection should correctly store all documents in database."""
-        async with ServiceContainer(config) as services:
-            collection = services.collection_repo.create(
+        async with await create_application(config) as app:
+            collection = app.source_collection_repo.create(
                 "test-corpus",
                 str(test_corpus_path),
                 "**/*.md",
             )
             source = _filesystem_source_for(collection)
 
-            result = await services.indexing.index_collection(
+            result = await app.indexing.index_collection(
                 "test-corpus",
                 source,
                 force=True,
             )
 
             # Count should match what's stored
-            stored_count = services.document_repo.count_by_collection(collection.id)
+            stored_count = app.document_repo.count_by_collection(collection.id)
             assert stored_count == result.indexed

@@ -3,7 +3,7 @@
 import asyncio
 
 from pmd.core.config import Config
-from pmd.services import ServiceContainer
+from pmd.app import create_application
 
 
 def add_status_arguments(parser) -> None:
@@ -46,12 +46,12 @@ async def _handle_status_async(args, config: Config) -> None:
         args: Parsed command arguments.
         config: Application configuration.
     """
-    async with ServiceContainer(config) as services:
-        status = services.status.get_index_status()
+    async with await create_application(config) as app:
+        status = app.status.get_index_status()
         _print_status(status)
 
         if args.check_sync:
-            report = services.status.get_index_sync_report(
+            report = app.status.get_index_sync_report(
                 collection_name=args.collection,
                 limit=args.sync_limit,
             )

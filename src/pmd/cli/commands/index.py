@@ -3,8 +3,8 @@
 import asyncio
 
 from pmd.core.config import Config
-from pmd.core.exceptions import SourceSourceCollectionNotFoundError
-from pmd.services import ServiceContainer
+from pmd.core.exceptions import SourceCollectionNotFoundError
+from pmd.app import create_application
 
 
 def add_index_arguments(parser) -> None:
@@ -47,9 +47,9 @@ async def _handle_index_async(args, config: Config) -> None:
         args: Parsed command arguments.
         config: Application configuration.
     """
-    async with ServiceContainer(config) as services:
+    async with await create_application(config) as app:
         try:
-            result = await services.indexing.index_collection(
+            result = await app.indexing.index_collection(
                 args.collection,
                 force=args.force,
                 embed=args.embed,
@@ -85,14 +85,14 @@ async def _handle_embed_async(args, config: Config) -> None:
         args: Parsed command arguments.
         config: Application configuration.
     """
-    async with ServiceContainer(config) as services:
+    async with await create_application(config) as app:
         try:
-            result = await services.indexing.embed_collection(
+            result = await app.indexing.embed_collection(
                 args.collection,
                 force=args.force,
             )
 
-            print(f"✓ Embedded {result.embedded} documents ({result.skipped} skipped)")
+            print(f"Embedded {result.embedded} documents ({result.skipped} skipped)")
             if result.chunks_total > 0:
                 print(f"  Total chunks: {result.chunks_total}")
 
@@ -121,10 +121,10 @@ async def _handle_cleanup_async(args, config: Config) -> None:
         args: Parsed command arguments.
         config: Application configuration.
     """
-    async with ServiceContainer(config) as services:
-        result = await services.indexing.cleanup_orphans()
+    async with await create_application(config) as app:
+        result = await app.indexing.cleanup_orphans()
 
-        print(f"✓ Cleaned up {result.orphaned_content} orphaned content hashes")
+        print(f"Cleaned up {result.orphaned_content} orphaned content hashes")
         if result.orphaned_embeddings > 0:
             print(f"  Removed {result.orphaned_embeddings} orphaned embeddings")
 
@@ -146,14 +146,14 @@ async def _handle_update_all_async(args, config: Config) -> None:
         args: Parsed command arguments.
         config: Application configuration.
     """
-    async with ServiceContainer(config) as services:
-        results = await services.indexing.update_all_collections(embed=args.embed)
+    async with await create_application(config) as app:
+        results = await app.indexing.update_all_collections(embed=args.embed)
 
         total = sum(r.indexed for r in results.values())
         for name, result in results.items():
             print(f"  {name}: {result.indexed} indexed, {result.skipped} skipped")
 
-        print(f"✓ Updated {len(results)} collections ({total} documents indexed)")
+        print(f"Updated {len(results)} collections ({total} documents indexed)")
 
 
 def add_backfill_arguments(parser) -> None:
@@ -196,8 +196,8 @@ async def _handle_backfill_async(args, config: Config) -> None:
         args: Parsed command arguments.
         config: Application configuration.
     """
-    async with ServiceContainer(config) as services:
-        stats = services.indexing.backfill_metadata(
+    async with await create_application(config) as app:
+        stats = app.indexing.backfill_metadata(
             collection_name=args.collection,
             force=args.force,
         )

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Awaitable
+from typing import Callable, Awaitable
 
 from loguru import logger
 
@@ -12,9 +12,6 @@ from ..app.types import (
     SourceCollectionRepositoryProtocol,
     DatabaseProtocol,
 )
-
-if TYPE_CHECKING:
-    from .container import ServiceContainer
 
 
 class StatusService:
@@ -57,27 +54,6 @@ class StatusService:
         self._db_path = db_path
         self._llm_provider = llm_provider
         self._llm_available_check = llm_available_check
-
-    @classmethod
-    def from_container(cls, container: "ServiceContainer") -> "StatusService":
-        """Create StatusService from a ServiceContainer.
-
-        This is a convenience method for backward compatibility.
-        Prefer using explicit dependencies in new code.
-
-        Args:
-            container: Service container with shared resources.
-
-        Returns:
-            StatusService instance.
-        """
-        return cls(
-            db=container.db,
-            source_collection_repo=container.source_collection_repo,
-            db_path=container.config.db_path,
-            llm_provider=container.config.llm_provider,
-            llm_available_check=container.is_llm_available,
-        )
 
     @property
     def vec_available(self) -> bool:

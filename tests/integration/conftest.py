@@ -3,9 +3,9 @@
 import pytest
 from pathlib import Path
 
+from pmd.app import Application, create_application
 from pmd.core.config import Config
-from pmd.services import ServiceContainer
-from pmd.store.collections import CollectionRepository
+from pmd.store.collections import SourceCollectionRepository
 from pmd.store.database import Database
 from pmd.store.documents import DocumentRepository
 from pmd.store.embeddings import EmbeddingRepository
@@ -42,9 +42,9 @@ def config(integration_db_path: Path) -> Config:
 
 
 @pytest.fixture
-def collection_repo(db: Database) -> CollectionRepository:
-    """Provide a CollectionRepository instance."""
-    return CollectionRepository(db)
+def collection_repo(db: Database) -> SourceCollectionRepository:
+    """Provide a SourceCollectionRepository instance."""
+    return SourceCollectionRepository(db)
 
 
 @pytest.fixture
@@ -74,7 +74,7 @@ def search_repo(fts_repo: FTS5SearchRepository) -> FTS5SearchRepository:
 
 @pytest.fixture
 def test_corpus_collection(
-    collection_repo: CollectionRepository,
+    collection_repo: SourceCollectionRepository,
     test_corpus_path: Path,
 ) -> "SourceCollection":
     """Create a collection pointing to the test corpus."""
@@ -82,7 +82,8 @@ def test_corpus_collection(
 
 
 @pytest.fixture
-async def services(config: Config):
-    """Provide a ServiceContainer instance for integration tests."""
-    async with ServiceContainer(config) as svc:
-        yield svc
+async def app(config: Config) -> Application:
+    """Provide an Application instance for integration tests."""
+    application = await create_application(config)
+    async with application:
+        yield application

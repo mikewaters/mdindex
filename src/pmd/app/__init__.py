@@ -117,6 +117,9 @@ class Application:
         search: "SearchService",
         status: "StatusService",
         config: "Config",
+        source_collection_repo=None,
+        document_repo=None,
+        embedding_repo=None,
     ):
         """Initialize Application with wired services.
 
@@ -130,16 +133,37 @@ class Application:
             search: SearchService instance.
             status: StatusService instance.
             config: Application configuration.
+            source_collection_repo: Repository for source collections.
+            document_repo: Repository for documents.
+            embedding_repo: Repository for embeddings.
         """
         self._db = db
         self._llm_provider = llm_provider
         self._config = config
+        self._source_collection_repo = source_collection_repo
+        self._document_repo = document_repo
+        self._embedding_repo = embedding_repo
 
         # Public service accessors
         self.loading = loading
         self.indexing = indexing
         self.search = search
         self.status = status
+
+    @property
+    def source_collection_repo(self):
+        """Get source collection repository."""
+        return self._source_collection_repo
+
+    @property
+    def document_repo(self):
+        """Get document repository."""
+        return self._document_repo
+
+    @property
+    def embedding_repo(self):
+        """Get embedding repository."""
+        return self._embedding_repo
 
     @property
     def db(self) -> "Database":
@@ -155,6 +179,16 @@ class Application:
     def vec_available(self) -> bool:
         """Check if vector storage is available."""
         return self._db.vec_available
+
+    async def is_llm_available(self) -> bool:
+        """Check if LLM provider is available.
+
+        Returns:
+            True if LLM provider can be reached.
+        """
+        if self._llm_provider:
+            return await self._llm_provider.is_available()
+        return False
 
     async def close(self) -> None:
         """Clean shutdown of all resources."""
@@ -323,4 +357,7 @@ async def create_application(config: "Config") -> Application:
         search=search,
         status=status,
         config=config,
+        source_collection_repo=source_collection_repo,
+        document_repo=document_repo,
+        embedding_repo=embedding_repo,
     )

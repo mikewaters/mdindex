@@ -9,7 +9,7 @@ Provides three search commands:
 import asyncio
 
 from pmd.core.config import Config
-from pmd.services import ServiceContainer
+from pmd.app import create_application
 
 
 def add_search_arguments(parser) -> None:
@@ -59,8 +59,8 @@ async def _handle_search_async(args, config: Config) -> None:
         args: Parsed command arguments.
         config: Application configuration.
     """
-    async with ServiceContainer(config) as services:
-        results = services.search.fts_search(
+    async with await create_application(config) as app:
+        results = app.search.fts_search(
             args.query,
             limit=args.limit,
             collection_name=args.collection,
@@ -89,18 +89,18 @@ async def _handle_vsearch_async(args, config: Config) -> None:
         args: Parsed command arguments.
         config: Application configuration.
     """
-    async with ServiceContainer(config) as services:
+    async with await create_application(config) as app:
         # Check if vector search is available
-        if not services.vec_available:
+        if not app.vec_available:
             print("Vector search not available (sqlite-vec extension not loaded)")
             return
 
         # Check if LLM is available
-        if not await services.is_llm_available():
+        if not await app.is_llm_available():
             print("LLM provider not available (is it running?)")
             return
 
-        results = await services.search.vector_search(
+        results = await app.search.vector_search(
             args.query,
             limit=args.limit,
             collection_name=args.collection,
@@ -129,11 +129,11 @@ async def _handle_query_async(args, config: Config) -> None:
         args: Parsed command arguments.
         config: Application configuration.
     """
-    async with ServiceContainer(config) as services:
+    async with await create_application(config) as app:
         # Check if LLM is available for query expansion/reranking
-        llm_available = await services.is_llm_available()
+        llm_available = await app.is_llm_available()
 
-        results = await services.search.hybrid_search(
+        results = await app.search.hybrid_search(
             args.query,
             limit=args.limit,
             collection_name=args.collection,

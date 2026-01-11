@@ -9,7 +9,7 @@ from pathlib import Path
 
 from pmd.app import create_application
 from pmd.core.config import Config
-from pmd.services import IndexResult, ServiceContainer
+from pmd.services import IndexResult
 from pmd.services.loading import LoadingService
 
 
@@ -161,18 +161,3 @@ class TestApplicationWithLoader:
             assert app.indexing._loader is app.loading
 
 
-class TestServiceContainerWithLoader:
-    """Tests for ServiceContainer backward compatibility."""
-
-    @pytest.mark.asyncio
-    async def test_service_container_still_works(self, config: Config, tmp_path: Path):
-        """ServiceContainer still works without explicit source."""
-        (tmp_path / "doc.md").write_text("# Test\n\nContent.")
-
-        async with ServiceContainer(config) as services:
-            services.collection_repo.create("test", str(tmp_path), "**/*.md")
-
-            # ServiceContainer's indexing should work without source
-            result = await services.indexing.index_collection("test")
-
-            assert result.indexed == 1

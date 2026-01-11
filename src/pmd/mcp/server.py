@@ -2,13 +2,13 @@
 
 from ..core.config import Config
 from ..core.exceptions import SourceCollectionNotFoundError
-from ..services import ServiceContainer
+from ..app import Application, create_application
 
 
 class PMDMCPServer:
     """MCP server exposing PMD search functionality.
 
-    Uses ServiceContainer for all operations, providing a clean interface
+    Uses Application for all operations, providing a clean interface
     for MCP clients to search documents and retrieve content.
 
     Example:
@@ -29,29 +29,28 @@ class PMDMCPServer:
             config: Application configuration.
         """
         self.config = config
-        self._services: ServiceContainer | None = None
+        self._app: Application | None = None
 
     async def initialize(self) -> None:
         """Initialize the server (connect to database and services)."""
-        self._services = ServiceContainer(self.config)
-        self._services.connect()
+        self._app = await create_application(self.config)
 
     async def shutdown(self) -> None:
         """Shutdown the server (close connections)."""
-        if self._services:
-            await self._services.close()
-            self._services = None
+        if self._app:
+            await self._app.close()
+            self._app = None
 
     @property
-    def services(self) -> ServiceContainer:
-        """Get the service container.
+    def app(self) -> Application:
+        """Get the application instance.
 
         Raises:
             RuntimeError: If server not initialized.
         """
-        if self._services is None:
+        if self._app is None:
             raise RuntimeError("Server not initialized. Call initialize() first.")
-        return self._services
+        return self._app
 
     async def search(
         self,
@@ -70,9 +69,9 @@ class PMDMCPServer:
             Search results as dictionary.
         """
         # Check if LLM is available for enhanced search
-        llm_available = await self.services.is_llm_available()
+        llm_available = await self.app.is_llm_available()
 
-        results = await self.services.search.hybrid_search(
+        results = await self.app.search.hybrid_search(
             query,
             limit=limit,
             collection_name=collection,
@@ -111,12 +110,12 @@ class PMDMCPServer:
         Returns:
             Document content and metadata.
         """
-        source_collection = self.services.source_collection_repo.get_by_name(collection)
+        source_collection = self.app.source_collection_repo.get_by_name(collection)
 
         if not source_collection:
             return {"error": f"Source collection '{collection}' not found"}
 
-        doc = self.services.document_repo.get(source_collection.id, path)
+        doc = self.app.document_repo.get(source_collection.id, path)
 
         if not doc:
             return {"error": f"Document '{path}' not found in collection '{collection}'"}
@@ -135,7 +134,7 @@ class PMDMCPServer:
         Returns:
             List of collections.
         """
-        source_collections = self.services.source_collection_repo.list_all()
+        source_collections = self.app.source_collection_repo.list_all()
 
         return {
             "source_collections_count": len(source_collections),
@@ -155,7 +154,7 @@ class PMDMCPServer:
         Returns:
             Status information.
         """
-        return await self.services.status.get_full_status()
+        return await self.app.status.get_full_status()
 
     async def index_collection(
         self,
@@ -174,7 +173,7 @@ class PMDMCPServer:
             Indexing result.
         """
         try:
-            result = await self.services.indexing.index_collection(
+            result = await self.app.indexing.index_collection(
                 collection,
                 force=force,
                 embed=embed,
@@ -212,7 +211,7 @@ class PMDMCPServer:
             Embedding result.
         """
         try:
-            result = await self.services.indexing.embed_collection(collection, force)
+            result = await self.app.indexing.embed_collection(collection, force)
             return {
                 "success": True,
                 "collection": collection,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Awaitable
+from typing import Callable, Awaitable
 
 from loguru import logger
 
@@ -30,10 +30,6 @@ from ..app.types import (
     TagMatcherProtocol,
     TagRetrieverProtocol,
 )
-
-if TYPE_CHECKING:
-    from .container import ServiceContainer
-
 
 class SearchService:
     """Service for document search operations.
@@ -107,37 +103,6 @@ class SearchService:
         self._vec_weight = vec_weight
         self._rrf_k = rrf_k
         self._rerank_candidates = rerank_candidates
-
-    @classmethod
-    def from_container(cls, container: "ServiceContainer") -> "SearchService":
-        """Create SearchService from a ServiceContainer.
-
-        This is a convenience method for backward compatibility.
-        Prefer using explicit dependencies in new code.
-
-        Args:
-            container: Service container with shared resources.
-
-        Returns:
-            SearchService instance.
-        """
-        return cls(
-            db=container.db,
-            fts_repo=container.fts_repo,
-            source_collection_repo=container.source_collection_repo,
-            embedding_repo=container.embedding_repo,
-            embedding_generator_factory=container.get_embedding_generator,
-            query_expander_factory=container.get_query_expander,  # type: ignore
-            reranker_factory=container.get_reranker, # type: ignore
-            tag_matcher_factory=container.get_tag_matcher, # type: ignore
-            ontology_factory=container.get_ontology, # type: ignore
-            tag_retriever_factory=container.get_tag_retriever, # type: ignore
-            metadata_repo_factory=container.get_metadata_repo, # type: ignore
-            fts_weight=container.config.search.fts_weight,
-            vec_weight=container.config.search.vec_weight,
-            rrf_k=container.config.search.rrf_k,
-            rerank_candidates=container.config.search.rerank_candidates,
-        )
 
     @property
     def vec_available(self) -> bool:

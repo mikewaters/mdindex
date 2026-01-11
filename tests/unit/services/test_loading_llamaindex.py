@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 from pmd.core.config import Config
 from pmd.core.exceptions import SourceCollectionNotFoundError
-from pmd.services import ServiceContainer
+from pmd.app import create_application
 from pmd.services.loading import LoadingService
 from pmd.services.loading_llamaindex import LlamaIndexLoaderAdapter
 from pmd.store.source_metadata import SourceMetadataRepository
@@ -375,17 +375,17 @@ class TestLoadingServiceIntegration:
             content_type="text/markdown",
         )
 
-        async with ServiceContainer(config) as services:
+        async with await create_application(config) as app:
             # Create a collection
-            services.collection_repo.create("llama-test", "/tmp", "**/*.md")
+            app.source_collection_repo.create("llama-test", "/tmp", "**/*.md")
 
             from pmd.sources import get_default_registry
 
-            source_metadata_repo = SourceMetadataRepository(services.db)
+            source_metadata_repo = SourceMetadataRepository(app.db)
             loading_service = LoadingService(
-                db=services.db,
-                source_collection_repo=services.collection_repo,
-                document_repo=services.document_repo,
+                db=app.db,
+                source_collection_repo=app.source_collection_repo,
+                document_repo=app.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
             )
@@ -409,14 +409,14 @@ class TestLoadingServiceIntegration:
             content_type="text/markdown",
         )
 
-        async with ServiceContainer(config) as services:
+        async with await create_application(config) as app:
             from pmd.sources import get_default_registry
 
-            source_metadata_repo = SourceMetadataRepository(services.db)
+            source_metadata_repo = SourceMetadataRepository(app.db)
             loading_service = LoadingService(
-                db=services.db,
-                source_collection_repo=services.collection_repo,
-                document_repo=services.document_repo,
+                db=app.db,
+                source_collection_repo=app.source_collection_repo,
+                document_repo=app.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
             )
@@ -438,16 +438,16 @@ class TestLoadingServiceIntegration:
             allow_multiple=True,
         )
 
-        async with ServiceContainer(config) as services:
-            services.collection_repo.create("llama-test", "/tmp", "**/*.md")
+        async with await create_application(config) as app:
+            app.source_collection_repo.create("llama-test", "/tmp", "**/*.md")
 
             from pmd.sources import get_default_registry
 
-            source_metadata_repo = SourceMetadataRepository(services.db)
+            source_metadata_repo = SourceMetadataRepository(app.db)
             loading_service = LoadingService(
-                db=services.db,
-                source_collection_repo=services.collection_repo,
-                document_repo=services.document_repo,
+                db=app.db,
+                source_collection_repo=app.source_collection_repo,
+                document_repo=app.document_repo,
                 source_metadata_repo=source_metadata_repo,
                 source_registry=get_default_registry(),
             )
