@@ -11,10 +11,10 @@ from typing import TYPE_CHECKING, Callable, Awaitable
 
 from loguru import logger
 
-from ..core.exceptions import CollectionNotFoundError
-from ..core.types import Collection
-from ..search.text import is_indexable
-from ..sources import (
+from pmd.core.exceptions import CollectionNotFoundError
+from pmd.core.types import Collection
+from pmd.search.text import is_indexable
+from pmd.sources import (
     DocumentReference,
     DocumentSource,
     FetchResult,
@@ -23,20 +23,23 @@ from ..sources import (
     SourceRegistry,
     get_default_registry,
 )
-from ..metadata import ExtractedMetadata, get_default_profile_registry
-from ..metadata.store import DocumentMetadataRepository
-from ..store.source_metadata import SourceMetadata, SourceMetadataRepository
-from ..app.types import (
+from pmd.metadata import (
+    ExtractedMetadata, get_default_profile_registry, DocumentMetadataRepository
+)
+from pmd.store.source_metadata import SourceMetadata, SourceMetadataRepository
+from pmd.app.types import (
     CollectionRepositoryProtocol,
     DatabaseProtocol,
     DocumentRepositoryProtocol,
     EmbeddingGeneratorProtocol,
     EmbeddingRepositoryProtocol,
     FTSRepositoryProtocol,
+    LoadingServiceProtocol,
 )
 
 if TYPE_CHECKING:
     from .container import ServiceContainer
+    from .loading import LoadedDocument
 
 
 @dataclass
@@ -114,6 +117,7 @@ class IndexingService:
         embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]] | None = None,
         llm_available_check: Callable[[], Awaitable[bool]] | None = None,
         source_registry: SourceRegistry | None = None,
+        loader: LoadingServiceProtocol | None = None,
         # Deprecated: ServiceContainer
         container: "ServiceContainer | None" = None,
     ):
@@ -128,9 +132,11 @@ class IndexingService:
             embedding_generator_factory: Async factory for embedding generator.
             llm_available_check: Async function to check if LLM is available.
             source_registry: Optional source registry for creating sources.
+            loader: Optional loading service for document retrieval.
             container: DEPRECATED. Use explicit dependencies instead.
         """
         self._source_registry = source_registry or get_default_registry()
+        self._loader = loader
 
         # Support backward compatibility with container
         if container is not None:
@@ -199,7 +205,7 @@ class IndexingService:
     async def index_collection(
         self,
         collection_name: str,
-        source: DocumentSource,
+        source: DocumentSource | None = None,
         force: bool = False,
         embed: bool = False,
     ) -> IndexResult:
@@ -210,9 +216,9 @@ class IndexingService:
 
         Args:
             collection_name: Name of the collection to index.
+            source: Optional document source; resolved from collection if None.
             force: If True, reindex all documents even if unchanged.
             embed: If True, trigger embedding generation after indexing.
-            source: Document source to enumerate and fetch documents from.
 
         Returns:
             IndexResult with counts of indexed, skipped, and errored files.
@@ -231,13 +237,120 @@ class IndexingService:
         )
         start_time = time.perf_counter()
 
+        # Use loader if available, otherwise fall back to legacy path
+        if self._loader is not None:
+            result = await self._index_via_loader(
+                collection_name=collection_name,
+                source=source,
+                force=force,
+            )
+        else:
+            # Legacy path: resolve source and iterate directly
+            if source is None:
+                source = self._source_registry.create_source(collection)
+            result = await self._index_via_legacy(
+                collection=collection,
+                source=source,
+                force=force,
+            )
+
+        elapsed = (time.perf_counter() - start_time) * 1000
+        logger.info(
+            f"Indexing complete: name={collection.name!r}, indexed={result.indexed}, "
+            f"skipped={result.skipped}, errors={len(result.errors)}, {elapsed:.1f}ms"
+        )
+
+        if embed:
+            await self.embed_collection(collection.name, force=force)
+
+        return result
+
+    async def _index_via_loader(
+        self,
+        collection_name: str,
+        source: DocumentSource | None,
+        force: bool,
+    ) -> IndexResult:
+        """Index collection using the LoadingService.
+
+        Args:
+            collection_name: Name of the collection to index.
+            source: Optional source override.
+            force: If True, reload all documents.
+
+        Returns:
+            IndexResult with counts.
+        """
+        # Get repositories
+        source_metadata_repo = SourceMetadataRepository(self._db)  # type: ignore
+        document_metadata_repo = DocumentMetadataRepository(self._db)  # type: ignore
+
+        # Load documents via loader (streaming mode)
+        load_result = await self._loader.load_collection_stream(  # type: ignore
+            collection_name,
+            source=source,
+            force=force,
+        )
+
+        indexed_count = 0
+        skipped_count = 0
+        persist_errors: list[tuple[str, str]] = []
+
+        # Process each loaded document
+        async for doc in load_result.documents:
+            try:
+                result = await self._persist_document(
+                    doc,
+                    source_metadata_repo,
+                    document_metadata_repo,
+                )
+                if result == "indexed":
+                    indexed_count += 1
+                else:
+                    skipped_count += 1
+            except Exception as e:
+                persist_errors.append((doc.path, str(e)))
+                logger.warning(f"Failed to persist document: {doc.path}: {e}")
+
+        # Cleanup stale documents using enumerated paths
+        stale_count = await self._cleanup_stale_documents(
+            collection_name,
+            load_result.enumerated_paths,
+        )
+        if stale_count > 0:
+            logger.info(f"Marked {stale_count} stale documents as inactive")
+
+        # Combine errors from loader and persistence
+        all_errors = load_result.errors + persist_errors
+
+        return IndexResult(
+            indexed=indexed_count,
+            skipped=skipped_count,
+            errors=all_errors,
+        )
+
+    async def _index_via_legacy(
+        self,
+        collection: Collection,
+        source: DocumentSource,
+        force: bool,
+    ) -> IndexResult:
+        """Index collection using the legacy direct iteration path.
+
+        Args:
+            collection: Collection to index.
+            source: Document source.
+            force: If True, reindex all.
+
+        Returns:
+            IndexResult with counts.
+        """
         indexed_count = 0
         skipped_count = 0
         errors: list[tuple[str, str]] = []
 
         # Get source metadata repository for tracking fetch info
-        from ..store.source_metadata import SourceMetadataRepository
-        metadata_repo = SourceMetadataRepository(self._db)
+        metadata_repo = SourceMetadataRepository(self._db)  # type: ignore
 
         try:
             for ref in source.list_documents():
@@ -263,15 +376,6 @@ class IndexingService:
         except SourceListError as e:
             logger.error(f"Failed to list documents from source: {e}")
             raise
-
-        elapsed = (time.perf_counter() - start_time) * 1000
-        logger.info(
-            f"Indexing complete: name={collection.name!r}, indexed={indexed_count}, "
-            f"skipped={skipped_count}, errors={len(errors)}, {elapsed:.1f}ms"
-        )
-
-        if embed:
-            await self.embed_collection(collection.name, force=force)
 
         return IndexResult(
             indexed=indexed_count,
@@ -305,7 +409,7 @@ class IndexingService:
         existing_doc = self._document_repo.get(collection.id, ref.path)
         doc_id = self._get_document_id(collection.id, ref.path) if existing_doc else None
         stored_metadata = {}
-        document_metadata_repo = DocumentMetadataRepository(self._db)
+        document_metadata_repo = DocumentMetadataRepository(self._db) # type: ignore
 
         if doc_id and not force:
             meta = source_metadata_repo.get_by_document(doc_id)
@@ -410,6 +514,92 @@ class IndexingService:
             extra=fetch_result.metadata,
         )
         metadata_repo.upsert(metadata)
+
+    async def _persist_document(
+        self,
+        doc: "LoadedDocument",
+        source_metadata_repo: "SourceMetadataRepository",
+        document_metadata_repo: DocumentMetadataRepository,
+    ) -> str:
+        """Persist a loaded document to storage.
+
+        Args:
+            doc: Document that has been loaded and prepared.
+            source_metadata_repo: Repository for source metadata.
+            document_metadata_repo: Repository for document metadata.
+
+        Returns:
+            "indexed" if persisted, "skipped" if content unchanged.
+        """
+        # Store document
+        doc_result, is_new = self._document_repo.add_or_update(
+            doc.collection_id,
+            doc.path,
+            doc.title,
+            doc.content,
+        )
+
+        doc_id = self._get_document_id(doc.collection_id, doc.path)
+
+        # Index in FTS5 if document has sufficient quality
+        if doc_id is not None:
+            if is_indexable(doc.content):
+                self._fts_repo.index_document(doc_id, doc.path, doc.content)
+            else:
+                self._fts_repo.remove_from_index(doc_id)
+
+            # Store source metadata
+            self._update_source_metadata(
+                source_metadata_repo,
+                doc_id,
+                doc.ref,
+                doc.fetch_result,
+                doc.fetch_duration_ms,
+            )
+
+            # Store document metadata
+            if doc.extracted_metadata:
+                self._persist_document_metadata(
+                    doc_id,
+                    doc.extracted_metadata,
+                    document_metadata_repo,
+                )
+
+        logger.debug(f"Indexed: {doc.path} ({len(doc.content)} chars)")
+        return "indexed"
+
+    async def _cleanup_stale_documents(
+        self,
+        collection_name: str,
+        seen_paths: set[str],
+    ) -> int:
+        """Mark documents not in seen_paths as inactive.
+
+        Args:
+            collection_name: Collection being indexed.
+            seen_paths: Paths that were enumerated by the loader.
+
+        Returns:
+            Number of documents marked inactive.
+        """
+        collection = self._collection_repo.get_by_name(collection_name)
+        if not collection:
+            return 0
+
+        all_docs = self._document_repo.list_by_collection(collection.id, active_only=True)
+
+        stale_count = 0
+        for doc in all_docs:
+            if doc.filepath not in seen_paths:
+                # Mark document as inactive (soft delete)
+                self._document_repo.delete(collection.id, doc.filepath)
+                # Remove from FTS
+                doc_id = self._get_document_id(collection.id, doc.filepath)
+                if doc_id is not None:
+                    self._fts_repo.remove_from_index(doc_id)
+                stale_count += 1
+
+        return stale_count
 
     async def embed_collection(
         self,
@@ -725,7 +915,7 @@ class IndexingService:
         }
 
         # Ensure document_metadata table exists
-        metadata_repo = DocumentMetadataRepository(self._db)
+        metadata_repo = DocumentMetadataRepository(self._db) # type: ignore
 
         # Build query for documents needing metadata extraction
         # Note: Content is stored separately in the content table, joined via hash

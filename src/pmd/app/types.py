@@ -35,6 +35,8 @@ if TYPE_CHECKING:
         RerankResult,
         SearchResult,
     )
+    from ..sources.content.base import DocumentSource
+    from ..services.loading import EagerLoadResult, LoadResult
 
 
 # =============================================================================
@@ -418,6 +420,67 @@ class ConfigProtocol(Protocol):
 
 
 # =============================================================================
+# Loading Service Protocol
+# =============================================================================
+
+
+@runtime_checkable
+class LoadingServiceProtocol(Protocol):
+    """Protocol for document loading service.
+
+    The loading service abstracts retrieval and preparation of source data
+    for persistence, keeping IndexingService focused on persistence and
+    indexing responsibilities.
+    """
+
+    async def load_collection_eager(
+        self,
+        collection_name: str,
+        source: "DocumentSource | None" = None,
+        force: bool = False,
+    ) -> "EagerLoadResult":
+        """Load all documents from a collection (materialized).
+
+        Args:
+            collection_name: Name of the collection to load.
+            source: Optional source override; resolved from collection if None.
+            force: If True, reload all documents regardless of change detection.
+
+        Returns:
+            EagerLoadResult with all documents, enumerated paths, and errors.
+
+        Raises:
+            CollectionNotFoundError: If collection does not exist.
+            SourceListError: If the source cannot enumerate documents.
+        """
+        ...
+
+    async def load_collection_stream(
+        self,
+        collection_name: str,
+        source: "DocumentSource | None" = None,
+        force: bool = False,
+    ) -> "LoadResult":
+        """Load documents from a collection as a stream.
+
+        Args:
+            collection_name: Name of the collection to load.
+            source: Optional source override; resolved from collection if None.
+            force: If True, reload all documents regardless of change detection.
+
+        Returns:
+            LoadResult with async iterator, enumerated paths, and errors.
+            Note: enumerated_paths is populated during enumeration, before
+            documents are yielded. Errors accumulate as iteration proceeds.
+
+        Raises:
+            CollectionNotFoundError: If collection does not exist.
+            SourceListError: If the source cannot enumerate documents.
+        """
+        ...
+
+
+# =============================================================================
 # Type Aliases for Convenience
 # =============================================================================
 
@@ -427,3 +490,4 @@ CollectionRepo = CollectionRepositoryProtocol
 DocumentRepo = DocumentRepositoryProtocol
 FTSRepo = FTSRepositoryProtocol
 EmbeddingRepo = EmbeddingRepositoryProtocol
+LoadingService = LoadingServiceProtocol

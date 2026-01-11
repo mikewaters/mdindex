@@ -225,6 +225,82 @@ Tests for SourceRegistry class that maps source_type strings to factory function
 | test_get_default_registry_singleton | get_default_registry returns same instance | Pass |
 | test_null_source_type_defaults_to_filesystem | collection.source_type=None uses filesystem | Pass |
 
+## Loading Service (tests/unit/services/test_loading.py)
+
+### LoadingService
+
+Tests for LoadingService that handles document retrieval and preparation.
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_load_eager_returns_all_documents | Eager mode returns complete list | Pass |
+| test_load_stream_yields_documents | Stream mode yields as iterator | Pass |
+| test_skip_unmodified_document | Respects check_modified returning False | Pass |
+| test_skip_unchanged_content_hash | Skips when content hash matches | Pass |
+| test_force_reloads_all | force=True ignores change detection | Pass |
+| test_extracts_title_from_content | Title extraction fallback works | Pass |
+| test_enumerated_paths_complete | All paths in enumerated_paths even if skipped | Pass |
+| test_errors_captured_not_raised | Fetch errors added to errors list | Pass |
+| test_resolves_source_from_collection | Source created from registry when None | Pass |
+| test_collection_not_found_raises | Raises CollectionNotFoundError for unknown | Pass |
+
+## LlamaIndex Loader Adapter (tests/unit/services/test_loading_llamaindex.py)
+
+### URI Construction
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_uri_from_metadata_path | Uses metadata[uri_key] when present | Pass |
+| test_uri_from_id | Falls back to id_ when no path | Pass |
+| test_uri_from_hash | Falls back to content hash when no id | Pass |
+| test_hash_includes_namespace | Hash fallback includes namespace for uniqueness | Pass |
+| test_custom_uri_key | Uses custom uri_key when specified | Pass |
+
+### Metadata Augmentation
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_metadata_augmentation | Extracted metadata preserved, LlamaIndex in _llamaindex | Pass |
+| test_empty_llamaindex_metadata | Handles empty LlamaIndex metadata gracefully | Pass |
+
+### Multi-Document Handling
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_single_doc_default | Raises ValueError if multiple docs and allow_multiple=False | Pass |
+| test_allow_multiple_true | Accepts multiple docs when allow_multiple=True | Pass |
+| test_duplicate_uri_rejected | Raises ValueError on duplicate URIs | Pass |
+
+### Content and Title
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_content_type_propagated | content_type appears in LoadedDocument | Pass |
+| test_title_from_metadata | Uses title from metadata when present | Pass |
+| test_title_from_heading | Extracts title from markdown heading | Pass |
+| test_title_fallback_to_path | Falls back to path when no title or heading | Pass |
+
+### Content Extraction
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_content_from_text_attribute | Extracts content from .text attribute | Pass |
+| test_content_from_get_content_method | Falls back to get_content() method | Pass |
+
+### LoadingService Integration
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_collection_id_injected | LoadingService injects collection_id correctly | Pass |
+| test_collection_not_found | Raises CollectionNotFoundError for unknown collection | Pass |
+| test_enumerated_paths_populated | EagerLoadResult has enumerated_paths populated | Pass |
+
+### Load Kwargs
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_load_kwargs_passed | load_kwargs are passed to loader.load_data() | Pass |
+
 ## Indexing Service (tests/unit/services/test_indexing.py)
 
 ### Backfill Metadata
@@ -319,3 +395,47 @@ Tests simulating database upgrades.
 | test_upgrade_from_version_zero | DB at v0 upgrades to latest | Pass |
 | test_already_migrated_database_no_op | Already current = no migration runs | Pass |
 | test_migration_repr | Migration has useful repr | Pass |
+
+
+## Application Module (tests/unit/app/)
+
+### Application Class (tests/unit/app/test_application.py)
+
+Tests for the Application composition root and lifecycle management.
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_application_init | Application initializes with provided dependencies | Pass |
+| test_application_db_property | db property returns database instance | Pass |
+| test_application_config_property | config property returns configuration | Pass |
+| test_application_vec_available | vec_available reflects db.vec_available | Pass |
+| test_application_close_with_llm | close() closes LLM provider and database | Pass |
+| test_application_close_without_llm | close() works when LLM provider is None | Pass |
+| test_application_context_manager | Application works as async context manager | Pass |
+
+### create_application Factory
+
+Tests for the create_application factory function.
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_create_application_returns_application | Returns configured Application | Pass |
+| test_create_application_connects_database | Connects to database on creation | Pass |
+| test_create_application_creates_services | Creates indexing, search, status services | Pass |
+| test_create_application_handles_llm_provider_error | Handles LLM provider creation errors | Pass |
+| test_create_application_cleans_up_on_context_exit | Context manager cleans up resources | Pass |
+| test_create_application_services_have_dependencies | Services have proper dependencies | Pass |
+| test_create_application_wires_loading_service | Application includes loading service | Pass |
+
+## Loader + Indexer Integration (tests/integration/test_loader_indexer_flow.py)
+
+### Full Flow Tests
+
+Integration tests for LoadingService + IndexingService working together.
+
+| Test Case | Description | Status |
+|-----------|-------------|--------|
+| test_full_index_flow_via_loader | Index collection through Application uses loader | Pass |
+| test_stale_document_cleanup | Removed files are marked inactive after reindex | Pass |
+| test_incremental_indexing | Only changed documents are reloaded | Pass |
+| test_loader_accessible_on_application | Application exposes loading service | Pass |

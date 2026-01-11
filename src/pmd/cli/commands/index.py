@@ -5,7 +5,6 @@ import asyncio
 from pmd.core.config import Config
 from pmd.core.exceptions import CollectionNotFoundError
 from pmd.services import ServiceContainer
-from pmd.sources import get_default_registry
 
 
 def add_index_arguments(parser) -> None:
@@ -50,21 +49,13 @@ async def _handle_index_async(args, config: Config) -> None:
     """
     async with ServiceContainer(config) as services:
         try:
-            collection = services.collection_repo.get_by_name(args.collection)
-            if not collection:
-                raise CollectionNotFoundError(f"Collection '{args.collection}' not found")
-
-            registry = get_default_registry()
-            source = registry.create_source(collection)
-
             result = await services.indexing.index_collection(
                 args.collection,
                 force=args.force,
                 embed=args.embed,
-                source=source,
             )
 
-            print(f"✓ Indexed {result.indexed} documents in '{args.collection}'")
+            print(f"Indexed {result.indexed} documents in '{args.collection}'")
             if result.skipped > 0:
                 print(f"  Skipped {result.skipped} unchanged documents")
             if result.errors:

@@ -29,6 +29,8 @@ Example usage:
 
 from .container import ServiceContainer
 from .indexing import CleanupResult, EmbedResult, IndexingService, IndexResult
+from .loading import EagerLoadResult, LoadedDocument, LoadingService, LoadResult
+from .loading_llamaindex import LlamaIndexLoaderAdapter
 from .search import SearchService
 from .status import StatusService
 
@@ -40,4 +42,10 @@ __all__ = [
     "IndexResult",
     "EmbedResult",
     "CleanupResult",
+    # Loading service types
+    "LoadingService",
+    "LoadedDocument",
+    "LoadResult",
+    "EagerLoadResult",
+    "LlamaIndexLoaderAdapter",
 ]

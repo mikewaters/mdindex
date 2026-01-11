@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..core.config import Config
     from ..services.indexing import IndexingService
+    from ..services.loading import LoadingService
     from ..services.search import SearchService
     from ..services.status import StatusService
     from ..store.database import Database
@@ -43,6 +44,8 @@ from .types import (
     OntologyProtocol,
     TagRetrieverProtocol,
     DocumentMetadataRepositoryProtocol,
+    # Service protocols
+    LoadingServiceProtocol,
     # Config protocols
     ConfigProtocol,
     SearchConfigProtocol,
@@ -74,6 +77,8 @@ __all__ = [
     "OntologyProtocol",
     "TagRetrieverProtocol",
     "DocumentMetadataRepositoryProtocol",
+    # Services
+    "LoadingServiceProtocol",
     # Config
     "ConfigProtocol",
     "SearchConfigProtocol",
@@ -92,13 +97,14 @@ class Application:
     Use create_application() to create a properly configured instance.
 
     Attributes:
+        loading: LoadingService for document loading operations.
         indexing: IndexingService for document indexing operations.
         search: SearchService for search operations.
         status: StatusService for status reporting.
 
     Example:
         async with create_application(config) as app:
-            result = await app.indexing.index_collection("docs", source)
+            result = await app.indexing.index_collection("docs")
             results = await app.search.hybrid_search("query")
     """
 
@@ -106,6 +112,7 @@ class Application:
         self,
         db: "Database",
         llm_provider: "LLMProvider | None",
+        loading: "LoadingService",
         indexing: "IndexingService",
         search: "SearchService",
         status: "StatusService",
@@ -118,6 +125,7 @@ class Application:
         Args:
             db: Database instance.
             llm_provider: LLM provider instance (may be None).
+            loading: LoadingService instance.
             indexing: IndexingService instance.
             search: SearchService instance.
             status: StatusService instance.
@@ -128,6 +136,7 @@ class Application:
         self._config = config
 
         # Public service accessors
+        self.loading = loading
         self.indexing = indexing
         self.search = search
         self.status = status
@@ -182,18 +191,19 @@ async def create_application(config: "Config") -> Application:
             results = await app.search.hybrid_search("query")
     """
     # Lazy imports to avoid circular dependencies
-    from ..core.config import Config as ConfigClass
-    from ..store.database import Database
-    from ..store.collections import CollectionRepository
-    from ..store.documents import DocumentRepository
-    from ..store.search import FTS5SearchRepository
-    from ..store.embeddings import EmbeddingRepository
-    from ..services.indexing import IndexingService
-    from ..services.search import SearchService
-    from ..services.status import StatusService
-    from ..llm import get_llm_provider
-    from ..llm.components import EmbeddingGenerator, QueryExpander, DocumentReranker
-    from ..metadata import (
+    from pmd.store.database import Database
+    from pmd.store.collections import CollectionRepository
+    from pmd.store.documents import DocumentRepository
+    from pmd.store.search import FTS5SearchRepository
+    from pmd.store.embeddings import EmbeddingRepository
+    from pmd.store.source_metadata import SourceMetadataRepository
+    from pmd.services.indexing import IndexingService
+    from pmd.services.loading import LoadingService
+    from pmd.services.search import SearchService
+    from pmd.services.status import StatusService
+    from pmd.sources import get_default_registry
+    from pmd.llm import create_llm_provider, EmbeddingGenerator, QueryExpander, DocumentReranker
+    from pmd.metadata import (
         LexicalTagMatcher,
         Ontology,
         TagRetriever,
@@ -211,7 +221,10 @@ async def create_application(config: "Config") -> Application:
     embedding_repo = EmbeddingRepository(db)
 
     # Create LLM provider (may be None if provider unavailable)
-    llm_provider = await get_llm_provider(config)
+    try:
+        llm_provider = create_llm_provider(config)
+    except (ValueError, RuntimeError):
+        llm_provider = None
 
     # Create async factories for LLM components
     async def get_embedding_generator():
@@ -234,10 +247,10 @@ async def create_application(config: "Config") -> Application:
         return LexicalTagMatcher()
 
     def get_ontology():
-        return Ontology()
+        return Ontology()  #type: ignore
 
     def get_tag_retriever():
-        return TagRetriever(db)
+        return TagRetriever(db) # type: ignore
 
     def get_metadata_repo():
         return DocumentMetadataRepository(db)
@@ -248,6 +261,21 @@ async def create_application(config: "Config") -> Application:
             return await llm_provider.is_available()
         return False
 
+    # Create source metadata repository
+    source_metadata_repo = SourceMetadataRepository(db)
+
+    # Create source registry
+    source_registry = get_default_registry()
+
+    # Create loading service
+    loading = LoadingService(
+        db=db,
+        collection_repo=collection_repo,
+        document_repo=document_repo,
+        source_metadata_repo=source_metadata_repo,
+        source_registry=source_registry,
+    )
+
     # Create services with explicit dependencies
     indexing = IndexingService(
         db=db,
@@ -255,8 +283,10 @@ async def create_application(config: "Config") -> Application:
         document_repo=document_repo,
         fts_repo=fts_repo,
         embedding_repo=embedding_repo,
-        embedding_generator_factory=get_embedding_generator,
+        embedding_generator_factory=get_embedding_generator, # type: ignore
         llm_available_check=is_llm_available,
+        source_registry=source_registry,
+        loader=loading,
     )
 
     search = SearchService(
@@ -264,13 +294,13 @@ async def create_application(config: "Config") -> Application:
         fts_repo=fts_repo,
         collection_repo=collection_repo,
         embedding_repo=embedding_repo,
-        embedding_generator_factory=get_embedding_generator,
-        query_expander_factory=get_query_expander,
-        reranker_factory=get_reranker,
-        tag_matcher_factory=get_tag_matcher,
-        ontology_factory=get_ontology,
-        tag_retriever_factory=get_tag_retriever,
-        metadata_repo_factory=get_metadata_repo,
+        embedding_generator_factory=get_embedding_generator,  # type: ignore
+        query_expander_factory=get_query_expander,  # type: ignore
+        reranker_factory=get_reranker,  # type: ignore
+        tag_matcher_factory=get_tag_matcher, # type: ignore 
+        ontology_factory=get_ontology, # type: ignore
+        tag_retriever_factory=get_tag_retriever, # type: ignore
+        metadata_repo_factory=get_metadata_repo, # type: ignore
         fts_weight=config.search.fts_weight,
         vec_weight=config.search.vec_weight,
         rrf_k=config.search.rrf_k,
@@ -288,6 +318,7 @@ async def create_application(config: "Config") -> Application:
     return Application(
         db=db,
         llm_provider=llm_provider,
+        loading=loading,
         indexing=indexing,
         search=search,
         status=status,

@@ -166,12 +166,12 @@ class SearchService:
             collection_repo=container.collection_repo,
             embedding_repo=container.embedding_repo,
             embedding_generator_factory=container.get_embedding_generator,
-            query_expander_factory=container.get_query_expander,
-            reranker_factory=container.get_reranker,
-            tag_matcher_factory=container.get_tag_matcher,
-            ontology_factory=container.get_ontology,
-            tag_retriever_factory=container.get_tag_retriever,
-            metadata_repo_factory=container.get_metadata_repo,
+            query_expander_factory=container.get_query_expander,  # type: ignore
+            reranker_factory=container.get_reranker, # type: ignore
+            tag_matcher_factory=container.get_tag_matcher, # type: ignore
+            ontology_factory=container.get_ontology, # type: ignore
+            tag_retriever_factory=container.get_tag_retriever, # type: ignore
+            metadata_repo_factory=container.get_metadata_repo, # type: ignore
             fts_weight=container.config.search.fts_weight,
             vec_weight=container.config.search.vec_weight,
             rrf_k=container.config.search.rrf_k,
@@ -321,25 +321,25 @@ class SearchService:
         )
 
         # Create port adapters from explicit dependencies
-        text_searcher = FTS5TextSearcher(self._fts_repo)
+        text_searcher = FTS5TextSearcher(self._fts_repo) # type: ignore
 
         # Vector searcher (requires embedding generator)
         vector_searcher = None
         if self.vec_available and self._embedding_generator_factory:
             embedding_generator = await self._embedding_generator_factory()
-            vector_searcher = EmbeddingVectorSearcher(embedding_generator)
+            vector_searcher = EmbeddingVectorSearcher(embedding_generator) # type: ignore
 
         # Query expander adapter
         query_expander = None
         if enable_query_expansion and self._query_expander_factory:
             llm_expander = await self._query_expander_factory()
-            query_expander = LLMQueryExpanderAdapter(llm_expander)
+            query_expander = LLMQueryExpanderAdapter(llm_expander) # type: ignore
 
         # Reranker adapter
         reranker = None
         if enable_reranking and self._reranker_factory:
             llm_reranker = await self._reranker_factory()
-            reranker = LLMRerankerAdapter(llm_reranker)
+            reranker = LLMRerankerAdapter(llm_reranker) # type: ignore
 
         # Tag inferencer (used by both tag retrieval and metadata boost)
         tag_inferencer = None
@@ -352,22 +352,22 @@ class SearchService:
             ontology = self._ontology_factory() if self._ontology_factory else None
 
             if tag_matcher:
-                tag_inferencer = LexicalTagInferencer(tag_matcher, ontology)
+                tag_inferencer = LexicalTagInferencer(tag_matcher, ontology) # type: ignore
 
                 # Tag searcher for tag-based retrieval
                 if enable_tag_retrieval and self._tag_retriever_factory:
                     tag_retriever = self._tag_retriever_factory()
                     if tag_retriever:
-                        tag_searcher = TagRetrieverAdapter(tag_retriever)
+                        tag_searcher = TagRetrieverAdapter(tag_retriever) # type: ignore
 
                 # Metadata booster for score boosting
                 if enable_metadata_boost and self._metadata_repo_factory:
                     metadata_repo = self._metadata_repo_factory()
                     if metadata_repo:
                         metadata_booster = OntologyMetadataBooster(
-                            self._db,
-                            metadata_repo,
-                            ontology,
+                            self._db, # type: ignore
+                            metadata_repo, # type: ignore
+                            ontology, # type: ignore
                         )
 
         # Configure pipeline

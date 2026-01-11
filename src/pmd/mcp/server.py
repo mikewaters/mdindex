@@ -168,25 +168,16 @@ class PMDMCPServer:
         Args:
             collection: Collection name.
             force: Force reindex all documents.
+            embed: Generate embeddings after indexing.
 
         Returns:
             Indexing result.
         """
         try:
-            c = self.services.collection_repo.get_by_name(collection)
-            if not c:
-                raise CollectionNotFoundError(f"Collection '{collection}' not found")
-
-            from ..sources import get_default_registry
-
-            registry = get_default_registry()
-            source = registry.create_source(c)
-
             result = await self.services.indexing.index_collection(
                 collection,
                 force=force,
                 embed=embed,
-                source=source,
             )
             return {
                 "success": True,
@@ -194,6 +185,11 @@ class PMDMCPServer:
                 "indexed": result.indexed,
                 "skipped": result.skipped,
                 "errors": len(result.errors),
+            }
+        except CollectionNotFoundError as e:
+            return {
+                "success": False,
+                "error": str(e),
             }
         except Exception as e:
             return {
