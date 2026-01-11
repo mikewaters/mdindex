@@ -416,12 +416,7 @@ class LoadingService:
         Returns:
             Document ID or None if not found.
         """
-        cursor = self._db.execute(
-            "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
-            (source_collection_id, path),
-        )
-        row = cursor.fetchone()
-        return row["id"] if row else None
+        return self._document_repo.get_id(source_collection_id, path)
 
     def _extract_metadata_via_profiles(
         self,

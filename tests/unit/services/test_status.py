@@ -15,17 +15,43 @@ from pmd.store.search import FTS5SearchRepository
 from pmd.store.schema import EMBEDDING_DIMENSION
 
 
+def make_status_service(
+    db: Database,
+    config: Config,
+    source_collection_repo: SourceCollectionRepository | None = None,
+    document_repo: DocumentRepository | None = None,
+    embedding_repo: EmbeddingRepository | None = None,
+    fts_repo: FTS5SearchRepository | None = None,
+) -> StatusService:
+    """Create a StatusService with default repositories.
+
+    Args:
+        db: Database instance.
+        config: Application config.
+        source_collection_repo: Optional custom source collection repo.
+        document_repo: Optional custom document repo.
+        embedding_repo: Optional custom embedding repo.
+        fts_repo: Optional custom FTS repo.
+
+    Returns:
+        Configured StatusService.
+    """
+    return StatusService(
+        document_repo=document_repo or DocumentRepository(db),
+        embedding_repo=embedding_repo or EmbeddingRepository(db),
+        fts_repo=fts_repo or FTS5SearchRepository(db),
+        source_collection_repo=source_collection_repo or SourceCollectionRepository(db),
+        db_path=config.db_path,
+        vec_available=db.vec_available,
+    )
+
+
 class TestStatusServiceGetIndexStatus:
     """Tests for StatusService.get_index_status method."""
 
     def test_get_index_status_returns_index_status(self, db: Database, config: Config):
         """get_index_status should return IndexStatus object."""
-        source_collection_repo = SourceCollectionRepository(db)
-        service = StatusService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            db_path=config.db_path,
-        )
+        service = make_status_service(db, config)
 
         status = service.get_index_status()
 
@@ -33,12 +59,7 @@ class TestStatusServiceGetIndexStatus:
 
     def test_get_index_status_empty_database(self, db: Database, config: Config):
         """get_index_status should return zeros for empty database."""
-        source_collection_repo = SourceCollectionRepository(db)
-        service = StatusService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            db_path=config.db_path,
-        )
+        service = make_status_service(db, config)
 
         status = service.get_index_status()
 
@@ -52,10 +73,8 @@ class TestStatusServiceGetIndexStatus:
     ):
         """get_index_status should include collections."""
         source_collection_repo = SourceCollectionRepository(db)
-        service = StatusService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            db_path=config.db_path,
+        service = make_status_service(
+            db, config, source_collection_repo=source_collection_repo
         )
 
         source_collection_repo.create("test", str(tmp_path), "**/*.md")
@@ -71,10 +90,11 @@ class TestStatusServiceGetIndexStatus:
         """get_index_status should count documents."""
         source_collection_repo = SourceCollectionRepository(db)
         document_repo = DocumentRepository(db)
-        service = StatusService(
-            db=db,
+        service = make_status_service(
+            db,
+            config,
             source_collection_repo=source_collection_repo,
-            db_path=config.db_path,
+            document_repo=document_repo,
         )
 
         collection = source_collection_repo.create(
@@ -141,12 +161,7 @@ class TestStatusServiceGetCollectionStats:
 
     def test_get_collection_stats_not_found(self, db: Database, config: Config):
         """get_collection_stats should return None for unknown collection."""
-        source_collection_repo = SourceCollectionRepository(db)
-        service = StatusService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            db_path=config.db_path,
-        )
+        service = make_status_service(db, config)
 
         stats = service.get_collection_stats("nonexistent")
 
@@ -157,10 +172,8 @@ class TestStatusServiceGetCollectionStats:
     ):
         """get_collection_stats should return stats for existing collection."""
         source_collection_repo = SourceCollectionRepository(db)
-        service = StatusService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            db_path=config.db_path,
+        service = make_status_service(
+            db, config, source_collection_repo=source_collection_repo
         )
 
         source_collection_repo.create("test", str(tmp_path), "**/*.md")
@@ -180,10 +193,11 @@ class TestStatusServiceGetCollectionStats:
         """get_collection_stats should count documents."""
         source_collection_repo = SourceCollectionRepository(db)
         document_repo = DocumentRepository(db)
-        service = StatusService(
-            db=db,
+        service = make_status_service(
+            db,
+            config,
             source_collection_repo=source_collection_repo,
-            db_path=config.db_path,
+            document_repo=document_repo,
         )
 
         collection = source_collection_repo.create(
@@ -207,10 +221,11 @@ class TestStatusServiceGetIndexSyncReport:
         """Report should flag documents missing FTS and vectors."""
         source_collection_repo = SourceCollectionRepository(db)
         document_repo = DocumentRepository(db)
-        service = StatusService(
-            db=db,
+        service = make_status_service(
+            db,
+            config,
             source_collection_repo=source_collection_repo,
-            db_path=config.db_path,
+            document_repo=document_repo,
         )
 
         collection = source_collection_repo.create(
@@ -233,10 +248,13 @@ class TestStatusServiceGetIndexSyncReport:
         document_repo = DocumentRepository(db)
         fts_repo = FTS5SearchRepository(db)
         embedding_repo = EmbeddingRepository(db)
-        service = StatusService(
-            db=db,
+        service = make_status_service(
+            db,
+            config,
             source_collection_repo=source_collection_repo,
-            db_path=config.db_path,
+            document_repo=document_repo,
+            fts_repo=fts_repo,
+            embedding_repo=embedding_repo,
         )
 
         collection = source_collection_repo.create(

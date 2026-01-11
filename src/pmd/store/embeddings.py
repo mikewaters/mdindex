@@ -335,3 +335,129 @@ class EmbeddingRepository:
             logger.debug(f"Vector search complete: no results, {elapsed:.1f}ms")
 
         return results
+
+    def count_distinct_hashes(self) -> int:
+        """Count distinct content hashes with embeddings.
+
+        Returns:
+            Number of unique content hashes that have embeddings.
+        """
+        cursor = self.db.execute(
+            "SELECT COUNT(DISTINCT hash) as count FROM content_vectors"
+        )
+        return cursor.fetchone()["count"]
+
+    def count_documents_missing_embeddings(
+        self, source_collection_id: int | None = None
+    ) -> int:
+        """Count active documents missing embeddings.
+
+        Args:
+            source_collection_id: Optional collection ID to scope count.
+
+        Returns:
+            Number of documents without embeddings.
+        """
+        if source_collection_id is not None:
+            cursor = self.db.execute(
+                """
+                SELECT COUNT(DISTINCT d.id) as count
+                FROM documents d
+                LEFT JOIN content_vectors cv ON cv.hash = d.hash
+                WHERE d.active = 1 AND d.source_collection_id = ?
+                AND cv.hash IS NULL
+                """,
+                (source_collection_id,),
+            )
+        else:
+            cursor = self.db.execute(
+                """
+                SELECT COUNT(DISTINCT d.id) as count
+                FROM documents d
+                LEFT JOIN content_vectors cv ON cv.hash = d.hash
+                WHERE d.active = 1 AND cv.hash IS NULL
+                """
+            )
+        return cursor.fetchone()["count"]
+
+    def list_paths_missing_embeddings(
+        self, source_collection_id: int | None = None, limit: int = 20
+    ) -> list[str]:
+        """List paths of documents missing embeddings.
+
+        Args:
+            source_collection_id: Optional collection ID to scope query.
+            limit: Maximum number of paths to return.
+
+        Returns:
+            List of document paths without embeddings.
+        """
+        if source_collection_id is not None:
+            cursor = self.db.execute(
+                """
+                SELECT d.path
+                FROM documents d
+                LEFT JOIN content_vectors cv ON cv.hash = d.hash
+                WHERE d.active = 1 AND d.source_collection_id = ?
+                AND cv.hash IS NULL
+                ORDER BY d.path
+                LIMIT ?
+                """,
+                (source_collection_id, limit),
+            )
+        else:
+            cursor = self.db.execute(
+                """
+                SELECT d.path
+                FROM documents d
+                LEFT JOIN content_vectors cv ON cv.hash = d.hash
+                WHERE d.active = 1 AND cv.hash IS NULL
+                ORDER BY d.path
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        return [row["path"] for row in cursor.fetchall()]
+
+    def count_orphaned(self) -> int:
+        """Count embedding records not referenced by any active document.
+
+        Returns:
+            Number of distinct orphaned content hashes with embeddings.
+        """
+        cursor = self.db.execute(
+            """
+            SELECT COUNT(DISTINCT cv.hash) as count
+            FROM content_vectors cv
+            LEFT JOIN documents d ON d.hash = cv.hash AND d.active = 1
+            WHERE d.hash IS NULL
+            """
+        )
+        return cursor.fetchone()["count"]
+
+    def delete_orphaned(self) -> int:
+        """Delete embedding records not referenced by any active document.
+
+        Returns:
+            Number of embedding records deleted.
+        """
+        # Count first for logging
+        cursor = self.db.execute(
+            """
+            SELECT COUNT(*) as count FROM content_vectors
+            WHERE hash NOT IN (SELECT DISTINCT hash FROM documents WHERE active = 1)
+            """
+        )
+        count = cursor.fetchone()["count"]
+
+        if count > 0:
+            logger.debug(f"Deleting {count} orphaned embedding records")
+            self.db.execute(
+                """
+                DELETE FROM content_vectors
+                WHERE hash NOT IN (SELECT DISTINCT hash FROM documents WHERE active = 1)
+                """
+            )
+            logger.info(f"Deleted {count} orphaned embedding records")
+
+        return count

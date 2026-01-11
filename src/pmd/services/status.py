@@ -3,15 +3,39 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, Awaitable
+from typing import Callable, Awaitable, Protocol
 
 from loguru import logger
 
 from ..core.types import IndexStatus
 from ..app.types import (
     SourceCollectionRepositoryProtocol,
-    DatabaseProtocol,
 )
+
+
+class DocumentRepositoryProtocol(Protocol):
+    """Protocol for document repository operations needed by StatusService."""
+
+    def count_active(self, source_collection_id: int | None = None) -> int: ...
+    def count_with_embeddings(self, source_collection_id: int | None = None) -> int: ...
+
+
+class EmbeddingRepositoryProtocol(Protocol):
+    """Protocol for embedding repository operations needed by StatusService."""
+
+    def count_embeddings(self, model: str | None = None) -> int: ...
+    def count_distinct_hashes(self) -> int: ...
+    def count_documents_missing_embeddings(self, source_collection_id: int | None = None) -> int: ...
+    def list_paths_missing_embeddings(self, source_collection_id: int | None = None, limit: int = 20) -> list[str]: ...
+    def count_orphaned(self) -> int: ...
+
+
+class FTSRepositoryProtocol(Protocol):
+    """Protocol for FTS repository operations needed by StatusService."""
+
+    def count_documents_missing_fts(self, source_collection_id: int | None = None) -> int: ...
+    def list_paths_missing_fts(self, source_collection_id: int | None = None, limit: int = 20) -> list[str]: ...
+    def count_orphaned(self) -> int: ...
 
 
 class StatusService:
@@ -25,7 +49,9 @@ class StatusService:
     Example:
 
         status_service = StatusService(
-            db=db,
+            document_repo=document_repo,
+            embedding_repo=embedding_repo,
+            fts_repo=fts_repo,
             source_collection_repo=source_collection_repo,
             db_path=config.db_path,
         )
@@ -34,31 +60,40 @@ class StatusService:
 
     def __init__(
         self,
-        db: DatabaseProtocol,
+        document_repo: DocumentRepositoryProtocol,
+        embedding_repo: EmbeddingRepositoryProtocol,
+        fts_repo: FTSRepositoryProtocol,
         source_collection_repo: SourceCollectionRepositoryProtocol,
         db_path: Path | None = None,
         llm_provider: str = "unknown",
         llm_available_check: Callable[[], Awaitable[bool]] | None = None,
+        vec_available: bool = False,
     ):
         """Initialize StatusService.
 
         Args:
-            db: Database for direct SQL operations.
+            document_repo: Repository for document operations.
+            embedding_repo: Repository for embedding operations.
+            fts_repo: Repository for FTS operations.
             source_collection_repo: Repository for source collection operations.
             db_path: Path to the database file.
             llm_provider: Name of the LLM provider.
             llm_available_check: Async function to check if LLM is available.
+            vec_available: Whether vector storage is available.
         """
-        self._db = db
+        self._document_repo = document_repo
+        self._embedding_repo = embedding_repo
+        self._fts_repo = fts_repo
         self._source_collection_repo = source_collection_repo
         self._db_path = db_path
         self._llm_provider = llm_provider
         self._llm_available_check = llm_available_check
+        self._vec_available = vec_available
 
     @property
     def vec_available(self) -> bool:
         """Check if vector storage is available."""
-        return self._db.vec_available
+        return self._vec_available
 
     def get_index_status(self) -> IndexStatus:
         """Get current index status.
@@ -71,20 +106,12 @@ class StatusService:
         source_collections = self._source_collection_repo.list_all()
 
         # Count total documents
-        cursor = self._db.execute(
-            "SELECT COUNT(*) as count FROM documents WHERE active = 1"
-        )
-        total_documents = cursor.fetchone()["count"]
+        total_documents = self._document_repo.count_active()
 
         # Count embedded documents (documents with at least one embedding)
         embedded_documents = 0
         if self.vec_available:
-            cursor = self._db.execute(
-                """
-                SELECT COUNT(DISTINCT hash) as count FROM content_vectors
-                """
-            )
-            embedded_documents = cursor.fetchone()["count"]
+            embedded_documents = self._embedding_repo.count_distinct_hashes()
 
         # Get database file size
         try:
@@ -95,10 +122,7 @@ class StatusService:
         # Count embeddings (for cache entries metric)
         cache_entries = 0
         if self.vec_available:
-            cursor = self._db.execute(
-                "SELECT COUNT(*) as count FROM content_vectors"
-            )
-            cache_entries = cursor.fetchone()["count"]
+            cache_entries = self._embedding_repo.count_embeddings()
 
         logger.debug(
             f"Index status: source_collections={len(source_collections)}, "
@@ -162,25 +186,12 @@ class StatusService:
             return None
 
         # Count documents in source collection
-        cursor = self._db.execute(
-            "SELECT COUNT(*) as count FROM documents WHERE source_collection_id = ? AND active = 1",
-            (source_collection.id,),
-        )
-        doc_count = cursor.fetchone()["count"]
+        doc_count = self._document_repo.count_active(source_collection.id)
 
         # Count embedded documents in source collection
         embedded_count = 0
         if self.vec_available:
-            cursor = self._db.execute(
-                """
-                SELECT COUNT(DISTINCT d.hash) as count
-                FROM documents d
-                JOIN content_vectors cv ON d.hash = cv.hash
-                WHERE d.source_collection_id = ? AND d.active = 1
-                """,
-                (source_collection.id,),
-            )
-            embedded_count = cursor.fetchone()["count"]
+            embedded_count = self._document_repo.count_with_embeddings(source_collection.id)
 
         return {
             "name": source_collection.name,
@@ -213,88 +224,26 @@ class StatusService:
                 return {"error": f"Source collection '{collection_name}' not found"}
             source_collection_id = source_collection.id
 
-        params: tuple = ()
-        collection_filter = ""
-        if source_collection_id is not None:
-            collection_filter = "AND d.source_collection_id = ?"
-            params = (source_collection_id,)
-
         # Documents missing FTS entries
-        missing_fts_count = self._db.execute(
-            f"""
-            SELECT COUNT(*) as count
-            FROM documents d
-            LEFT JOIN documents_fts fts ON fts.rowid = d.id
-            WHERE d.active = 1 {collection_filter}
-            AND fts.rowid IS NULL
-            """,
-            params,
-        ).fetchone()["count"]
-
-        missing_fts_paths = self._db.execute(
-            f"""
-            SELECT d.path
-            FROM documents d
-            LEFT JOIN documents_fts fts ON fts.rowid = d.id
-            WHERE d.active = 1 {collection_filter}
-            AND fts.rowid IS NULL
-            ORDER BY d.path
-            LIMIT ?
-            """,
-            params + (limit,),
-        ).fetchall()
+        missing_fts_count = self._fts_repo.count_documents_missing_fts(source_collection_id)
+        missing_fts_paths = self._fts_repo.list_paths_missing_fts(source_collection_id, limit)
 
         # Documents missing embeddings
-        missing_vec_count = self._db.execute(
-            f"""
-            SELECT COUNT(DISTINCT d.id) as count
-            FROM documents d
-            LEFT JOIN content_vectors cv ON cv.hash = d.hash
-            WHERE d.active = 1 {collection_filter}
-            AND cv.hash IS NULL
-            """,
-            params,
-        ).fetchone()["count"]
-
-        missing_vec_paths = self._db.execute(
-            f"""
-            SELECT d.path
-            FROM documents d
-            LEFT JOIN content_vectors cv ON cv.hash = d.hash
-            WHERE d.active = 1 {collection_filter}
-            AND cv.hash IS NULL
-            ORDER BY d.path
-            LIMIT ?
-            """,
-            params + (limit,),
-        ).fetchall()
+        missing_vec_count = self._embedding_repo.count_documents_missing_embeddings(source_collection_id)
+        missing_vec_paths = self._embedding_repo.list_paths_missing_embeddings(source_collection_id, limit)
 
         # Orphaned embeddings (no active documents)
-        orphan_vec_count = self._db.execute(
-            """
-            SELECT COUNT(DISTINCT cv.hash) as count
-            FROM content_vectors cv
-            LEFT JOIN documents d ON d.hash = cv.hash AND d.active = 1
-            WHERE d.hash IS NULL
-            """
-        ).fetchone()["count"]
+        orphan_vec_count = self._embedding_repo.count_orphaned()
 
         # Orphaned FTS entries (no active documents)
-        orphan_fts_count = self._db.execute(
-            """
-            SELECT COUNT(*) as count
-            FROM documents_fts fts
-            LEFT JOIN documents d ON d.id = fts.rowid AND d.active = 1
-            WHERE d.id IS NULL
-            """
-        ).fetchone()["count"]
+        orphan_fts_count = self._fts_repo.count_orphaned()
 
         return {
             "collection": collection_name,
             "missing_fts_count": missing_fts_count,
-            "missing_fts_paths": [row["path"] for row in missing_fts_paths],
+            "missing_fts_paths": missing_fts_paths,
             "missing_vectors_count": missing_vec_count,
-            "missing_vectors_paths": [row["path"] for row in missing_vec_paths],
+            "missing_vectors_paths": missing_vec_paths,
             "orphan_vectors_count": orphan_vec_count,
             "orphan_fts_count": orphan_fts_count,
         }

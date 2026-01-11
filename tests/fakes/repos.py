@@ -210,6 +210,21 @@ class InMemoryDocumentRepository:
             return True
         return False
 
+    def count_active(self, source_collection_id: int | None = None) -> int:
+        """Count active documents."""
+        if source_collection_id is None:
+            return len(self._documents)
+        return sum(1 for (cid, _) in self._documents if cid == source_collection_id)
+
+    def count_with_embeddings(self, source_collection_id: int | None = None) -> int:
+        """Count documents with embeddings (stub returns 0)."""
+        return 0
+
+    def get_id(self, source_collection_id: int, path: str) -> int | None:
+        """Get document ID by collection and path."""
+        doc = self._documents.get((source_collection_id, path))
+        return doc.id if doc else None
+
 
 @dataclass
 class InMemoryFTSRepository:
@@ -240,6 +255,22 @@ class InMemoryFTSRepository:
 
     def reindex_collection(self, source_collection_id: int) -> int:
         """Reindex source collection (no-op for fake)."""
+        return 0
+
+    def count_documents_missing_fts(
+        self, source_collection_id: int | None = None
+    ) -> int:
+        """Count documents missing FTS entries (stub returns 0)."""
+        return 0
+
+    def list_paths_missing_fts(
+        self, source_collection_id: int | None = None, limit: int = 20
+    ) -> list[str]:
+        """List paths of documents missing FTS entries (stub returns empty)."""
+        return []
+
+    def count_orphaned(self) -> int:
+        """Count orphaned FTS entries (stub returns 0)."""
         return 0
 
     # Test helpers
@@ -300,6 +331,40 @@ class InMemoryEmbeddingRepository:
         """Search by vector similarity."""
         results = [r for r in self._search_results if r.score >= min_score]
         return results[:limit]
+
+    def count_embeddings(self, model: str | None = None) -> int:
+        """Count stored embeddings."""
+        total = 0
+        for embeddings in self._embeddings.values():
+            if model is None:
+                total += len(embeddings)
+            else:
+                total += sum(1 for _, _, _, m in embeddings if m == model)
+        return total
+
+    def count_distinct_hashes(self) -> int:
+        """Count distinct content hashes with embeddings."""
+        return len(self._embeddings)
+
+    def count_documents_missing_embeddings(
+        self, source_collection_id: int | None = None
+    ) -> int:
+        """Count documents missing embeddings (stub returns 0)."""
+        return 0
+
+    def list_paths_missing_embeddings(
+        self, source_collection_id: int | None = None, limit: int = 20
+    ) -> list[str]:
+        """List paths of documents missing embeddings (stub returns empty)."""
+        return []
+
+    def count_orphaned(self) -> int:
+        """Count orphaned embedding records (stub returns 0)."""
+        return 0
+
+    def delete_orphaned(self) -> int:
+        """Delete orphaned embedding records (stub returns 0)."""
+        return 0
 
     # Test helpers
     def add_search_result(self, result: SearchResult) -> None:

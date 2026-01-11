@@ -228,6 +228,7 @@ async def create_application(config: "Config") -> Application:
     from pmd.store.database import Database
     from pmd.store.collections import SourceCollectionRepository
     from pmd.store.documents import DocumentRepository
+    from pmd.store.content import ContentRepository
     from pmd.store.search import FTS5SearchRepository
     from pmd.store.embeddings import EmbeddingRepository
     from pmd.store.source_metadata import SourceMetadataRepository
@@ -251,6 +252,7 @@ async def create_application(config: "Config") -> Application:
     # Create repositories
     source_collection_repo = SourceCollectionRepository(db)
     document_repo = DocumentRepository(db)
+    content_repo = ContentRepository(db)
     fts_repo = FTS5SearchRepository(db)
     embedding_repo = EmbeddingRepository(db)
 
@@ -316,11 +318,12 @@ async def create_application(config: "Config") -> Application:
         source_collection_repo=source_collection_repo,
         document_repo=document_repo,
         fts_repo=fts_repo,
+        loader=loading,
+        content_repo=content_repo,
         embedding_repo=embedding_repo,
         embedding_generator_factory=get_embedding_generator, # type: ignore
         llm_available_check=is_llm_available,
         source_registry=source_registry,
-        loader=loading,
     )
 
     search = SearchService(
@@ -342,11 +345,14 @@ async def create_application(config: "Config") -> Application:
     )
 
     status = StatusService(
-        db=db,
+        document_repo=document_repo,
+        embedding_repo=embedding_repo,
+        fts_repo=fts_repo,
         source_collection_repo=source_collection_repo,
         db_path=config.db_path,
         llm_provider=config.llm_provider,
         llm_available_check=is_llm_available,
+        vec_available=db.vec_available,
     )
 
     return Application(

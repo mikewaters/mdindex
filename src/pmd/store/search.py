@@ -314,6 +314,94 @@ class FTS5SearchRepository(SearchRepository[str]):
         with self.db.transaction() as cursor:
             cursor.execute("DELETE FROM documents_fts")
 
+    def count_documents_missing_fts(
+        self, source_collection_id: int | None = None
+    ) -> int:
+        """Count active documents missing FTS index entries.
+
+        Args:
+            source_collection_id: Optional collection ID to scope count.
+
+        Returns:
+            Number of documents without FTS entries.
+        """
+        if source_collection_id is not None:
+            cursor = self.db.execute(
+                """
+                SELECT COUNT(*) as count
+                FROM documents d
+                LEFT JOIN documents_fts fts ON fts.rowid = d.id
+                WHERE d.active = 1 AND d.source_collection_id = ?
+                AND fts.rowid IS NULL
+                """,
+                (source_collection_id,),
+            )
+        else:
+            cursor = self.db.execute(
+                """
+                SELECT COUNT(*) as count
+                FROM documents d
+                LEFT JOIN documents_fts fts ON fts.rowid = d.id
+                WHERE d.active = 1 AND fts.rowid IS NULL
+                """
+            )
+        return cursor.fetchone()["count"]
+
+    def list_paths_missing_fts(
+        self, source_collection_id: int | None = None, limit: int = 20
+    ) -> list[str]:
+        """List paths of documents missing FTS index entries.
+
+        Args:
+            source_collection_id: Optional collection ID to scope query.
+            limit: Maximum number of paths to return.
+
+        Returns:
+            List of document paths without FTS entries.
+        """
+        if source_collection_id is not None:
+            cursor = self.db.execute(
+                """
+                SELECT d.path
+                FROM documents d
+                LEFT JOIN documents_fts fts ON fts.rowid = d.id
+                WHERE d.active = 1 AND d.source_collection_id = ?
+                AND fts.rowid IS NULL
+                ORDER BY d.path
+                LIMIT ?
+                """,
+                (source_collection_id, limit),
+            )
+        else:
+            cursor = self.db.execute(
+                """
+                SELECT d.path
+                FROM documents d
+                LEFT JOIN documents_fts fts ON fts.rowid = d.id
+                WHERE d.active = 1 AND fts.rowid IS NULL
+                ORDER BY d.path
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        return [row["path"] for row in cursor.fetchall()]
+
+    def count_orphaned(self) -> int:
+        """Count FTS entries not linked to any active document.
+
+        Returns:
+            Number of orphaned FTS entries.
+        """
+        cursor = self.db.execute(
+            """
+            SELECT COUNT(*) as count
+            FROM documents_fts fts
+            LEFT JOIN documents d ON d.id = fts.rowid AND d.active = 1
+            WHERE d.id IS NULL
+            """
+        )
+        return cursor.fetchone()["count"]
+
     @staticmethod
     def _prepare_fts_query(query: str) -> str:
         """Prepare query string for FTS5.

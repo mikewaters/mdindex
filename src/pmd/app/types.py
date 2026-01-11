@@ -157,6 +157,10 @@ class DocumentRepositoryProtocol(Protocol):
         """Soft-delete a document."""
         ...
 
+    def get_id(self, source_collection_id: int, path: str) -> int | None:
+        """Get document ID by collection and path."""
+        ...
+
 
 @runtime_checkable
 class FTSRepositoryProtocol(Protocol):
@@ -216,6 +220,10 @@ class EmbeddingRepositoryProtocol(Protocol):
         min_score: float = 0.0,
     ) -> list["SearchResult"]:
         """Search for documents by vector similarity."""
+        ...
+
+    def delete_orphaned(self) -> int:
+        """Delete embedding records not referenced by any active document."""
         ...
 
 

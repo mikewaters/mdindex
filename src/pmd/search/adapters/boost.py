@@ -14,6 +14,7 @@ from pmd.search.ports import BoostInfo
 if TYPE_CHECKING:
     from pmd.core.types import RankedResult
     from pmd.store.database import Database
+    from pmd.store.documents import DocumentRepository
     from pmd.metadata.store import DocumentMetadataRepository
     from pmd.metadata.model.ontology import Ontology
 
@@ -43,6 +44,7 @@ class OntologyMetadataBooster:
         ontology: "Ontology | None" = None,
         boost_factor: float = 1.15,
         max_boost: float = 2.0,
+        document_repo: "DocumentRepository | None" = None,
     ):
         """Initialize the metadata booster.
 
@@ -52,12 +54,14 @@ class OntologyMetadataBooster:
             ontology: Optional ontology for hierarchical tag matching.
             boost_factor: Base boost factor for exponential boost (default 1.15).
             max_boost: Maximum allowed boost multiplier (default 2.0).
+            document_repo: Repository for document queries.
         """
         self._db = db
         self._metadata_repo = metadata_repo
         self._ontology = ontology
         self._boost_factor = boost_factor
         self._max_boost = max_boost
+        self._document_repo = document_repo
 
     def boost(
         self,
@@ -160,6 +164,10 @@ class OntologyMetadataBooster:
         if not paths:
             return {}
 
+        if self._document_repo:
+            return self._document_repo.get_ids_by_paths(paths)
+
+        # Fallback to direct SQL if document_repo not available
         placeholders = ", ".join("?" for _ in paths)
         cursor = self._db.execute(
             f"SELECT id, path FROM documents WHERE path IN ({placeholders}) AND active = 1",

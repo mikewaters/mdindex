@@ -27,6 +27,7 @@ from pmd.core.exceptions import SourceCollectionNotFoundError
 if TYPE_CHECKING:
     from pmd.app.types import (
         SourceCollectionRepositoryProtocol,
+        DocumentRepositoryProtocol,
         EmbeddingGeneratorProtocol,
         EmbeddingRepositoryProtocol,
         DatabaseProtocol,
@@ -68,6 +69,7 @@ class EmbeddingPipeline:
         embedding_generator_factory: Callable[[], Awaitable["EmbeddingGeneratorProtocol"]],
         embedding_repo: "EmbeddingRepositoryProtocol | None",
         db: "DatabaseProtocol",
+        document_repo: "DocumentRepositoryProtocol | None" = None,
         llm_available_check: Callable[[], Awaitable[bool]] | None = None,
     ):
         """Initialize EmbeddingPipeline.
@@ -77,11 +79,13 @@ class EmbeddingPipeline:
             embedding_generator_factory: Async factory for creating embedding generator.
             embedding_repo: Repository for checking existing embeddings (optional).
             db: Database for querying documents.
+            document_repo: Repository for document queries.
             llm_available_check: Optional async function to check LLM availability.
         """
         self._source_collection_repo = source_collection_repo
         self._embedding_generator_factory = embedding_generator_factory
         self._embedding_repo = embedding_repo
+        self._document_repo = document_repo
         self._db = db
         self._llm_available_check = llm_available_check
 
@@ -208,22 +212,26 @@ class EmbeddingPipeline:
         from pmd.workflows.contracts import EmbedTarget
 
         # Query all active documents in collection with their content
-        cursor = self._db.execute(
-            """
-            SELECT d.path, d.hash, c.doc
-            FROM documents d
-            JOIN content c ON d.hash = c.hash
-            WHERE d.source_collection_id = ? AND d.active = 1
-            """,
-            (source_collection_id,),
-        )
-        rows = cursor.fetchall()
+        if self._document_repo:
+            rows = self._document_repo.list_active_with_content(source_collection_id)
+        else:
+            # Fallback to direct SQL if document_repo not available
+            cursor = self._db.execute(
+                """
+                SELECT d.path, d.hash, c.doc
+                FROM documents d
+                JOIN content c ON d.hash = c.hash
+                WHERE d.source_collection_id = ? AND d.active = 1
+                """,
+                (source_collection_id,),
+            )
+            rows = [(row["path"], row["hash"], row["doc"]) for row in cursor.fetchall()]
 
         return [
             EmbedTarget(
-                doc_hash=row["hash"],
-                path=row["path"],
-                content=row["doc"],
+                doc_hash=hash_val,
+                path=path,
+                content=content,
             )
-            for row in rows
+            for path, hash_val, content in rows
         ]

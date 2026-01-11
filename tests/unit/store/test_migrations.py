@@ -152,8 +152,6 @@ class TestMigrationRunner:
             "documents",
             "documents_fts",
             "content_vectors",
-            "path_contexts",
-            "ollama_cache",
             "source_metadata",
             "document_metadata",
             "document_tags",

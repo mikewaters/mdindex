@@ -286,6 +286,109 @@ class DocumentRepository:
         )
         return [self._row_to_document(row) for row in cursor.fetchall()]
 
+    def count_active(self, source_collection_id: int | None = None) -> int:
+        """Count active documents, optionally scoped to a collection.
+
+        Args:
+            source_collection_id: Optional collection ID to scope count.
+
+        Returns:
+            Number of active documents.
+        """
+        if source_collection_id is not None:
+            cursor = self.db.execute(
+                "SELECT COUNT(*) as count FROM documents WHERE source_collection_id = ? AND active = 1",
+                (source_collection_id,),
+            )
+        else:
+            cursor = self.db.execute(
+                "SELECT COUNT(*) as count FROM documents WHERE active = 1"
+            )
+        return cursor.fetchone()["count"]
+
+    def get_id(self, source_collection_id: int, path: str) -> int | None:
+        """Get document ID by collection and path.
+
+        Args:
+            source_collection_id: Collection ID.
+            path: Document path.
+
+        Returns:
+            Document ID if found, None otherwise.
+        """
+        cursor = self.db.execute(
+            "SELECT id FROM documents WHERE source_collection_id = ? AND path = ? AND active = 1",
+            (source_collection_id, path),
+        )
+        row = cursor.fetchone()
+        return row["id"] if row else None
+
+    def get_ids_by_paths(self, paths: list[str]) -> dict[str, int]:
+        """Get document IDs for multiple paths.
+
+        Args:
+            paths: List of document paths.
+
+        Returns:
+            Dictionary mapping path to document ID for active documents.
+        """
+        if not paths:
+            return {}
+
+        placeholders = ", ".join("?" for _ in paths)
+        cursor = self.db.execute(
+            f"SELECT id, path FROM documents WHERE path IN ({placeholders}) AND active = 1",
+            tuple(paths),
+        )
+        return {row["path"]: row["id"] for row in cursor.fetchall()}
+
+    def list_active_with_content(
+        self, source_collection_id: int
+    ) -> list[tuple[str, str, str]]:
+        """List active documents with their content.
+
+        Args:
+            source_collection_id: Collection ID.
+
+        Returns:
+            List of (path, hash, content) tuples.
+        """
+        cursor = self.db.execute(
+            """
+            SELECT d.path, d.hash, c.doc
+            FROM documents d
+            JOIN content c ON d.hash = c.hash
+            WHERE d.source_collection_id = ? AND d.active = 1
+            """,
+            (source_collection_id,),
+        )
+        return [(row["path"], row["hash"], row["doc"]) for row in cursor.fetchall()]
+
+    def count_with_embeddings(self, source_collection_id: int | None = None) -> int:
+        """Count documents that have embeddings (by distinct hash).
+
+        Args:
+            source_collection_id: Optional collection ID to scope count.
+
+        Returns:
+            Number of distinct content hashes with embeddings.
+        """
+        if source_collection_id is not None:
+            cursor = self.db.execute(
+                """
+                SELECT COUNT(DISTINCT d.hash) as count
+                FROM documents d
+                JOIN content_vectors cv ON d.hash = cv.hash
+                WHERE d.source_collection_id = ? AND d.active = 1
+                """,
+                (source_collection_id,),
+            )
+        else:
+            cursor = self.db.execute(
+                "SELECT COUNT(DISTINCT hash) as count FROM content_vectors"
+            )
+        return cursor.fetchone()["count"]
+
     @staticmethod
     def _row_to_document(row) -> DocumentResult:  # type: ignore
         """Convert database row to DocumentResult object.

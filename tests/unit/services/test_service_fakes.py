@@ -168,33 +168,44 @@ class TestStatusServiceWithFakes:
 
     def test_can_construct_with_fakes(self):
         """StatusService should accept in-memory fakes."""
-        db = InMemoryDatabase()
+        document_repo = InMemoryDocumentRepository()
+        embedding_repo = InMemoryEmbeddingRepository()
+        fts_repo = InMemoryFTSRepository()
         collection_repo = InMemorySourceCollectionRepository()
 
         service = StatusService(
-            db=db,
+            document_repo=document_repo,
+            embedding_repo=embedding_repo,
+            fts_repo=fts_repo,
             source_collection_repo=collection_repo,
         )
 
-        assert service._db is db
+        assert service._document_repo is document_repo
+        assert service._embedding_repo is embedding_repo
+        assert service._fts_repo is fts_repo
         assert service._source_collection_repo is collection_repo
 
     def test_can_construct_with_all_optional_deps(self):
         """StatusService should accept all optional dependencies."""
         from pathlib import Path
 
-        db = InMemoryDatabase()
+        document_repo = InMemoryDocumentRepository()
+        embedding_repo = InMemoryEmbeddingRepository()
+        fts_repo = InMemoryFTSRepository()
         collection_repo = InMemorySourceCollectionRepository()
 
         async def fake_llm_check():
             return True
 
         service = StatusService(
-            db=db,
+            document_repo=document_repo,
+            embedding_repo=embedding_repo,
+            fts_repo=fts_repo,
             source_collection_repo=collection_repo,
             db_path=Path("/tmp/test.db"),
             llm_provider="test-provider",
             llm_available_check=fake_llm_check,
+            vec_available=True,
         )
 
         assert service._db_path == Path("/tmp/test.db")
@@ -202,11 +213,15 @@ class TestStatusServiceWithFakes:
 
     def test_get_index_status_with_empty_fakes(self):
         """get_index_status should work with empty fakes."""
-        db = InMemoryDatabase()
+        document_repo = InMemoryDocumentRepository()
+        embedding_repo = InMemoryEmbeddingRepository()
+        fts_repo = InMemoryFTSRepository()
         collection_repo = InMemorySourceCollectionRepository()
 
         service = StatusService(
-            db=db,
+            document_repo=document_repo,
+            embedding_repo=embedding_repo,
+            fts_repo=fts_repo,
             source_collection_repo=collection_repo,
         )
 
@@ -217,14 +232,18 @@ class TestStatusServiceWithFakes:
 
     def test_get_index_status_with_collections(self):
         """get_index_status should list collections from fake repo."""
-        db = InMemoryDatabase()
+        document_repo = InMemoryDocumentRepository()
+        embedding_repo = InMemoryEmbeddingRepository()
+        fts_repo = InMemoryFTSRepository()
         collection_repo = InMemorySourceCollectionRepository()
 
         # Add a collection
         collection_repo.create("test-collection", "/path/to/docs")
 
         service = StatusService(
-            db=db,
+            document_repo=document_repo,
+            embedding_repo=embedding_repo,
+            fts_repo=fts_repo,
             source_collection_repo=collection_repo,
         )
 
@@ -242,7 +261,6 @@ class TestServiceIsolation:
         # Create separate fakes for each service
         indexing_db = InMemoryDatabase()
         search_db = InMemoryDatabase()
-        status_db = InMemoryDatabase()
 
         indexing = IndexingService(
             db=indexing_db,
@@ -259,8 +277,11 @@ class TestServiceIsolation:
         )
 
         status = StatusService(
-            db=status_db,
+            document_repo=InMemoryDocumentRepository(),
+            embedding_repo=InMemoryEmbeddingRepository(),
+            fts_repo=InMemoryFTSRepository(),
             source_collection_repo=InMemorySourceCollectionRepository(),
+            vec_available=True,
         )
 
         # Each service should work independently
@@ -273,6 +294,9 @@ class TestServiceIsolation:
         # Shared infrastructure
         db = InMemoryDatabase()
         collection_repo = InMemorySourceCollectionRepository()
+        document_repo = InMemoryDocumentRepository()
+        fts_repo = InMemoryFTSRepository()
+        embedding_repo = InMemoryEmbeddingRepository()
 
         # Create collection in shared repo
         collection_repo.create("shared", "/path")
@@ -280,13 +304,15 @@ class TestServiceIsolation:
         indexing = IndexingService(
             db=db,
             source_collection_repo=collection_repo,
-            document_repo=InMemoryDocumentRepository(),
-            fts_repo=InMemoryFTSRepository(),
+            document_repo=document_repo,
+            fts_repo=fts_repo,
             loader=InMemoryLoadingService(),
         )
 
         status = StatusService(
-            db=db,
+            document_repo=document_repo,
+            embedding_repo=embedding_repo,
+            fts_repo=fts_repo,
             source_collection_repo=collection_repo,
         )
 

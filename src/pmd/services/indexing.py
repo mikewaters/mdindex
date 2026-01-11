@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Awaitable
+from typing import TYPE_CHECKING, Callable, Awaitable, Protocol
 
 from loguru import logger
 
@@ -27,6 +27,13 @@ from pmd.app.types import (
     FTSRepositoryProtocol,
     LoadingServiceProtocol,
 )
+
+
+class ContentRepositoryProtocol(Protocol):
+    """Protocol for content repository operations needed by IndexingService."""
+
+    def count_orphaned(self) -> int: ...
+    def delete_orphaned(self) -> int: ...
 
 
 
@@ -97,6 +104,7 @@ class IndexingService:
         document_repo: DocumentRepositoryProtocol,
         fts_repo: FTSRepositoryProtocol,
         loader: LoadingServiceProtocol,
+        content_repo: ContentRepositoryProtocol | None = None,
         embedding_repo: EmbeddingRepositoryProtocol | None = None,
         embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]] | None = None,
         llm_available_check: Callable[[], Awaitable[bool]] | None = None,
@@ -110,6 +118,7 @@ class IndexingService:
             document_repo: Repository for document operations.
             fts_repo: Repository for FTS indexing.
             loader: Loading service for document retrieval.
+            content_repo: Repository for content storage operations.
             embedding_repo: Repository for embedding storage.
             embedding_generator_factory: Async factory for embedding generator.
             llm_available_check: Async function to check if LLM is available.
@@ -120,6 +129,7 @@ class IndexingService:
         self._document_repo = document_repo
         self._fts_repo = fts_repo
         self._loader = loader
+        self._content_repo = content_repo
         self._embedding_repo = embedding_repo
         self._embedding_generator_factory = embedding_generator_factory
         self._llm_available_check = llm_available_check
@@ -347,38 +357,14 @@ class IndexingService:
         start_time = time.perf_counter()
 
         # Find and remove orphaned content
-        cursor = self._db.execute(
-            """
-            SELECT COUNT(*) as count FROM content
-            WHERE hash NOT IN (SELECT DISTINCT hash FROM documents WHERE active = 1)
-            """
-        )
-        orphaned_content = cursor.fetchone()["count"]
-
-        if orphaned_content > 0:
-            self._db.execute(
-                """
-                DELETE FROM content
-                WHERE hash NOT IN (SELECT DISTINCT hash FROM documents WHERE active = 1)
-                """
-            )
+        orphaned_content = 0
+        if self._content_repo:
+            orphaned_content = self._content_repo.delete_orphaned()
 
         # Find and remove orphaned embeddings
-        cursor = self._db.execute(
-            """
-            SELECT COUNT(*) as count FROM content_vectors
-            WHERE hash NOT IN (SELECT DISTINCT hash FROM documents WHERE active = 1)
-            """
-        )
-        orphaned_embeddings = cursor.fetchone()["count"]
-
-        if orphaned_embeddings > 0:
-            self._db.execute(
-                """
-                DELETE FROM content_vectors
-                WHERE hash NOT IN (SELECT DISTINCT hash FROM documents WHERE active = 1)
-                """
-            )
+        orphaned_embeddings = 0
+        if self._embedding_repo:
+            orphaned_embeddings = self._embedding_repo.delete_orphaned()
 
         elapsed = (time.perf_counter() - start_time) * 1000
         logger.info(
@@ -401,12 +387,7 @@ class IndexingService:
         Returns:
             Document ID or None if not found.
         """
-        cursor = self._db.execute(
-            "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
-            (source_collection_id, path),
-        )
-        row = cursor.fetchone()
-        return row["id"] if row else None
+        return self._document_repo.get_id(source_collection_id, path)
 
     def _extract_metadata_via_profiles(
         self,
