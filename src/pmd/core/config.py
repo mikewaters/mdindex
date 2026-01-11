@@ -144,6 +144,37 @@ class Config:
     tracing: TracingConfig = field(default_factory=TracingConfig)
     metadata: MetadataConfig = field(default_factory=MetadataConfig)
 
+    @property
+    def db_url_sync(self) -> str:
+        """Build SQLAlchemy sync database URL.
+
+        Returns a SQLite URL for use with synchronous SQLAlchemy engines.
+        Format: sqlite:///{absolute_path}
+
+        For Unix absolute paths (starting with /), this results in four slashes:
+        sqlite:////absolute/path/to/db.sqlite
+
+        Returns:
+            SQLAlchemy-compatible sync database URL string.
+        """
+        return f"sqlite:///{self.db_path.resolve()}"
+
+    @property
+    def db_url_async(self) -> str:
+        """Build SQLAlchemy async database URL.
+
+        Returns a SQLite URL for use with asynchronous SQLAlchemy engines
+        via the aiosqlite driver.
+        Format: sqlite+aiosqlite:///{absolute_path}
+
+        For Unix absolute paths (starting with /), this results in four slashes:
+        sqlite+aiosqlite:////absolute/path/to/db.sqlite
+
+        Returns:
+            SQLAlchemy-compatible async database URL string.
+        """
+        return f"sqlite+aiosqlite:///{self.db_path.resolve()}"
+
     @classmethod
     def from_env(cls) -> "Config":
         """Load configuration from environment variables."""

@@ -152,7 +152,6 @@ class TestMigrationRunner:
             "documents",
             "documents_fts",
             "content_vectors",
-            "source_metadata",
             "document_metadata",
             "document_tags",
         }
@@ -167,15 +166,18 @@ class TestDatabaseMigrationIntegration:
     """Integration tests for Database class with migrations."""
 
     def test_database_connect_runs_migrations(self, tmp_path: Path):
-        """Database.connect() should automatically run migrations."""
+        """Database.connect() should automatically run Alembic migrations."""
         db_path = tmp_path / "test.db"
         db = Database(db_path)
         db.connect()
 
-        # Check version is set
-        cursor = db.execute("PRAGMA user_version")
-        version = cursor.fetchone()[0]
-        assert version >= 1
+        # Check alembic_version table exists and has a version
+        cursor = db.execute(
+            "SELECT version_num FROM alembic_version"
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["version_num"] == "0001"  # Our baseline migration
 
         db.close()
 
@@ -200,23 +202,24 @@ class TestDatabaseMigrationIntegration:
         db2.close()
 
     def test_database_preserves_data_across_migrations(self, tmp_path: Path):
-        """Data should be preserved when migrations run."""
+        """Data should be preserved when reconnecting."""
         db_path = tmp_path / "test.db"
 
         # Create database and add data
         db = Database(db_path)
         db.connect()
 
-        db.execute(
-            """
-            INSERT INTO source_collections (name, pwd, glob_pattern, created_at, updated_at)
-            VALUES ('test', '/path', '*.md', datetime('now'), datetime('now'))
-            """
-        )
-        db._connection.commit()
+        with db.transaction() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO source_collections (name, pwd, glob_pattern, created_at, updated_at)
+                VALUES (?, ?, ?, datetime('now'), datetime('now'))
+                """,
+                ("test", "/path", "*.md"),
+            )
         db.close()
 
-        # Reconnect - migrations should not lose data
+        # Reconnect - data should be preserved
         db2 = Database(db_path)
         db2.connect()
 
