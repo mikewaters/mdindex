@@ -27,6 +27,9 @@ def create_llm_provider(config: Config) -> LLMProvider:
         return LMStudioProvider(config.lm_studio)
     elif provider_name == "openrouter":
         return OpenRouterProvider(config.openrouter)
+    elif provider_name == "litellm":
+        from .litellm_provider import LiteLLMProvider
+        return LiteLLMProvider(config.litellm)
     elif provider_name == "mlx":
         if sys.platform != "darwin":
             raise RuntimeError("MLX provider requires macOS with Apple Silicon")
@@ -35,7 +38,7 @@ def create_llm_provider(config: Config) -> LLMProvider:
     else:
         raise ValueError(
             f"Unknown LLM provider: {provider_name}. "
-            "Supported providers: lm-studio, openrouter, mlx"
+            "Supported providers: lm-studio, openrouter, litellm, mlx"
         )
 
 
@@ -52,6 +55,7 @@ def get_provider_name(config: Config) -> str:
     names = {
         "lm-studio": "LM Studio",
         "openrouter": "OpenRouter",
+        "litellm": "LiteLLM",
         "mlx": "MLX (Local)",
     }
     return names.get(provider, provider)

@@ -4,6 +4,7 @@ from .config import (
     CacheConfig,
     ChunkConfig,
     Config,
+    LiteLLMConfig,
     LMStudioConfig,
     MLXConfig,
     OpenRouterConfig,
@@ -44,6 +45,7 @@ from .types import (
 __all__ = [
     "CacheConfig",
     "Config",
+    "LiteLLMConfig",
     "LMStudioConfig",
     "OpenRouterConfig",
     "MLXConfig",

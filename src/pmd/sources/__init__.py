@@ -26,6 +26,11 @@ from .content import (
 )
 from .content import FileSystemConfig, FileSystemSource
 from .content import LlamaIndexSource
+from .content.llamaindex import (
+    create_custom_loader,
+    create_directory_loader,
+    create_web_loader,
+)
 from .content import (
     SourceFactory,
     SourceRegistry,
@@ -62,6 +67,9 @@ __all__ = [
     "FileSystemSource",
     # LlamaIndex adapter
     "LlamaIndexSource",
+    "create_custom_loader",
+    "create_directory_loader",
+    "create_web_loader",
     # Metadata helpers
     "DraftsProfile",
     "GenericProfile",

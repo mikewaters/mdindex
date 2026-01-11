@@ -31,6 +31,32 @@ class OpenRouterConfig:
 
 
 @dataclass
+class LiteLLMConfig:
+    """LiteLLM universal API configuration.
+
+    LiteLLM provides a unified interface to 100+ LLM providers including
+    OpenAI, Anthropic, Google, Azure, and many more.
+
+    Example TOML:
+        [litellm]
+        model = "gpt-4o-mini"
+        embedding_model = "text-embedding-3-small"
+        api_base = "https://api.openai.com/v1"  # optional
+    """
+
+    # Model for text generation (query expansion, reranking, chat)
+    model: str = "gpt-4o-mini"
+    # Model for embeddings
+    embedding_model: str = "text-embedding-3-small"
+    # Model for reranking (defaults to model if not set)
+    reranker_model: str = ""
+    # Optional API base URL override
+    api_base: str = ""
+    # Request timeout in seconds
+    timeout: float = 120.0
+
+
+@dataclass
 class MLXConfig:
     """MLX local model configuration for Apple Silicon."""
 
@@ -164,6 +190,7 @@ class Config:
     llm_provider: str = "mlx"  # Default LLM provider (local inference on Apple Silicon)
     lm_studio: LMStudioConfig = field(default_factory=LMStudioConfig)
     openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
+    litellm: LiteLLMConfig = field(default_factory=LiteLLMConfig)
     mlx: MLXConfig = field(default_factory=MLXConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
     chunk: ChunkConfig = field(default_factory=ChunkConfig)
@@ -243,6 +270,8 @@ def _apply_toml(config: Config, data: dict[str, Any]) -> None:
         _update_dataclass(config.lm_studio, data["lm_studio"])
     if isinstance(data.get("openrouter"), dict):
         _update_dataclass(config.openrouter, data["openrouter"])
+    if isinstance(data.get("litellm"), dict):
+        _update_dataclass(config.litellm, data["litellm"])
     if isinstance(data.get("mlx"), dict):
         _update_dataclass(config.mlx, data["mlx"])
     if isinstance(data.get("search"), dict):

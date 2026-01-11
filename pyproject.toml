@@ -31,6 +31,8 @@ dependencies = [
     "alembic>=1.13.0",
     "aiosqlite>=0.20.0",
     "fsspec>=2024.0.0",
+    "litellm>=1.50.0",
+    "dspy>=2.5.0",
 ]
 
 [project.optional-dependencies]
@@ -40,6 +42,11 @@ dev = [
     "pytest-cov>=4.0.0",
     "mypy>=1.8.0",
     "ruff>=0.2.0",
+]
+loaders = [
+    "llama-index-core>=0.11.0",
+    "llama-index-readers-web>=0.2.0",
+    "llama-index-readers-file>=0.2.0",
 ]
 
 [project.scripts]
