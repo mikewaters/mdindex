@@ -13,22 +13,28 @@ class DatabaseError(PMDError):
     pass
 
 
-class CollectionError(PMDError):
-    """Collection operation failed."""
+class SourceCollectionError(PMDError):
+    """Source collection operation failed."""
 
     pass
 
 
-class CollectionNotFoundError(CollectionError):
-    """Collection does not exist."""
+class SourceCollectionNotFoundError(SourceCollectionError):
+    """Source collection does not exist."""
 
     pass
 
 
-class CollectionExistsError(CollectionError):
-    """Collection already exists."""
+class SourceCollectionExistsError(SourceCollectionError):
+    """Source collection already exists."""
 
     pass
+
+
+# Backwards compatibility aliases (deprecated)
+CollectionError = SourceCollectionError
+CollectionNotFoundError = SourceCollectionNotFoundError
+CollectionExistsError = SourceCollectionExistsError
 
 
 class DocumentError(PMDError):

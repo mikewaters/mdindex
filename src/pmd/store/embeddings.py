@@ -214,7 +214,7 @@ class EmbeddingRepository:
         self,
         query_embedding: list[float],
         limit: int = 5,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
         min_score: float = 0.0,
     ) -> list[SearchResult]:
         """Search for documents by vector similarity using sqlite-vec.
@@ -222,13 +222,13 @@ class EmbeddingRepository:
         Args:
             query_embedding: Query embedding vector.
             limit: Maximum number of results to return.
-            collection_id: Optional collection ID to limit search scope.
+            source_collection_id: Optional collection ID to limit search scope.
             min_score: Minimum similarity score (0.0-1.0).
 
         Returns:
             List of SearchResult objects sorted by similarity.
         """
-        logger.debug(f"Vector search: limit={limit}, collection_id={collection_id}, min_score={min_score}")
+        logger.debug(f"Vector search: limit={limit}, source_collection_id={source_collection_id}, min_score={min_score}")
         start_time = time.perf_counter()
 
         if not self.db.vec_available or not query_embedding:
@@ -240,11 +240,11 @@ class EmbeddingRepository:
 
         # Build query - sqlite-vec uses L2 distance by default
         # We join with content_vectors to get the actual hash, then join with documents
-        if collection_id is not None:
+        if source_collection_id is not None:
             sql = """
                 SELECT
                     d.id,
-                    d.collection_id,
+                    d.source_collection_id,
                     d.path,
                     d.path as display_path,
                     d.title,
@@ -261,15 +261,15 @@ class EmbeddingRepository:
                 JOIN documents d ON d.hash = cv.hash AND d.active = 1
                 JOIN content c ON d.hash = c.hash
                 WHERE v.embedding MATCH ? AND k = ?
-                AND d.collection_id = ?
+                AND d.source_collection_id = ?
                 ORDER BY v.distance ASC
             """
-            cursor = self.db.execute(sql, (query_bytes, limit * 3, collection_id))
+            cursor = self.db.execute(sql, (query_bytes, limit * 3, source_collection_id))
         else:
             sql = """
                 SELECT
                     d.id,
-                    d.collection_id,
+                    d.source_collection_id,
                     d.path,
                     d.path as display_path,
                     d.title,
@@ -314,7 +314,7 @@ class EmbeddingRepository:
                         title=row["title"],
                         context=None,
                         hash=row["hash"],
-                        collection_id=row["collection_id"],
+                        source_collection_id=row["source_collection_id"],
                         modified_at=row["modified_at"],
                         body_length=len(row["body"]) if row["body"] else 0,
                         body=row["body"],  # Include body for reranking

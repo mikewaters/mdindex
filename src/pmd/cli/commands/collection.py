@@ -5,29 +5,29 @@ from pathlib import Path
 from typing import Any
 
 from pmd.core.config import Config
-from pmd.core.exceptions import CollectionExistsError, CollectionNotFoundError
-from pmd.store.collections import CollectionRepository
+from pmd.core.exceptions import SourceCollectionExistsError, SourceCollectionNotFoundError
+from pmd.store.collections import SourceCollectionRepository
 from pmd.store.database import Database
 
 
-def _get_collection_id(db: Database, name: str) -> int:
-    """Get collection ID by name.
+def _get_source_collection_id(db: Database, name: str) -> int:
+    """Get source collection ID by name.
 
     Args:
         db: Database instance.
-        name: Collection name.
+        name: Source collection name.
 
     Returns:
-        Collection ID.
+        Source collection ID.
 
     Raises:
-        CollectionNotFoundError: If collection not found.
+        SourceCollectionNotFoundError: If source collection not found.
     """
-    repo = CollectionRepository(db)
-    collection = repo.get_by_name(name)
-    if not collection:
-        raise CollectionNotFoundError(f"Collection '{name}' not found")
-    return collection.id
+    repo = SourceCollectionRepository(db)
+    source_collection = repo.get_by_name(name)
+    if not source_collection:
+        raise SourceCollectionNotFoundError(f"Source collection '{name}' not found")
+    return source_collection.id
 
 
 def handle_collection(args, config: Config) -> None:
@@ -44,27 +44,27 @@ def handle_collection(args, config: Config) -> None:
     db.connect()
 
     try:
-        repo = CollectionRepository(db)
+        repo = SourceCollectionRepository(db)
 
         if args.collection_cmd == "add":
-            _add_collection(repo, args)
+            _add_source_collection(repo, args)
         elif args.collection_cmd == "list":
-            _list_collections(repo)
+            _list_source_collections(repo)
         elif args.collection_cmd == "show":
-            _show_collection(repo, db, args)
+            _show_source_collection(repo, db, args)
         elif args.collection_cmd == "remove":
-            _remove_collection(repo, args)
+            _remove_source_collection(repo, args)
         elif args.collection_cmd == "rename":
-            _rename_collection(repo, args)
+            _rename_source_collection(repo, args)
     finally:
         db.close()
 
 
-def _add_collection(repo: CollectionRepository, args) -> None:
-    """Add a new collection.
+def _add_source_collection(repo: SourceCollectionRepository, args) -> None:
+    """Add a new source collection.
 
     Args:
-        repo: CollectionRepository instance.
+        repo: SourceCollectionRepository instance.
         args: Parsed arguments with name, path, glob, source, etc.
     """
     source_type = getattr(args, "source", "filesystem")
@@ -74,21 +74,21 @@ def _add_collection(repo: CollectionRepository, args) -> None:
         resolved_path = str(Path(args.path).resolve())
 
         if not Path(resolved_path).exists():
-            print(f"✗ Path does not exist: {resolved_path}")
+            print(f"Path does not exist: {resolved_path}")
             raise ValueError(f"Path does not exist: {resolved_path}")
 
         try:
-            collection = repo.create(
+            source_collection = repo.create(
                 args.name,
                 resolved_path,
                 args.glob,
                 source_type="filesystem",
             )
-            print(f"✓ Created filesystem collection '{collection.name}'")
-            print(f"  Path: {collection.pwd}")
-            print(f"  Pattern: {collection.glob_pattern}")
-        except CollectionExistsError as e:
-            print(f"✗ {e}")
+            print(f"Created filesystem collection '{source_collection.name}'")
+            print(f"  Path: {source_collection.pwd}")
+            print(f"  Pattern: {source_collection.glob_pattern}")
+        except SourceCollectionExistsError as e:
+            print(f"Error: {e}")
             raise
 
     elif source_type == "http":
@@ -108,21 +108,21 @@ def _add_collection(repo: CollectionRepository, args) -> None:
                 source_config["username"] = args.username
 
         try:
-            collection = repo.create(
+            source_collection = repo.create(
                 args.name,
                 args.path,  # Store original URL
                 args.glob,
                 source_type="http",
                 source_config=source_config,
             )
-            print(f"✓ Created HTTP collection '{collection.name}'")
+            print(f"Created HTTP collection '{source_collection.name}'")
             print(f"  URL: {args.path}")
             if source_config.get("sitemap_url"):
                 print(f"  Sitemap: {source_config['sitemap_url']}")
             if source_config.get("auth_type"):
                 print(f"  Auth: {source_config['auth_type']}")
-        except CollectionExistsError as e:
-            print(f"✗ {e}")
+        except SourceCollectionExistsError as e:
+            print(f"Error: {e}")
             raise
 
     elif source_type == "entity":
@@ -137,43 +137,43 @@ def _add_collection(repo: CollectionRepository, args) -> None:
                 source_config["auth_token"] = args.auth_token
 
         try:
-            collection = repo.create(
+            source_collection = repo.create(
                 args.name,
                 args.path,
                 args.glob,
                 source_type="entity",
                 source_config=source_config,
             )
-            print(f"✓ Created entity collection '{collection.name}'")
+            print(f"Created entity collection '{source_collection.name}'")
             print(f"  URI: {args.path}")
-        except CollectionExistsError as e:
-            print(f"✗ {e}")
+        except SourceCollectionExistsError as e:
+            print(f"Error: {e}")
             raise
 
     else:
-        print(f"✗ Unknown source type: {source_type}")
+        print(f"Unknown source type: {source_type}")
         raise ValueError(f"Unknown source type: {source_type}")
 
 
-def _list_collections(repo: CollectionRepository) -> None:
-    """List all collections.
+def _list_source_collections(repo: SourceCollectionRepository) -> None:
+    """List all source collections.
 
     Args:
-        repo: CollectionRepository instance.
+        repo: SourceCollectionRepository instance.
     """
-    collections = repo.list_all()
+    source_collections = repo.list_all()
 
-    if not collections:
+    if not source_collections:
         print("No collections found.")
         return
 
-    print(f"Collections ({len(collections)}):")
-    for coll in collections:
+    print(f"Collections ({len(source_collections)}):")
+    for coll in source_collections:
         source_indicator = {
-            "filesystem": "📁",
-            "http": "🌐",
-            "entity": "🔗",
-        }.get(coll.source_type, "❓")
+            "filesystem": "[fs]",
+            "http": "[http]",
+            "entity": "[entity]",
+        }.get(coll.source_type, "[?]")
 
         print(f"  {source_indicator} {coll.name}")
         if coll.source_type == "filesystem":
@@ -186,22 +186,22 @@ def _list_collections(repo: CollectionRepository) -> None:
         print(f"    Updated: {coll.updated_at}")
 
 
-def _show_collection(repo: CollectionRepository, db: Database, args) -> None:
-    """Show detailed collection information.
+def _show_source_collection(repo: SourceCollectionRepository, db: Database, args) -> None:
+    """Show detailed source collection information.
 
     Args:
-        repo: CollectionRepository instance.
+        repo: SourceCollectionRepository instance.
         db: Database instance.
         args: Parsed arguments with name.
     """
-    collection = repo.get_by_name(args.name)
-    if not collection:
-        raise CollectionNotFoundError(f"Collection '{args.name}' not found")
+    source_collection = repo.get_by_name(args.name)
+    if not source_collection:
+        raise SourceCollectionNotFoundError(f"Source collection '{args.name}' not found")
 
     # Get document count
     cursor = db.execute(
-        "SELECT COUNT(*) as count FROM documents WHERE collection_id = ? AND active = 1",
-        (collection.id,),
+        "SELECT COUNT(*) as count FROM documents WHERE source_collection_id = ? AND active = 1",
+        (source_collection.id,),
     )
     doc_count = cursor.fetchone()["count"]
 
@@ -211,70 +211,70 @@ def _show_collection(repo: CollectionRepository, db: Database, args) -> None:
         SELECT COUNT(DISTINCT d.id) as count
         FROM documents d
         JOIN content_vectors cv ON d.hash = cv.hash
-        WHERE d.collection_id = ? AND d.active = 1
+        WHERE d.source_collection_id = ? AND d.active = 1
         """,
-        (collection.id,),
+        (source_collection.id,),
     )
     embedded_count = cursor.fetchone()["count"]
 
-    print(f"Collection: {collection.name}")
-    print(f"  ID: {collection.id}")
-    print(f"  Source Type: {collection.source_type}")
+    print(f"Collection: {source_collection.name}")
+    print(f"  ID: {source_collection.id}")
+    print(f"  Source Type: {source_collection.source_type}")
 
-    if collection.source_type == "filesystem":
-        print(f"  Path: {collection.pwd}")
-        print(f"  Pattern: {collection.glob_pattern}")
-    elif collection.source_type == "http":
-        print(f"  URL: {collection.pwd}")
-        if collection.source_config:
-            if collection.source_config.get("sitemap_url"):
-                print(f"  Sitemap: {collection.source_config['sitemap_url']}")
-            if collection.source_config.get("auth_type"):
-                print(f"  Auth: {collection.source_config['auth_type']}")
+    if source_collection.source_type == "filesystem":
+        print(f"  Path: {source_collection.pwd}")
+        print(f"  Pattern: {source_collection.glob_pattern}")
+    elif source_collection.source_type == "http":
+        print(f"  URL: {source_collection.pwd}")
+        if source_collection.source_config:
+            if source_collection.source_config.get("sitemap_url"):
+                print(f"  Sitemap: {source_collection.source_config['sitemap_url']}")
+            if source_collection.source_config.get("auth_type"):
+                print(f"  Auth: {source_collection.source_config['auth_type']}")
     else:
-        print(f"  URI: {collection.pwd}")
+        print(f"  URI: {source_collection.pwd}")
 
     print(f"  Documents: {doc_count}")
     print(f"  Embedded: {embedded_count}")
-    print(f"  Created: {collection.created_at}")
-    print(f"  Updated: {collection.updated_at}")
+    print(f"  Created: {source_collection.created_at}")
+    print(f"  Updated: {source_collection.updated_at}")
 
-    if collection.source_config:
+    if source_collection.source_config:
         # Show config without secrets
         safe_config = {
             k: "***" if "token" in k.lower() or "password" in k.lower() else v
-            for k, v in collection.source_config.items()
+            for k, v in source_collection.source_config.items()
         }
         print(f"  Config: {json.dumps(safe_config, indent=4)}")
 
 
-def _remove_collection(repo: CollectionRepository, args) -> None:
-    """Remove a collection.
+def _remove_source_collection(repo: SourceCollectionRepository, args) -> None:
+    """Remove a source collection.
 
     Args:
-        repo: CollectionRepository instance.
+        repo: SourceCollectionRepository instance.
         args: Parsed arguments with name.
     """
-    collection = repo.get_by_name(args.name)
-    if not collection:
-        raise CollectionNotFoundError(f"Collection '{args.name}' not found")
+    source_collection = repo.get_by_name(args.name)
+    if not source_collection:
+        raise SourceCollectionNotFoundError(f"Source collection '{args.name}' not found")
 
-    docs_deleted, hashes_cleaned = repo.remove(collection.id)
-    print(f"✓ Removed collection '{args.name}'")
+    docs_deleted, hashes_cleaned = repo.remove(source_collection.id)
+    print(f"Removed collection '{args.name}'")
     print(f"  Documents deleted: {docs_deleted}")
     print(f"  Orphaned hashes cleaned: {hashes_cleaned}")
 
 
-def _rename_collection(repo: CollectionRepository, args) -> None:
-    """Rename a collection.
+def _rename_source_collection(repo: SourceCollectionRepository, args) -> None:
+    """Rename a source collection.
 
     Args:
-        repo: CollectionRepository instance.
+        repo: SourceCollectionRepository instance.
         args: Parsed arguments with old_name, new_name.
     """
-    collection = repo.get_by_name(args.old_name)
-    if not collection:
-        raise CollectionNotFoundError(f"Collection '{args.old_name}' not found")
+    source_collection = repo.get_by_name(args.old_name)
+    if not source_collection:
+        raise SourceCollectionNotFoundError(f"Source collection '{args.old_name}' not found")
 
-    repo.rename(collection.id, args.new_name)
-    print(f"✓ Renamed collection '{args.old_name}' to '{args.new_name}'")
+    repo.rename(source_collection.id, args.new_name)
+    print(f"Renamed collection '{args.old_name}' to '{args.new_name}'")

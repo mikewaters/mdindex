@@ -22,13 +22,13 @@ class VectorSearchRepository(SearchRepository[list[float]]):
         self,
         query: list[float],
         limit: int = 5,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
         min_score: float = 0.0,
     ) -> list[SearchResult]:
         """Perform vector search using the embedding repository."""
         return self.embedding_repo.search_vectors(
             query_embedding=query,
             limit=limit,
-            collection_id=collection_id,
+            source_collection_id=source_collection_id,
             min_score=min_score,
         )

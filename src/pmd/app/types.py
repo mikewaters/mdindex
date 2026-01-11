@@ -13,10 +13,10 @@ Example:
     class MyService:
         def __init__(
             self,
-            collection_repo: CollectionRepositoryProtocol,
+            source_collection_repo: SourceCollectionRepositoryProtocol,
             document_repo: DocumentRepositoryProtocol,
         ):
-            self._collection_repo = collection_repo
+            self._source_collection_repo = source_collection_repo
             self._document_repo = document_repo
 """
 
@@ -29,11 +29,11 @@ from typing import TYPE_CHECKING, Any, Iterator, Protocol, runtime_checkable
 if TYPE_CHECKING:
     import sqlite3
     from ..core.types import (
-        Collection,
         DocumentResult,
         EmbeddingResult,
         RerankResult,
         SearchResult,
+        SourceCollection,
     )
     from ..sources.content.base import DocumentSource
     from ..services.loading import EagerLoadResult, LoadResult
@@ -88,19 +88,19 @@ class DatabaseProtocol(Protocol):
 
 
 @runtime_checkable
-class CollectionRepositoryProtocol(Protocol):
-    """Protocol for collection operations."""
+class SourceCollectionRepositoryProtocol(Protocol):
+    """Protocol for source collection operations."""
 
-    def list_all(self) -> list["Collection"]:
-        """Get all collections."""
+    def list_all(self) -> list["SourceCollection"]:
+        """Get all source collections."""
         ...
 
-    def get_by_name(self, name: str) -> "Collection | None":
-        """Get collection by name."""
+    def get_by_name(self, name: str) -> "SourceCollection | None":
+        """Get source collection by name."""
         ...
 
-    def get_by_id(self, collection_id: int) -> "Collection | None":
-        """Get collection by ID."""
+    def get_by_id(self, source_source_collection_id: int) -> "SourceCollection | None":
+        """Get source collection by ID."""
         ...
 
     def create(
@@ -110,17 +110,21 @@ class CollectionRepositoryProtocol(Protocol):
         glob_pattern: str = "**/*.md",
         source_type: str = "filesystem",
         source_config: dict[str, Any] | None = None,
-    ) -> "Collection":
-        """Create a new collection."""
+    ) -> "SourceCollection":
+        """Create a new source collection."""
         ...
 
-    def remove(self, collection_id: int) -> tuple[int, int]:
-        """Remove a collection and return (docs_deleted, orphans_cleaned)."""
+    def remove(self, source_source_collection_id: int) -> tuple[int, int]:
+        """Remove a source collection and return (docs_deleted, orphans_cleaned)."""
         ...
 
-    def rename(self, collection_id: int, new_name: str) -> None:
-        """Rename a collection."""
+    def rename(self, source_source_collection_id: int, new_name: str) -> None:
+        """Rename a source collection."""
         ...
+
+
+# Backwards compatibility alias
+CollectionRepositoryProtocol = SourceCollectionRepositoryProtocol
 
 
 @runtime_checkable
@@ -129,7 +133,7 @@ class DocumentRepositoryProtocol(Protocol):
 
     def add_or_update(
         self,
-        collection_id: int,
+        source_collection_id: int,
         path: str,
         title: str,
         content: str,
@@ -137,7 +141,7 @@ class DocumentRepositoryProtocol(Protocol):
         """Add or update a document. Returns (result, is_new)."""
         ...
 
-    def get(self, collection_id: int, path: str) -> "DocumentResult | None":
+    def get(self, source_collection_id: int, path: str) -> "DocumentResult | None":
         """Retrieve a document by path."""
         ...
 
@@ -147,13 +151,13 @@ class DocumentRepositoryProtocol(Protocol):
 
     def list_by_collection(
         self,
-        collection_id: int,
+        source_collection_id: int,
         active_only: bool = True,
     ) -> list["DocumentResult"]:
         """List all documents in a collection."""
         ...
 
-    def delete(self, collection_id: int, path: str) -> bool:
+    def delete(self, source_collection_id: int, path: str) -> bool:
         """Soft-delete a document."""
         ...
 
@@ -166,7 +170,7 @@ class FTSRepositoryProtocol(Protocol):
         self,
         query: str,
         limit: int = 5,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
         min_score: float = 0.0,
     ) -> list["SearchResult"]:
         """Execute FTS5 full-text search."""
@@ -180,7 +184,7 @@ class FTSRepositoryProtocol(Protocol):
         """Remove a document from FTS5 index."""
         ...
 
-    def reindex_collection(self, collection_id: int) -> int:
+    def reindex_collection(self, source_collection_id: int) -> int:
         """Reindex all documents in a collection."""
         ...
 
@@ -212,7 +216,7 @@ class EmbeddingRepositoryProtocol(Protocol):
         self,
         query_embedding: list[float],
         limit: int = 5,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
         min_score: float = 0.0,
     ) -> list["SearchResult"]:
         """Search for documents by vector similarity."""
@@ -364,7 +368,7 @@ class TagRetrieverProtocol(Protocol):
         self,
         tags: dict[str, float],
         limit: int = 10,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
     ) -> list["SearchResult"]:
         """Retrieve documents matching tags."""
         ...
@@ -486,7 +490,8 @@ class LoadingServiceProtocol(Protocol):
 
 # These can be used for type hints when the full protocol isn't needed
 
-CollectionRepo = CollectionRepositoryProtocol
+SourceCollectionRepo = SourceCollectionRepositoryProtocol
+CollectionRepo = SourceCollectionRepositoryProtocol  # Deprecated alias
 DocumentRepo = DocumentRepositoryProtocol
 FTSRepo = FTSRepositoryProtocol
 EmbeddingRepo = EmbeddingRepositoryProtocol

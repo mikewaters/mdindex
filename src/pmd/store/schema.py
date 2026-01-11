@@ -20,8 +20,8 @@ CREATE TABLE IF NOT EXISTS content (
     created_at TEXT NOT NULL
 );
 
--- Collections (indexed directories or remote sources)
-CREATE TABLE IF NOT EXISTS collections (
+-- Source collections (indexed directories or remote sources)
+CREATE TABLE IF NOT EXISTS source_collections (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     pwd TEXT NOT NULL,
@@ -35,13 +35,13 @@ CREATE TABLE IF NOT EXISTS collections (
 -- Documents (file-to-content mappings)
 CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    collection_id INTEGER NOT NULL REFERENCES collections(id),
+    source_collection_id INTEGER NOT NULL REFERENCES source_collections(id),
     path TEXT NOT NULL,
     title TEXT NOT NULL,
     hash TEXT NOT NULL REFERENCES content(hash),
     active INTEGER NOT NULL DEFAULT 1,
     modified_at TEXT NOT NULL,
-    UNIQUE(collection_id, path)
+    UNIQUE(source_collection_id, path)
 );
 
 -- Full-text search index (stores content for DELETE/UPDATE support)
@@ -63,11 +63,11 @@ CREATE TABLE IF NOT EXISTS content_vectors (
 -- Context descriptions
 CREATE TABLE IF NOT EXISTS path_contexts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    collection_id INTEGER NOT NULL REFERENCES collections(id),
+    source_collection_id INTEGER NOT NULL REFERENCES source_collections(id),
     path_prefix TEXT NOT NULL,
     context TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    UNIQUE(collection_id, path_prefix)
+    UNIQUE(source_collection_id, path_prefix)
 );
 
 -- Ollama API response cache
@@ -110,10 +110,10 @@ CREATE TABLE IF NOT EXISTS document_tags (
 );
 
 -- Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection_id);
+CREATE INDEX IF NOT EXISTS idx_documents_source_collection ON documents(source_collection_id);
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
 CREATE INDEX IF NOT EXISTS idx_content_vectors_hash ON content_vectors(hash);
-CREATE INDEX IF NOT EXISTS idx_path_contexts_collection ON path_contexts(collection_id);
+CREATE INDEX IF NOT EXISTS idx_path_contexts_source_collection ON path_contexts(source_collection_id);
 CREATE INDEX IF NOT EXISTS idx_source_metadata_uri ON source_metadata(source_uri);
 CREATE INDEX IF NOT EXISTS idx_document_tags_tag ON document_tags(tag);
 """

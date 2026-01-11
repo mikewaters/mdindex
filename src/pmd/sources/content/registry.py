@@ -14,23 +14,23 @@ from loguru import logger
 from .base import DocumentSource, SourceConfig
 
 if TYPE_CHECKING:
-    from pmd.core.types import Collection
+    from pmd.core.types import SourceCollection
 
 
-# Factory signature: takes a Collection, returns a DocumentSource
-SourceFactory = Callable[["Collection"], DocumentSource]
+# Factory signature: takes a SourceCollection, returns a DocumentSource
+SourceFactory = Callable[["SourceCollection"], DocumentSource]
 
 
 class SourceRegistry:
     """Registry mapping source_type strings to DocumentSource factories.
 
     This registry enables the indexing service to construct the appropriate
-    DocumentSource for any collection based on its stored source_type,
+    DocumentSource for any source collection based on its stored source_type,
     without hardcoding knowledge of specific source implementations.
 
     Example:
         registry = get_default_registry()
-        source = registry.create_source(collection)
+        source = registry.create_source(source_collection)
 
         for ref in source.list_documents():
             result = await source.fetch_content(ref)
@@ -45,7 +45,7 @@ class SourceRegistry:
 
         Args:
             source_type: The source type identifier (e.g., "filesystem", "http").
-            factory: A callable that takes a Collection and returns a DocumentSource.
+            factory: A callable that takes a SourceCollection and returns a DocumentSource.
         """
         if source_type in self._factories:
             logger.warning(f"Overwriting source factory for {source_type!r}")
@@ -78,11 +78,11 @@ class SourceRegistry:
         """
         return source_type in self._factories
 
-    def create_source(self, collection: "Collection") -> DocumentSource:
-        """Create a DocumentSource for the given collection.
+    def create_source(self, source_collection: "SourceCollection") -> DocumentSource:
+        """Create a DocumentSource for the given source collection.
 
         Args:
-            collection: Collection with source_type and source_config.
+            source_collection: SourceCollection with source_type and source_config.
 
         Returns:
             Configured DocumentSource instance.
@@ -90,14 +90,14 @@ class SourceRegistry:
         Raises:
             ValueError: If source_type is not registered.
         """
-        source_type = collection.source_type or "filesystem"
+        source_type = source_collection.source_type or "filesystem"
         factory = self._factories.get(source_type)
         if factory is None:
             available = ", ".join(sorted(self._factories.keys())) or "(none)"
             raise ValueError(
                 f"Unknown source type {source_type!r}. Available: {available}"
             )
-        return factory(collection)
+        return factory(source_collection)
 
     @property
     def registered_types(self) -> list[str]:
@@ -140,11 +140,11 @@ def _register_builtin_sources(registry: SourceRegistry) -> None:
     """
     from .filesystem import FileSystemSource
 
-    def filesystem_factory(collection: "Collection") -> DocumentSource:
-        """Create a FileSystemSource from collection configuration."""
+    def filesystem_factory(source_collection: "SourceCollection") -> DocumentSource:
+        """Create a FileSystemSource from source collection configuration."""
         config = SourceConfig(
-            uri=collection.get_source_uri(),
-            extra=collection.get_source_config_dict(),
+            uri=source_collection.get_source_uri(),
+            extra=source_collection.get_source_config_dict(),
         )
         return FileSystemSource(config)
 

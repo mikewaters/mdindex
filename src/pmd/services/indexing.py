@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Callable, Awaitable
 
 from loguru import logger
 
-from pmd.core.exceptions import CollectionNotFoundError
-from pmd.core.types import Collection
+from pmd.core.exceptions import SourceCollectionNotFoundError
+from pmd.core.types import SourceCollection
 from pmd.search.text import is_indexable
 from pmd.sources import (
     DocumentReference,
@@ -28,7 +28,7 @@ from pmd.metadata import (
 )
 from pmd.store.source_metadata import SourceMetadata, SourceMetadataRepository
 from pmd.app.types import (
-    CollectionRepositoryProtocol,
+    SourceCollectionRepositoryProtocol,
     DatabaseProtocol,
     DocumentRepositoryProtocol,
     EmbeddingGeneratorProtocol,
@@ -93,7 +93,7 @@ class IndexingService:
 
         indexing = IndexingService(
             db=db,
-            collection_repo=collection_repo,
+            source_collection_repo=source_collection_repo,
             document_repo=document_repo,
             fts_repo=fts_repo,
             embedding_repo=embedding_repo,
@@ -110,7 +110,7 @@ class IndexingService:
         self,
         # Explicit dependencies (new API)
         db: DatabaseProtocol | None = None,
-        collection_repo: CollectionRepositoryProtocol | None = None,
+        source_collection_repo: SourceCollectionRepositoryProtocol | None = None,
         document_repo: DocumentRepositoryProtocol | None = None,
         fts_repo: FTSRepositoryProtocol | None = None,
         embedding_repo: EmbeddingRepositoryProtocol | None = None,
@@ -125,7 +125,7 @@ class IndexingService:
 
         Args:
             db: Database for direct SQL operations.
-            collection_repo: Repository for collection operations.
+            source_collection_repo: Repository for collection operations.
             document_repo: Repository for document operations.
             fts_repo: Repository for FTS indexing.
             embedding_repo: Repository for embedding storage.
@@ -148,7 +148,7 @@ class IndexingService:
             )
             self._container = container
             self._db = container.db
-            self._collection_repo = container.collection_repo
+            self._source_collection_repo = container.source_collection_repo
             self._document_repo = container.document_repo
             self._fts_repo = container.fts_repo
             self._embedding_repo = container.embedding_repo
@@ -156,12 +156,12 @@ class IndexingService:
             self._llm_available_check = container.is_llm_available
         else:
             self._container = None
-            if db is None or collection_repo is None or document_repo is None or fts_repo is None:
+            if db is None or source_collection_repo is None or document_repo is None or fts_repo is None:
                 raise ValueError(
-                    "IndexingService requires db, collection_repo, document_repo, and fts_repo"
+                    "IndexingService requires db, source_collection_repo, document_repo, and fts_repo"
                 )
             self._db = db
-            self._collection_repo = collection_repo
+            self._source_collection_repo = source_collection_repo
             self._document_repo = document_repo
             self._fts_repo = fts_repo
             self._embedding_repo = embedding_repo
@@ -188,7 +188,7 @@ class IndexingService:
         """
         return cls(
             db=container.db,
-            collection_repo=container.collection_repo,
+            source_collection_repo=container.source_collection_repo,
             document_repo=container.document_repo,
             fts_repo=container.fts_repo,
             embedding_repo=container.embedding_repo,
@@ -224,16 +224,16 @@ class IndexingService:
             IndexResult with counts of indexed, skipped, and errored files.
 
         Raises:
-            CollectionNotFoundError: If collection does not exist.
+            SourceCollectionNotFoundError: If collection does not exist.
             SourceListError: If the source cannot enumerate documents.
         """
-        collection = self._collection_repo.get_by_name(collection_name)
-        if not collection:
-            raise CollectionNotFoundError(f"Collection '{collection_name}' not found")
+        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        if not source_collection:
+            raise SourceCollectionNotFoundError(f"Collection '{collection_name}' not found")
 
         logger.info(
-            f"Indexing collection: name={collection.name!r}, "
-            f"source_type={collection.source_type!r}, force={force}"
+            f"Indexing collection: name={source_collection.name!r}, "
+            f"source_type={source_collection.source_type!r}, force={force}"
         )
         start_time = time.perf_counter()
 
@@ -247,21 +247,21 @@ class IndexingService:
         else:
             # Legacy path: resolve source and iterate directly
             if source is None:
-                source = self._source_registry.create_source(collection)
+                source = self._source_registry.create_source(source_collection)
             result = await self._index_via_legacy(
-                collection=collection,
+                source_collection=source_collection,
                 source=source,
                 force=force,
             )
 
         elapsed = (time.perf_counter() - start_time) * 1000
         logger.info(
-            f"Indexing complete: name={collection.name!r}, indexed={result.indexed}, "
+            f"Indexing complete: name={source_collection.name!r}, indexed={result.indexed}, "
             f"skipped={result.skipped}, errors={len(result.errors)}, {elapsed:.1f}ms"
         )
 
         if embed:
-            await self.embed_collection(collection.name, force=force)
+            await self.embed_collection(source_collection.name, force=force)
 
         return result
 
@@ -331,14 +331,14 @@ class IndexingService:
 
     async def _index_via_legacy(
         self,
-        collection: Collection,
+        source_collection: SourceCollection,
         source: DocumentSource,
         force: bool,
     ) -> IndexResult:
         """Index collection using the legacy direct iteration path.
 
         Args:
-            collection: Collection to index.
+            source_collection: SourceCollection to index.
             source: Document source.
             force: If True, reindex all.
 
@@ -356,7 +356,7 @@ class IndexingService:
             for ref in source.list_documents():
                 try:
                     result = await self._index_document(
-                        collection=collection,
+                        source_collection=source_collection,
                         source=source,
                         ref=ref,
                         source_metadata_repo=metadata_repo,
@@ -385,7 +385,7 @@ class IndexingService:
 
     async def _index_document(
         self,
-        collection: Collection,
+        source_collection: SourceCollection,
         source: DocumentSource,
         ref: DocumentReference,
         source_metadata_repo: "SourceMetadataRepository",
@@ -406,8 +406,8 @@ class IndexingService:
         from ..utils.hashing import sha256_hash
 
         # Get existing document and metadata for change detection
-        existing_doc = self._document_repo.get(collection.id, ref.path)
-        doc_id = self._get_document_id(collection.id, ref.path) if existing_doc else None
+        existing_doc = self._document_repo.get(source_collection.id, ref.path)
+        doc_id = self._get_document_id(source_collection.id, ref.path) if existing_doc else None
         stored_metadata = {}
         document_metadata_repo = DocumentMetadataRepository(self._db) # type: ignore
 
@@ -446,14 +446,14 @@ class IndexingService:
 
         # Store document
         doc_result, is_new = self._document_repo.add_or_update(
-            collection.id,
+            source_collection.id,
             ref.path,
             title,
             content,
         )
 
         # Get document ID for FTS indexing
-        doc_id = self._get_document_id(collection.id, ref.path)
+        doc_id = self._get_document_id(source_collection.id, ref.path)
 
         # Index in FTS5 if document has sufficient quality
         if doc_id is not None:
@@ -533,13 +533,13 @@ class IndexingService:
         """
         # Store document
         doc_result, is_new = self._document_repo.add_or_update(
-            doc.collection_id,
+            doc.source_collection_id,
             doc.path,
             doc.title,
             doc.content,
         )
 
-        doc_id = self._get_document_id(doc.collection_id, doc.path)
+        doc_id = self._get_document_id(doc.source_collection_id, doc.path)
 
         # Index in FTS5 if document has sufficient quality
         if doc_id is not None:
@@ -582,19 +582,19 @@ class IndexingService:
         Returns:
             Number of documents marked inactive.
         """
-        collection = self._collection_repo.get_by_name(collection_name)
-        if not collection:
+        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        if not source_collection:
             return 0
 
-        all_docs = self._document_repo.list_by_collection(collection.id, active_only=True)
+        all_docs = self._document_repo.list_by_collection(source_collection.id, active_only=True)
 
         stale_count = 0
         for doc in all_docs:
             if doc.filepath not in seen_paths:
                 # Mark document as inactive (soft delete)
-                self._document_repo.delete(collection.id, doc.filepath)
+                self._document_repo.delete(source_collection.id, doc.filepath)
                 # Remove from FTS
-                doc_id = self._get_document_id(collection.id, doc.filepath)
+                doc_id = self._get_document_id(source_collection.id, doc.filepath)
                 if doc_id is not None:
                     self._fts_repo.remove_from_index(doc_id)
                 stale_count += 1
@@ -616,7 +616,7 @@ class IndexingService:
             EmbedResult with embedding counts.
 
         Raises:
-            CollectionNotFoundError: If collection does not exist.
+            SourceCollectionNotFoundError: If collection does not exist.
             RuntimeError: If vector storage or LLM provider is not available.
         """
         if not self.vec_available:
@@ -627,11 +627,11 @@ class IndexingService:
         if self._llm_available_check and not await self._llm_available_check():
             raise RuntimeError("LLM provider not available (is it running?)")
 
-        collection = self._collection_repo.get_by_name(collection_name)
-        if not collection:
-            raise CollectionNotFoundError(f"Collection '{collection_name}' not found")
+        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        if not source_collection:
+            raise SourceCollectionNotFoundError(f"Collection '{collection_name}' not found")
 
-        logger.info(f"Embedding collection: name={collection.name!r}, force={force}")
+        logger.info(f"Embedding collection: name={source_collection.name!r}, force={force}")
         start_time = time.perf_counter()
 
         # Get embedding generator
@@ -645,9 +645,9 @@ class IndexingService:
             SELECT d.path, d.hash, c.doc
             FROM documents d
             JOIN content c ON d.hash = c.hash
-            WHERE d.collection_id = ? AND d.active = 1
+            WHERE d.source_collection_id = ? AND d.active = 1
             """,
-            (collection.id,),
+            (source_collection.id,),
         )
         documents = cursor.fetchall()
 
@@ -675,7 +675,7 @@ class IndexingService:
 
         elapsed = (time.perf_counter() - start_time) * 1000
         logger.info(
-            f"Embedding complete: name={collection.name!r}, embedded={embedded_count}, "
+            f"Embedding complete: name={source_collection.name!r}, embedded={embedded_count}, "
             f"skipped={skipped_count}, chunks={chunks_total}, {elapsed:.1f}ms"
         )
 
@@ -697,27 +697,27 @@ class IndexingService:
         logger.info("Updating all collections")
         start_time = time.perf_counter()
 
-        collections = self._collection_repo.list_all()
+        source_collections = self._source_collection_repo.list_all()
         results: dict[str, IndexResult] = {}
 
-        for collection in collections:
+        for source_collection in source_collections:
             try:
-                source = self._source_registry.create_source(collection)
+                source = self._source_registry.create_source(source_collection)
                 result = await self.index_collection(
-                    collection.name,
+                    source_collection.name,
                     force=False,
                     embed=embed,
                     source=source,
                 )
-                results[collection.name] = result
+                results[source_collection.name] = result
             except Exception as e:
-                logger.error(f"Failed to update collection {collection.name}: {e}")
-                results[collection.name] = IndexResult(indexed=0, skipped=0, errors=[(collection.name, str(e))])
+                logger.error(f"Failed to update collection {source_collection.name}: {e}")
+                results[source_collection.name] = IndexResult(indexed=0, skipped=0, errors=[(source_collection.name, str(e))])
 
         elapsed = (time.perf_counter() - start_time) * 1000
         total_indexed = sum(r.indexed for r in results.values())
         logger.info(
-            f"Update complete: {len(collections)} collections, "
+            f"Update complete: {len(source_collections)} collections, "
             f"{total_indexed} documents indexed, {elapsed:.1f}ms"
         )
 
@@ -780,19 +780,19 @@ class IndexingService:
             orphaned_embeddings=orphaned_embeddings,
         )
 
-    def _get_document_id(self, collection_id: int, path: str) -> int | None:
+    def _get_document_id(self, source_collection_id: int, path: str) -> int | None:
         """Get document ID for FTS indexing.
 
         Args:
-            collection_id: Collection ID.
+            source_collection_id: Source collection ID.
             path: Document path.
 
         Returns:
             Document ID or None if not found.
         """
         cursor = self._db.execute(
-            "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
-            (collection_id, path),
+            "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
+            (source_collection_id, path),
         )
         row = cursor.fetchone()
         return row["id"] if row else None
@@ -801,15 +801,15 @@ class IndexingService:
         self,
         content: str,
         path: str,
-        collection: Collection,
+        source_collection: SourceCollection,
     ) -> ExtractedMetadata | None:
         """Extract document metadata using profile auto-detection."""
         try:
             registry = get_default_profile_registry()
 
             profile_name = None
-            if collection.source_config:
-                profile_name = collection.source_config.get("metadata_profile")
+            if source_collection.source_config:
+                profile_name = source_collection.source_config.get("metadata_profile")
 
             if profile_name:
                 profile = registry.get(profile_name)
@@ -926,7 +926,7 @@ class IndexingService:
                     """
                     SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d
-                    JOIN collections c ON d.collection_id = c.id
+                    JOIN source_collections c ON d.source_collection_id = c.id
                     JOIN content ct ON d.hash = ct.hash
                     WHERE d.active = 1 AND c.name = ?
                     """,
@@ -937,7 +937,7 @@ class IndexingService:
                     """
                     SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d
-                    JOIN collections c ON d.collection_id = c.id
+                    JOIN source_collections c ON d.source_collection_id = c.id
                     JOIN content ct ON d.hash = ct.hash
                     WHERE d.active = 1
                     """
@@ -949,7 +949,7 @@ class IndexingService:
                     """
                     SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d
-                    JOIN collections c ON d.collection_id = c.id
+                    JOIN source_collections c ON d.source_collection_id = c.id
                     JOIN content ct ON d.hash = ct.hash
                     LEFT JOIN document_metadata dm ON d.id = dm.document_id
                     WHERE d.active = 1 AND c.name = ? AND dm.id IS NULL
@@ -961,7 +961,7 @@ class IndexingService:
                     """
                     SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d
-                    JOIN collections c ON d.collection_id = c.id
+                    JOIN source_collections c ON d.source_collection_id = c.id
                     JOIN content ct ON d.hash = ct.hash
                     LEFT JOIN document_metadata dm ON d.id = dm.document_id
                     WHERE d.active = 1 AND dm.id IS NULL
@@ -988,7 +988,7 @@ class IndexingService:
                 # Create a minimal collection object for the extraction
                 import json
                 parsed_config = json.loads(source_config) if source_config else {}
-                collection = Collection(
+                source_collection = SourceCollection(
                     id=0,  # Not needed for extraction
                     name=row["collection_name"],
                     pwd="",  # Not needed for extraction
@@ -998,7 +998,7 @@ class IndexingService:
                     source_config=parsed_config,
                 )
 
-                metadata = self._extract_metadata_via_profiles(body, path, collection)
+                metadata = self._extract_metadata_via_profiles(body, path, source_collection)
                 if metadata:
                     self._persist_document_metadata(doc_id, metadata, metadata_repo)
                     stats["updated"] += 1

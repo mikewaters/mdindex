@@ -10,7 +10,7 @@ from loguru import logger
 
 from ..core.types import IndexStatus
 from ..app.types import (
-    CollectionRepositoryProtocol,
+    SourceCollectionRepositoryProtocol,
     DatabaseProtocol,
 )
 
@@ -30,7 +30,7 @@ class StatusService:
 
         status_service = StatusService(
             db=db,
-            collection_repo=collection_repo,
+            source_collection_repo=source_collection_repo,
             db_path=config.db_path,
         )
         status = status_service.get_index_status()
@@ -45,7 +45,7 @@ class StatusService:
         self,
         # Explicit dependencies (new API)
         db: DatabaseProtocol | None = None,
-        collection_repo: CollectionRepositoryProtocol | None = None,
+        source_collection_repo: SourceCollectionRepositoryProtocol | None = None,
         db_path: Path | None = None,
         llm_provider: str = "unknown",
         llm_available_check: Callable[[], Awaitable[bool]] | None = None,
@@ -56,7 +56,7 @@ class StatusService:
 
         Args:
             db: Database for direct SQL operations.
-            collection_repo: Repository for collection operations.
+            source_collection_repo: Repository for source collection operations.
             db_path: Path to the database file.
             llm_provider: Name of the LLM provider.
             llm_available_check: Async function to check if LLM is available.
@@ -72,18 +72,18 @@ class StatusService:
             )
             self._container = container
             self._db = container.db
-            self._collection_repo = container.collection_repo
+            self._source_collection_repo = container.source_collection_repo
             self._db_path = container.config.db_path
             self._llm_provider = container.config.llm_provider
             self._llm_available_check = container.is_llm_available
         else:
             self._container = None
-            if db is None or collection_repo is None:
+            if db is None or source_collection_repo is None:
                 raise ValueError(
-                    "StatusService requires db and collection_repo"
+                    "StatusService requires db and source_collection_repo"
                 )
             self._db = db
-            self._collection_repo = collection_repo
+            self._source_collection_repo = source_collection_repo
             self._db_path = db_path
             self._llm_provider = llm_provider
             self._llm_available_check = llm_available_check
@@ -103,7 +103,7 @@ class StatusService:
         """
         return cls(
             db=container.db,
-            collection_repo=container.collection_repo,
+            source_collection_repo=container.source_collection_repo,
             db_path=container.config.db_path,
             llm_provider=container.config.llm_provider,
             llm_available_check=container.is_llm_available,
@@ -122,7 +122,7 @@ class StatusService:
         """
         logger.debug("Getting index status")
 
-        collections = self._collection_repo.list_all()
+        source_collections = self._source_collection_repo.list_all()
 
         # Count total documents
         cursor = self._db.execute(
@@ -155,12 +155,12 @@ class StatusService:
             cache_entries = cursor.fetchone()["count"]
 
         logger.debug(
-            f"Index status: collections={len(collections)}, "
+            f"Index status: source_collections={len(source_collections)}, "
             f"documents={total_documents}, embedded={embedded_documents}"
         )
 
         return IndexStatus(
-            collections=collections,
+            source_collections=source_collections,
             total_documents=total_documents,
             embedded_documents=embedded_documents,
             index_size_bytes=index_size_bytes,
@@ -183,14 +183,14 @@ class StatusService:
             llm_available = await self._llm_available_check()
 
         return {
-            "collections_count": len(index_status.collections),
-            "collections": [
+            "source_collections_count": len(index_status.source_collections),
+            "source_collections": [
                 {
                     "name": c.name,
                     "path": c.pwd,
                     "glob_pattern": c.glob_pattern,
                 }
-                for c in index_status.collections
+                for c in index_status.source_collections
             ],
             "total_documents": index_status.total_documents,
             "embedded_documents": index_status.embedded_documents,
@@ -211,18 +211,18 @@ class StatusService:
         Returns:
             Dictionary with collection statistics, or None if not found.
         """
-        collection = self._collection_repo.get_by_name(collection_name)
-        if not collection:
+        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        if not source_collection:
             return None
 
-        # Count documents in collection
+        # Count documents in source collection
         cursor = self._db.execute(
-            "SELECT COUNT(*) as count FROM documents WHERE collection_id = ? AND active = 1",
-            (collection.id,),
+            "SELECT COUNT(*) as count FROM documents WHERE source_collection_id = ? AND active = 1",
+            (source_collection.id,),
         )
         doc_count = cursor.fetchone()["count"]
 
-        # Count embedded documents in collection
+        # Count embedded documents in source collection
         embedded_count = 0
         if self.vec_available:
             cursor = self._db.execute(
@@ -230,20 +230,20 @@ class StatusService:
                 SELECT COUNT(DISTINCT d.hash) as count
                 FROM documents d
                 JOIN content_vectors cv ON d.hash = cv.hash
-                WHERE d.collection_id = ? AND d.active = 1
+                WHERE d.source_collection_id = ? AND d.active = 1
                 """,
-                (collection.id,),
+                (source_collection.id,),
             )
             embedded_count = cursor.fetchone()["count"]
 
         return {
-            "name": collection.name,
-            "path": collection.pwd,
-            "glob_pattern": collection.glob_pattern,
+            "name": source_collection.name,
+            "path": source_collection.pwd,
+            "glob_pattern": source_collection.glob_pattern,
             "documents": doc_count,
             "embedded": embedded_count,
-            "created_at": collection.created_at,
-            "updated_at": collection.updated_at,
+            "created_at": source_collection.created_at,
+            "updated_at": source_collection.updated_at,
         }
 
     def get_index_sync_report(
@@ -260,18 +260,18 @@ class StatusService:
         Returns:
             Dictionary with counts and sample paths for mismatches.
         """
-        collection_id = None
+        source_collection_id = None
         if collection_name:
-            collection = self._collection_repo.get_by_name(collection_name)
-            if not collection:
-                return {"error": f"Collection '{collection_name}' not found"}
-            collection_id = collection.id
+            source_collection = self._source_collection_repo.get_by_name(collection_name)
+            if not source_collection:
+                return {"error": f"Source collection '{collection_name}' not found"}
+            source_collection_id = source_collection.id
 
         params: tuple = ()
         collection_filter = ""
-        if collection_id is not None:
-            collection_filter = "AND d.collection_id = ?"
-            params = (collection_id,)
+        if source_collection_id is not None:
+            collection_filter = "AND d.source_collection_id = ?"
+            params = (source_collection_id,)
 
         # Documents missing FTS entries
         missing_fts_count = self._db.execute(

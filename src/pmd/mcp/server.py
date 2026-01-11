@@ -1,7 +1,7 @@
 """MCP server for PMD."""
 
 from ..core.config import Config
-from ..core.exceptions import CollectionNotFoundError
+from ..core.exceptions import SourceCollectionNotFoundError
 from ..services import ServiceContainer
 
 
@@ -111,12 +111,12 @@ class PMDMCPServer:
         Returns:
             Document content and metadata.
         """
-        coll = self.services.collection_repo.get_by_name(collection)
+        source_collection = self.services.source_collection_repo.get_by_name(collection)
 
-        if not coll:
-            return {"error": f"Collection '{collection}' not found"}
+        if not source_collection:
+            return {"error": f"Source collection '{collection}' not found"}
 
-        doc = self.services.document_repo.get(coll.id, path)
+        doc = self.services.document_repo.get(source_collection.id, path)
 
         if not doc:
             return {"error": f"Document '{path}' not found in collection '{collection}'"}
@@ -135,17 +135,17 @@ class PMDMCPServer:
         Returns:
             List of collections.
         """
-        collections = self.services.collection_repo.list_all()
+        source_collections = self.services.source_collection_repo.list_all()
 
         return {
-            "collections_count": len(collections),
-            "collections": [
+            "source_collections_count": len(source_collections),
+            "source_collections": [
                 {
                     "name": c.name,
                     "path": c.pwd,
                     "glob_pattern": c.glob_pattern,
                 }
-                for c in collections
+                for c in source_collections
             ],
         }
 
@@ -186,7 +186,7 @@ class PMDMCPServer:
                 "skipped": result.skipped,
                 "errors": len(result.errors),
             }
-        except CollectionNotFoundError as e:
+        except SourceCollectionNotFoundError as e:
             return {
                 "success": False,
                 "error": str(e),

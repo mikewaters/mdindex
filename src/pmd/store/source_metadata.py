@@ -177,13 +177,13 @@ class SourceMetadataRepository:
 
     def get_stale_documents(
         self,
-        collection_id: int,
+        source_collection_id: int,
         max_age_seconds: int = 3600,
     ) -> list[int]:
         """Get document IDs that need refresh in a collection.
 
         Args:
-            collection_id: Collection to check.
+            source_collection_id: Collection to check.
             max_age_seconds: Maximum age in seconds.
 
         Returns:
@@ -197,10 +197,10 @@ class SourceMetadataRepository:
             """
             SELECT d.id FROM documents d
             LEFT JOIN source_metadata sm ON d.id = sm.document_id
-            WHERE d.collection_id = ? AND d.active = 1
+            WHERE d.source_collection_id = ? AND d.active = 1
             AND (sm.id IS NULL OR sm.last_fetched_at < ?)
             """,
-            (collection_id, cutoff),
+            (source_collection_id, cutoff),
         )
         return [row["id"] for row in cursor.fetchall()]
 

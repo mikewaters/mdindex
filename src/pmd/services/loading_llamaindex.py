@@ -77,7 +77,7 @@ class LlamaIndexLoaderAdapter:
         """Load all documents from the loader.
 
         Returns:
-            List of LoadedDocument instances (with collection_id=0, to be
+            List of LoadedDocument instances (with source_collection_id=0, to be
             injected by LoadingService).
 
         Raises:
@@ -179,7 +179,7 @@ class LlamaIndexLoaderAdapter:
             fetch_result=fetch_result,
             title=title,
             fetch_duration_ms=fetch_duration_ms,
-            collection_id=0,  # Will be injected by LoadingService
+            source_collection_id=0,  # Will be injected by LoadingService
             extracted_metadata=extracted_metadata,
         )
 

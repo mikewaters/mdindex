@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 
 from pmd.store.database import Database
-from pmd.store.collections import CollectionRepository
+from pmd.store.collections import SourceCollectionRepository
 from pmd.store.documents import DocumentRepository
 from pmd.store.embeddings import EmbeddingRepository
 from pmd.store.search import FTS5SearchRepository
@@ -32,9 +32,16 @@ def db(test_db_path: Path) -> Database:
 
 
 @pytest.fixture
-def collection_repo(db: Database) -> CollectionRepository:
-    """Provide a CollectionRepository instance."""
-    return CollectionRepository(db)
+def source_collection_repo(db: Database) -> SourceCollectionRepository:
+    """Provide a SourceCollectionRepository instance."""
+    return SourceCollectionRepository(db)
+
+
+# Backwards compatibility alias
+@pytest.fixture
+def collection_repo(source_collection_repo: SourceCollectionRepository) -> SourceCollectionRepository:
+    """Provide a SourceCollectionRepository instance (deprecated alias for source_collection_repo)."""
+    return source_collection_repo
 
 
 @pytest.fixture
@@ -63,20 +70,27 @@ def search_repo(fts_repo: FTS5SearchRepository) -> FTS5SearchRepository:
 
 
 @pytest.fixture
-def sample_collection(collection_repo: CollectionRepository, tmp_path: Path):
-    """Create a sample collection for testing."""
-    return collection_repo.create("test-collection", str(tmp_path), "**/*.md")
+def sample_source_collection(source_collection_repo: SourceCollectionRepository, tmp_path: Path):
+    """Create a sample source collection for testing."""
+    return source_collection_repo.create("test-collection", str(tmp_path), "**/*.md")
+
+
+# Backwards compatibility alias
+@pytest.fixture
+def sample_collection(sample_source_collection):
+    """Create a sample collection for testing (deprecated alias for sample_source_collection)."""
+    return sample_source_collection
 
 
 @pytest.fixture
 def sample_document(
     document_repo: DocumentRepository,
-    sample_collection,
+    sample_source_collection,
 ) -> tuple:
     """Create a sample document for testing."""
     content = "# Test Document\n\nThis is test content for search testing."
     doc, is_new = document_repo.add_or_update(
-        sample_collection.id,
+        sample_source_collection.id,
         "test.md",
         "Test Document",
         content,

@@ -30,7 +30,8 @@ from .types import (
     # Database protocol
     DatabaseProtocol,
     # Repository protocols
-    CollectionRepositoryProtocol,
+    SourceCollectionRepositoryProtocol,
+    CollectionRepositoryProtocol,  # Deprecated alias
     DocumentRepositoryProtocol,
     FTSRepositoryProtocol,
     EmbeddingRepositoryProtocol,
@@ -50,7 +51,8 @@ from .types import (
     ConfigProtocol,
     SearchConfigProtocol,
     # Type aliases
-    CollectionRepo,
+    SourceCollectionRepo,
+    CollectionRepo,  # Deprecated alias
     DocumentRepo,
     FTSRepo,
     EmbeddingRepo,
@@ -63,7 +65,8 @@ __all__ = [
     # Database
     "DatabaseProtocol",
     # Repositories
-    "CollectionRepositoryProtocol",
+    "SourceCollectionRepositoryProtocol",
+    "CollectionRepositoryProtocol",  # Deprecated alias
     "DocumentRepositoryProtocol",
     "FTSRepositoryProtocol",
     "EmbeddingRepositoryProtocol",
@@ -83,7 +86,8 @@ __all__ = [
     "ConfigProtocol",
     "SearchConfigProtocol",
     # Aliases
-    "CollectionRepo",
+    "SourceCollectionRepo",
+    "CollectionRepo",  # Deprecated alias
     "DocumentRepo",
     "FTSRepo",
     "EmbeddingRepo",
@@ -192,7 +196,7 @@ async def create_application(config: "Config") -> Application:
     """
     # Lazy imports to avoid circular dependencies
     from pmd.store.database import Database
-    from pmd.store.collections import CollectionRepository
+    from pmd.store.collections import SourceCollectionRepository
     from pmd.store.documents import DocumentRepository
     from pmd.store.search import FTS5SearchRepository
     from pmd.store.embeddings import EmbeddingRepository
@@ -215,7 +219,7 @@ async def create_application(config: "Config") -> Application:
     db.connect()
 
     # Create repositories
-    collection_repo = CollectionRepository(db)
+    source_source_collection_repo = SourceCollectionRepository(db)
     document_repo = DocumentRepository(db)
     fts_repo = FTS5SearchRepository(db)
     embedding_repo = EmbeddingRepository(db)
@@ -270,7 +274,7 @@ async def create_application(config: "Config") -> Application:
     # Create loading service
     loading = LoadingService(
         db=db,
-        collection_repo=collection_repo,
+        source_collection_repo=source_collection_repo,
         document_repo=document_repo,
         source_metadata_repo=source_metadata_repo,
         source_registry=source_registry,
@@ -279,7 +283,7 @@ async def create_application(config: "Config") -> Application:
     # Create services with explicit dependencies
     indexing = IndexingService(
         db=db,
-        collection_repo=collection_repo,
+        source_collection_repo=source_collection_repo,
         document_repo=document_repo,
         fts_repo=fts_repo,
         embedding_repo=embedding_repo,
@@ -292,7 +296,7 @@ async def create_application(config: "Config") -> Application:
     search = SearchService(
         db=db,
         fts_repo=fts_repo,
-        collection_repo=collection_repo,
+        source_collection_repo=source_collection_repo,
         embedding_repo=embedding_repo,
         embedding_generator_factory=get_embedding_generator,  # type: ignore
         query_expander_factory=get_query_expander,  # type: ignore
@@ -309,7 +313,7 @@ async def create_application(config: "Config") -> Application:
 
     status = StatusService(
         db=db,
-        collection_repo=collection_repo,
+        source_collection_repo=source_collection_repo,
         db_path=config.db_path,
         llm_provider=config.llm_provider,
         llm_available_check=is_llm_available,

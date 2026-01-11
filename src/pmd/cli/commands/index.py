@@ -3,7 +3,7 @@
 import asyncio
 
 from pmd.core.config import Config
-from pmd.core.exceptions import CollectionNotFoundError
+from pmd.core.exceptions import SourceSourceCollectionNotFoundError
 from pmd.services import ServiceContainer
 
 
@@ -63,7 +63,7 @@ async def _handle_index_async(args, config: Config) -> None:
                 for path, error in result.errors[:5]:  # Show first 5 errors
                     print(f"    {path}: {error}")
 
-        except CollectionNotFoundError as e:
+        except SourceCollectionNotFoundError as e:
             print(f"Error: {e}")
             raise SystemExit(1)
 
@@ -96,7 +96,7 @@ async def _handle_embed_async(args, config: Config) -> None:
             if result.chunks_total > 0:
                 print(f"  Total chunks: {result.chunks_total}")
 
-        except CollectionNotFoundError as e:
+        except SourceCollectionNotFoundError as e:
             print(f"Error: {e}")
             raise SystemExit(1)
         except RuntimeError as e:

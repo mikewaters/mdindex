@@ -22,7 +22,7 @@ class DocumentRepository:
         self.db = db
 
     def add_or_update(
-        self, collection_id: int, path: str, title: str, content: str
+        self, source_collection_id: int, path: str, title: str, content: str
     ) -> tuple[DocumentResult, bool]:
         """Add or update a document.
 
@@ -30,7 +30,7 @@ class DocumentRepository:
         and references it from documents table via hash.
 
         Args:
-            collection_id: ID of the collection.
+            source_collection_id: ID of the collection.
             path: Document path relative to collection.
             title: Document title.
             content: Document content.
@@ -58,9 +58,9 @@ class DocumentRepository:
             cursor.execute(
                 """
                 SELECT id FROM documents
-                WHERE collection_id = ? AND path = ?
+                WHERE source_collection_id = ? AND path = ?
                 """,
-                (collection_id, path),
+                (source_collection_id, path),
             )
             existing = cursor.fetchone()
 
@@ -70,9 +70,9 @@ class DocumentRepository:
                     """
                     UPDATE documents
                     SET title = ?, hash = ?, modified_at = ?, active = 1
-                    WHERE collection_id = ? AND path = ?
+                    WHERE source_collection_id = ? AND path = ?
                     """,
-                    (title, hash_value, now, collection_id, path),
+                    (title, hash_value, now, source_collection_id, path),
                 )
                 is_new = False
                 logger.debug(f"Document updated: path={path!r}")
@@ -81,10 +81,10 @@ class DocumentRepository:
                 cursor.execute(
                     """
                     INSERT INTO documents
-                    (collection_id, path, title, hash, modified_at, active)
+                    (source_collection_id, path, title, hash, modified_at, active)
                     VALUES (?, ?, ?, ?, ?, 1)
                     """,
-                    (collection_id, path, title, hash_value, now),
+                    (source_collection_id, path, title, hash_value, now),
                 )
                 is_new = True
                 logger.debug(f"Document created: path={path!r}")
@@ -96,7 +96,7 @@ class DocumentRepository:
                 title=title,
                 context=None,
                 hash=hash_value,
-                collection_id=collection_id,
+                source_collection_id=source_collection_id,
                 modified_at=now,
                 body_length=len(content),
                 body=content,
@@ -104,11 +104,11 @@ class DocumentRepository:
             is_new,
         )
 
-    def get(self, collection_id: int, path: str) -> DocumentResult | None:
+    def get(self, source_collection_id: int, path: str) -> DocumentResult | None:
         """Retrieve a document by path.
 
         Args:
-            collection_id: ID of the collection.
+            source_collection_id: ID of the collection.
             path: Document path relative to collection.
 
         Returns:
@@ -118,9 +118,9 @@ class DocumentRepository:
             """
             SELECT d.*, c.doc FROM documents d
             JOIN content c ON d.hash = c.hash
-            WHERE d.collection_id = ? AND d.path = ? AND d.active = 1
+            WHERE d.source_collection_id = ? AND d.path = ? AND d.active = 1
             """,
-            (collection_id, path),
+            (source_collection_id, path),
         )
         row = cursor.fetchone()
         return self._row_to_document(row) if row else None
@@ -138,11 +138,11 @@ class DocumentRepository:
         row = cursor.fetchone()
         return row["doc"] if row else None
 
-    def list_by_collection(self, collection_id: int, active_only: bool = True) -> list[DocumentResult]:
+    def list_by_collection(self, source_collection_id: int, active_only: bool = True) -> list[DocumentResult]:
         """List all documents in a collection.
 
         Args:
-            collection_id: ID of the collection.
+            source_collection_id: ID of the collection.
             active_only: If True, only return active documents (default: True).
 
         Returns:
@@ -153,18 +153,18 @@ class DocumentRepository:
             f"""
             SELECT d.*, c.doc FROM documents d
             JOIN content c ON d.hash = c.hash
-            WHERE d.collection_id = ? {active_filter}
+            WHERE d.source_collection_id = ? {active_filter}
             ORDER BY d.path
             """,
-            (collection_id,),
+            (source_collection_id,),
         )
         return [self._row_to_document(row) for row in cursor.fetchall()]
 
-    def delete(self, collection_id: int, path: str) -> bool:
+    def delete(self, source_collection_id: int, path: str) -> bool:
         """Soft-delete a document (mark as inactive).
 
         Args:
-            collection_id: ID of the collection.
+            source_collection_id: ID of the collection.
             path: Document path relative to collection.
 
         Returns:
@@ -173,9 +173,9 @@ class DocumentRepository:
         cursor = self.db.execute(
             """
             SELECT id FROM documents
-            WHERE collection_id = ? AND path = ? AND active = 1
+            WHERE source_collection_id = ? AND path = ? AND active = 1
             """,
-            (collection_id, path),
+            (source_collection_id, path),
         )
 
         if not cursor.fetchone():
@@ -188,21 +188,21 @@ class DocumentRepository:
             cursor.execute(
                 """
                 UPDATE documents SET active = 0
-                WHERE collection_id = ? AND path = ?
+                WHERE source_collection_id = ? AND path = ?
                 """,
-                (collection_id, path),
+                (source_collection_id, path),
             )
 
         logger.debug(f"Document deleted: path={path!r}")
         return True
 
     def check_if_modified(
-        self, collection_id: int, path: str, new_hash: str
+        self, source_collection_id: int, path: str, new_hash: str
     ) -> bool:
         """Check if a document has been modified.
 
         Args:
-            collection_id: ID of the collection.
+            source_collection_id: ID of the collection.
             path: Document path relative to collection.
             new_hash: SHA256 hash of the new content.
 
@@ -212,9 +212,9 @@ class DocumentRepository:
         cursor = self.db.execute(
             """
             SELECT hash FROM documents
-            WHERE collection_id = ? AND path = ? AND active = 1
+            WHERE source_collection_id = ? AND path = ? AND active = 1
             """,
-            (collection_id, path),
+            (source_collection_id, path),
         )
         row = cursor.fetchone()
 
@@ -224,11 +224,11 @@ class DocumentRepository:
 
         return row["hash"] != new_hash
 
-    def get_content_length(self, collection_id: int, path: str) -> int | None:
+    def get_content_length(self, source_collection_id: int, path: str) -> int | None:
         """Get the length of document content.
 
         Args:
-            collection_id: ID of the collection.
+            source_collection_id: ID of the collection.
             path: Document path relative to collection.
 
         Returns:
@@ -238,18 +238,18 @@ class DocumentRepository:
             """
             SELECT LENGTH(c.doc) as len FROM documents d
             JOIN content c ON d.hash = c.hash
-            WHERE d.collection_id = ? AND d.path = ? AND d.active = 1
+            WHERE d.source_collection_id = ? AND d.path = ? AND d.active = 1
             """,
-            (collection_id, path),
+            (source_collection_id, path),
         )
         row = cursor.fetchone()
         return row["len"] if row else None
 
-    def count_by_collection(self, collection_id: int, active_only: bool = True) -> int:
+    def count_by_collection(self, source_collection_id: int, active_only: bool = True) -> int:
         """Count documents in a collection.
 
         Args:
-            collection_id: ID of the collection.
+            source_collection_id: ID of the collection.
             active_only: If True, only count active documents (default: True).
 
         Returns:
@@ -259,17 +259,17 @@ class DocumentRepository:
         cursor = self.db.execute(
             f"""
             SELECT COUNT(*) as count FROM documents
-            WHERE collection_id = ? {active_filter}
+            WHERE source_collection_id = ? {active_filter}
             """,
-            (collection_id,),
+            (source_collection_id,),
         )
         return cursor.fetchone()["count"]
 
-    def get_by_path_prefix(self, collection_id: int, prefix: str) -> list[DocumentResult]:
+    def get_by_path_prefix(self, source_collection_id: int, prefix: str) -> list[DocumentResult]:
         """Get all documents matching a path prefix.
 
         Args:
-            collection_id: ID of the collection.
+            source_collection_id: ID of the collection.
             prefix: Path prefix to match.
 
         Returns:
@@ -279,10 +279,10 @@ class DocumentRepository:
             """
             SELECT d.*, c.doc FROM documents d
             JOIN content c ON d.hash = c.hash
-            WHERE d.collection_id = ? AND d.path LIKE ? AND d.active = 1
+            WHERE d.source_collection_id = ? AND d.path LIKE ? AND d.active = 1
             ORDER BY d.path
             """,
-            (collection_id, f"{prefix}%"),
+            (source_collection_id, f"{prefix}%"),
         )
         return [self._row_to_document(row) for row in cursor.fetchall()]
 
@@ -304,7 +304,7 @@ class DocumentRepository:
             title=row["title"],
             context=None,
             hash=row["hash"],
-            collection_id=row["collection_id"],
+            source_collection_id=row["source_collection_id"],
             modified_at=row["modified_at"],
             body_length=len(content) if content else 0,
             body=content,

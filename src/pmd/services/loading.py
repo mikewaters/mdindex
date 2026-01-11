@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from loguru import logger
 
-from pmd.core.exceptions import CollectionNotFoundError
+from pmd.core.exceptions import SourceCollectionNotFoundError
 from pmd.metadata import ExtractedMetadata, get_default_profile_registry
 from pmd.sources.content.base import (
     DocumentReference,
@@ -23,11 +23,11 @@ from pmd.sources.content.base import (
 
 if TYPE_CHECKING:
     from pmd.app.types import (
-        CollectionRepositoryProtocol,
+        SourceCollectionRepositoryProtocol,
         DatabaseProtocol,
         DocumentRepositoryProtocol,
     )
-    from pmd.core.types import Collection
+    from pmd.core.types import SourceCollection
     from pmd.sources import SourceRegistry
     from pmd.store.source_metadata import SourceMetadataRepository
     from .loading_llamaindex import LlamaIndexLoaderAdapter
@@ -48,14 +48,14 @@ class LoadedDocument:
         title: Extracted or inferred title.
         fetch_duration_ms: Time taken to fetch the document.
         extracted_metadata: Metadata extracted via profiles (may override fetch_result.extracted_metadata).
-        collection_id: ID of the collection this document belongs to.
+        source_collection_id: ID of the source collection this document belongs to.
     """
 
     ref: DocumentReference
     fetch_result: FetchResult
     title: str
     fetch_duration_ms: int
-    collection_id: int
+    source_collection_id: int
     extracted_metadata: ExtractedMetadata | None = None
 
     # Convenience accessors
@@ -116,12 +116,12 @@ class LoadingService:
     """Service for loading documents from sources.
 
     Responsibilities:
-    - Resolve collection and source (via CollectionRepository + SourceRegistry).
+    - Resolve source collection and source (via SourceCollectionRepository + SourceRegistry).
     - Enumerate DocumentReference values from a DocumentSource.
     - Perform change detection using SourceMetadataRepository and DocumentSource.check_modified.
     - Fetch document content (DocumentSource.fetch_content).
     - Extract title if missing.
-    - Extract metadata via profile registry, honoring collection.source_config["metadata_profile"].
+    - Extract metadata via profile registry, honoring source_collection.source_config["metadata_profile"].
     - Track enumerated paths for stale document detection.
     - Emit normalized LoadedDocument objects.
 
@@ -132,7 +132,7 @@ class LoadingService:
     Example:
         loader = LoadingService(
             db=db,
-            collection_repo=collection_repo,
+            source_collection_repo=source_collection_repo,
             document_repo=document_repo,
             source_metadata_repo=source_metadata_repo,
             source_registry=source_registry,
@@ -145,7 +145,7 @@ class LoadingService:
     def __init__(
         self,
         db: "DatabaseProtocol",
-        collection_repo: "CollectionRepositoryProtocol",
+        source_collection_repo: "SourceCollectionRepositoryProtocol",
         document_repo: "DocumentRepositoryProtocol",
         source_metadata_repo: "SourceMetadataRepository",
         source_registry: "SourceRegistry",
@@ -154,13 +154,13 @@ class LoadingService:
 
         Args:
             db: Database for direct SQL operations.
-            collection_repo: Repository for collection operations.
+            source_collection_repo: Repository for source collection operations.
             document_repo: Repository for document operations.
             source_metadata_repo: Repository for source metadata (change detection).
             source_registry: Registry for creating document sources.
         """
         self._db = db
-        self._collection_repo = collection_repo
+        self._source_collection_repo = source_collection_repo
         self._document_repo = document_repo
         self._source_metadata_repo = source_metadata_repo
         self._source_registry = source_registry
@@ -171,30 +171,30 @@ class LoadingService:
         source: DocumentSource | None = None,
         force: bool = False,
     ) -> EagerLoadResult:
-        """Load all documents from a collection (materialized).
+        """Load all documents from a source collection (materialized).
 
         Args:
-            collection_name: Name of the collection to load.
-            source: Optional source override; resolved from collection if None.
+            collection_name: Name of the source collection to load.
+            source: Optional source override; resolved from source collection if None.
             force: If True, reload all documents regardless of change detection.
 
         Returns:
             EagerLoadResult with all documents, enumerated paths, and errors.
 
         Raises:
-            CollectionNotFoundError: If collection does not exist.
+            SourceCollectionNotFoundError: If source collection does not exist.
             SourceListError: If the source cannot enumerate documents.
         """
-        collection = self._collection_repo.get_by_name(collection_name)
-        if not collection:
-            raise CollectionNotFoundError(f"Collection '{collection_name}' not found")
+        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        if not source_collection:
+            raise SourceCollectionNotFoundError(f"Source collection '{collection_name}' not found")
 
         # Resolve source if not provided
         if source is None:
-            source = self._source_registry.create_source(collection)
+            source = self._source_registry.create_source(source_collection)
 
         logger.debug(
-            f"Loading collection (eager): name={collection.name!r}, force={force}"
+            f"Loading source collection (eager): name={source_collection.name!r}, force={force}"
         )
 
         # Enumerate all document references
@@ -213,7 +213,7 @@ class LoadingService:
         for ref in refs:
             try:
                 doc = await self._load_document(
-                    collection=collection,
+                    source_collection=source_collection,
                     source=source,
                     ref=ref,
                     force=force,
@@ -243,11 +243,11 @@ class LoadingService:
         source: DocumentSource | None = None,
         force: bool = False,
     ) -> LoadResult:
-        """Load documents from a collection as a stream.
+        """Load documents from a source collection as a stream.
 
         Args:
-            collection_name: Name of the collection to load.
-            source: Optional source override; resolved from collection if None.
+            collection_name: Name of the source collection to load.
+            source: Optional source override; resolved from source collection if None.
             force: If True, reload all documents regardless of change detection.
 
         Returns:
@@ -256,19 +256,19 @@ class LoadingService:
             documents are yielded. Errors accumulate as iteration proceeds.
 
         Raises:
-            CollectionNotFoundError: If collection does not exist.
+            SourceCollectionNotFoundError: If source collection does not exist.
             SourceListError: If the source cannot enumerate documents.
         """
-        collection = self._collection_repo.get_by_name(collection_name)
-        if not collection:
-            raise CollectionNotFoundError(f"Collection '{collection_name}' not found")
+        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        if not source_collection:
+            raise SourceCollectionNotFoundError(f"Source collection '{collection_name}' not found")
 
         # Resolve source if not provided
         if source is None:
-            source = self._source_registry.create_source(collection)
+            source = self._source_registry.create_source(source_collection)
 
         logger.debug(
-            f"Loading collection (stream): name={collection.name!r}, force={force}"
+            f"Loading source collection (stream): name={source_collection.name!r}, force={force}"
         )
 
         # Enumerate all document references first (for stale detection)
@@ -284,7 +284,7 @@ class LoadingService:
         errors: list[tuple[str, str]] = []
         result = LoadResult(
             documents=self._stream_documents(
-                collection=collection,
+                source_collection=source_collection,
                 source=source,
                 refs=refs,
                 force=force,
@@ -298,7 +298,7 @@ class LoadingService:
 
     async def _stream_documents(
         self,
-        collection: "Collection",
+        source_collection: "SourceCollection",
         source: DocumentSource,
         refs: list[DocumentReference],
         force: bool,
@@ -307,7 +307,7 @@ class LoadingService:
         """Stream documents from a list of references.
 
         Args:
-            collection: The collection being loaded.
+            source_collection: The source collection being loaded.
             source: Document source to fetch from.
             refs: List of document references to load.
             force: If True, reload all documents regardless of change detection.
@@ -319,7 +319,7 @@ class LoadingService:
         for ref in refs:
             try:
                 doc = await self._load_document(
-                    collection=collection,
+                    source_collection=source_collection,
                     source=source,
                     ref=ref,
                     force=force,
@@ -335,7 +335,7 @@ class LoadingService:
 
     async def _load_document(
         self,
-        collection: "Collection",
+        source_collection: "SourceCollection",
         source: DocumentSource,
         ref: DocumentReference,
         force: bool,
@@ -343,7 +343,7 @@ class LoadingService:
         """Load a single document from a source.
 
         Args:
-            collection: The collection being loaded.
+            source_collection: The source collection being loaded.
             source: Document source to fetch from.
             ref: Reference to the document.
             force: If True, reload even if unchanged.
@@ -356,8 +356,8 @@ class LoadingService:
         from pmd.utils.hashing import sha256_hash
 
         # Get existing document and metadata for change detection
-        existing_doc = self._document_repo.get(collection.id, ref.path)
-        doc_id = self._get_document_id(collection.id, ref.path) if existing_doc else None
+        existing_doc = self._document_repo.get(source_collection.id, ref.path)
+        doc_id = self._get_document_id(source_collection.id, ref.path) if existing_doc else None
         stored_metadata: dict[str, Any] = {}
 
         if doc_id and not force:
@@ -394,7 +394,7 @@ class LoadingService:
             extracted_metadata = self._extract_metadata_via_profiles(
                 content,
                 ref.path,
-                collection,
+                source_collection,
             )
 
         return LoadedDocument(
@@ -402,23 +402,23 @@ class LoadingService:
             fetch_result=fetch_result,
             title=title,
             fetch_duration_ms=fetch_duration_ms,
-            collection_id=collection.id,
+            source_collection_id=source_collection.id,
             extracted_metadata=extracted_metadata,
         )
 
-    def _get_document_id(self, collection_id: int, path: str) -> int | None:
+    def _get_document_id(self, source_collection_id: int, path: str) -> int | None:
         """Get document ID for a path.
 
         Args:
-            collection_id: Collection ID.
+            source_collection_id: Source collection ID.
             path: Document path.
 
         Returns:
             Document ID or None if not found.
         """
         cursor = self._db.execute(
-            "SELECT id FROM documents WHERE collection_id = ? AND path = ?",
-            (collection_id, path),
+            "SELECT id FROM documents WHERE source_collection_id = ? AND path = ?",
+            (source_collection_id, path),
         )
         row = cursor.fetchone()
         return row["id"] if row else None
@@ -427,15 +427,15 @@ class LoadingService:
         self,
         content: str,
         path: str,
-        collection: "Collection",
+        source_collection: "SourceCollection",
     ) -> ExtractedMetadata | None:
         """Extract document metadata using profile auto-detection."""
         try:
             registry = get_default_profile_registry()
 
             profile_name = None
-            if collection.source_config:
-                profile_name = collection.source_config.get("metadata_profile")
+            if source_collection.source_config:
+                profile_name = source_collection.source_config.get("metadata_profile")
 
             if profile_name:
                 profile = registry.get(profile_name)
@@ -494,14 +494,14 @@ class LoadingService:
         allowing any LlamaIndex reader/loader to be used as a document source.
 
         Args:
-            collection_name: Name of the collection to load into.
+            collection_name: Name of the source collection to load into.
             adapter: Configured LlamaIndex loader adapter.
 
         Returns:
             EagerLoadResult with loaded documents.
 
         Raises:
-            CollectionNotFoundError: If collection does not exist.
+            SourceCollectionNotFoundError: If source collection does not exist.
             ValueError: If adapter validation fails (multiple docs, duplicate URIs).
 
         Example:
@@ -517,21 +517,21 @@ class LoadingService:
 
             result = await loading_service.load_from_llamaindex("web-docs", adapter)
         """
-        collection = self._collection_repo.get_by_name(collection_name)
-        if not collection:
-            raise CollectionNotFoundError(f"Collection '{collection_name}' not found")
+        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        if not source_collection:
+            raise SourceCollectionNotFoundError(f"Source collection '{collection_name}' not found")
 
         logger.debug(
-            f"Loading from LlamaIndex adapter: collection={collection.name!r}, "
+            f"Loading from LlamaIndex adapter: source_collection={source_collection.name!r}, "
             f"namespace={adapter.namespace!r}"
         )
 
-        # Load via adapter (does not have collection context)
+        # Load via adapter (does not have source collection context)
         loaded_docs = await adapter.load_eager()
 
-        # Inject collection_id into each document
+        # Inject source_collection_id into each document
         for doc in loaded_docs:
-            doc.collection_id = collection.id
+            doc.source_collection_id = source_collection.id
 
         logger.debug(f"Loaded {len(loaded_docs)} documents from LlamaIndex adapter")
 

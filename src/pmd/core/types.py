@@ -45,23 +45,23 @@ class VirtualPath:
 
 
 @dataclass
-class Collection:
-    """Represents an indexed collection.
+class SourceCollection:
+    """Represents an indexed source collection.
 
-    Collections can source documents from different backends:
+    Source collections can source documents from different backends:
     - filesystem: Local directory with glob pattern (default)
     - http: Remote HTTP/HTTPS endpoint
     - entity: Custom entity URI with pluggable resolvers
 
     Attributes:
-        id: Unique collection ID.
-        name: Human-readable collection name.
+        id: Unique source collection ID.
+        name: Human-readable source collection name.
         pwd: Base directory path (for filesystem sources).
         glob_pattern: File pattern to match (for filesystem sources).
         source_type: Type of source ('filesystem', 'http', 'entity').
         source_config: JSON config for non-filesystem sources.
-        created_at: When the collection was created.
-        updated_at: When the collection was last modified.
+        created_at: When the source collection was created.
+        updated_at: When the source collection was last modified.
     """
 
     id: int
@@ -74,7 +74,7 @@ class Collection:
     source_config: Optional[dict] = None
 
     def get_source_uri(self) -> str:
-        """Get the source URI for this collection.
+        """Get the source URI for this source collection.
 
         Returns:
             URI string appropriate for the source type.
@@ -106,6 +106,10 @@ class Collection:
         return base
 
 
+# Backwards compatibility alias (deprecated)
+Collection = SourceCollection
+
+
 @dataclass
 class DocumentResult:
     """Represents a retrieved document."""
@@ -115,7 +119,7 @@ class DocumentResult:
     title: str
     context: Optional[str]
     hash: str
-    collection_id: int
+    source_collection_id: int
     modified_at: str
     body_length: int
     body: Optional[str] = None
@@ -209,7 +213,7 @@ class PathContext:
     """Context description for a path prefix."""
 
     id: int
-    collection_id: int
+    source_collection_id: int
     path_prefix: str
     context: str
     created_at: str
@@ -243,7 +247,7 @@ class DocumentNotFound(TypedDict):
 class IndexStatus:
     """Status information for the index."""
 
-    collections: list[Collection]
+    source_collections: list[SourceCollection]
     total_documents: int
     embedded_documents: int
     index_size_bytes: int

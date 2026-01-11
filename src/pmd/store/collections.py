@@ -1,4 +1,4 @@
-"""Collection CRUD operations for PMD."""
+"""Source collection CRUD operations for PMD."""
 
 import json
 from datetime import datetime
@@ -7,13 +7,13 @@ from typing import Any
 
 from loguru import logger
 
-from ..core.exceptions import CollectionExistsError, CollectionNotFoundError
-from ..core.types import Collection
+from ..core.exceptions import SourceCollectionExistsError, SourceCollectionNotFoundError
+from ..core.types import SourceCollection
 from .database import Database
 
 
-class CollectionRepository:
-    """Repository for collection operations."""
+class SourceCollectionRepository:
+    """Repository for source collection operations."""
 
     def __init__(self, db: Database):
         """Initialize with database connection.
@@ -23,40 +23,40 @@ class CollectionRepository:
         """
         self.db = db
 
-    def list_all(self) -> list[Collection]:
-        """Get all collections.
+    def list_all(self) -> list[SourceCollection]:
+        """Get all source collections.
 
         Returns:
-            List of all Collection objects.
+            List of all SourceCollection objects.
         """
-        cursor = self.db.execute("SELECT * FROM collections ORDER BY name")
-        return [self._row_to_collection(row) for row in cursor.fetchall()]
+        cursor = self.db.execute("SELECT * FROM source_collections ORDER BY name")
+        return [self._row_to_source_collection(row) for row in cursor.fetchall()]
 
-    def get_by_name(self, name: str) -> Collection | None:
-        """Get collection by name.
+    def get_by_name(self, name: str) -> SourceCollection | None:
+        """Get source collection by name.
 
         Args:
-            name: Collection name to search for.
+            name: Source collection name to search for.
 
         Returns:
-            Collection object if found, None otherwise.
+            SourceCollection object if found, None otherwise.
         """
-        cursor = self.db.execute("SELECT * FROM collections WHERE name = ?", (name,))
+        cursor = self.db.execute("SELECT * FROM source_collections WHERE name = ?", (name,))
         row = cursor.fetchone()
-        return self._row_to_collection(row) if row else None
+        return self._row_to_source_collection(row) if row else None
 
-    def get_by_id(self, collection_id: int) -> Collection | None:
-        """Get collection by ID.
+    def get_by_id(self, source_collection_id: int) -> SourceCollection | None:
+        """Get source collection by ID.
 
         Args:
-            collection_id: Collection ID to search for.
+            source_collection_id: Source collection ID to search for.
 
         Returns:
-            Collection object if found, None otherwise.
+            SourceCollection object if found, None otherwise.
         """
-        cursor = self.db.execute("SELECT * FROM collections WHERE id = ?", (collection_id,))
+        cursor = self.db.execute("SELECT * FROM source_collections WHERE id = ?", (source_collection_id,))
         row = cursor.fetchone()
-        return self._row_to_collection(row) if row else None
+        return self._row_to_source_collection(row) if row else None
 
     def create(
         self,
@@ -65,29 +65,29 @@ class CollectionRepository:
         glob_pattern: str = "**/*.md",
         source_type: str = "filesystem",
         source_config: dict[str, Any] | None = None,
-    ) -> Collection:
-        """Create a new collection.
+    ) -> SourceCollection:
+        """Create a new source collection.
 
         Args:
-            name: Unique name for the collection.
+            name: Unique name for the source collection.
             pwd: Base directory path (filesystem) or base URI (other sources).
             glob_pattern: File pattern to match (default: **/*.md).
             source_type: Type of source ('filesystem', 'http', 'entity').
             source_config: Source-specific configuration as JSON-serializable dict.
 
         Returns:
-            Created Collection object.
+            Created SourceCollection object.
 
         Raises:
-            CollectionExistsError: If collection with this name already exists.
+            SourceCollectionExistsError: If source collection with this name already exists.
         """
         logger.debug(
-            f"Creating collection: name={name!r}, pwd={pwd!r}, "
+            f"Creating source collection: name={name!r}, pwd={pwd!r}, "
             f"pattern={glob_pattern!r}, source_type={source_type!r}"
         )
 
         if self.get_by_name(name):
-            raise CollectionExistsError(f"Collection '{name}' already exists")
+            raise SourceCollectionExistsError(f"Source collection '{name}' already exists")
 
         now = datetime.utcnow().isoformat()
         source_config_json = json.dumps(source_config) if source_config else None
@@ -95,18 +95,18 @@ class CollectionRepository:
         with self.db.transaction() as cursor:
             cursor.execute(
                 """
-                INSERT INTO collections
+                INSERT INTO source_collections
                 (name, pwd, glob_pattern, source_type, source_config, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (name, pwd, glob_pattern, source_type, source_config_json, now, now),
             )
-            collection_id = cursor.lastrowid
+            source_collection_id = cursor.lastrowid
 
-        logger.info(f"Collection created: id={collection_id}, name={name!r}, type={source_type!r}")
+        logger.info(f"Source collection created: id={source_collection_id}, name={name!r}, type={source_type!r}")
 
-        return Collection(
-            id=collection_id,  # type: ignore
+        return SourceCollection(
+            id=source_collection_id,  # type: ignore
             name=name,
             pwd=pwd,
             glob_pattern=glob_pattern,
@@ -116,34 +116,34 @@ class CollectionRepository:
             updated_at=now,
         )
 
-    def remove(self, collection_id: int) -> tuple[int, int]:
-        """Remove a collection and clean up associated data.
+    def remove(self, source_collection_id: int) -> tuple[int, int]:
+        """Remove a source collection and clean up associated data.
 
         Args:
-            collection_id: ID of collection to remove.
+            source_collection_id: ID of source collection to remove.
 
         Returns:
             Tuple of (documents_deleted, orphaned_hashes_cleaned).
 
         Raises:
-            CollectionNotFoundError: If collection does not exist.
+            SourceCollectionNotFoundError: If source collection does not exist.
         """
-        collection = self.get_by_id(collection_id)
-        if not collection:
-            raise CollectionNotFoundError(f"Collection {collection_id} not found")
+        source_collection = self.get_by_id(source_collection_id)
+        if not source_collection:
+            raise SourceCollectionNotFoundError(f"Source collection {source_collection_id} not found")
 
-        logger.debug(f"Removing collection: id={collection_id}, name={collection.name!r}")
+        logger.debug(f"Removing source collection: id={source_collection_id}, name={source_collection.name!r}")
 
         with self.db.transaction() as cursor:
             # Get count of documents to delete
-            cursor.execute("SELECT COUNT(*) FROM documents WHERE collection_id = ?", (collection_id,))
+            cursor.execute("SELECT COUNT(*) FROM documents WHERE source_collection_id = ?", (source_collection_id,))
             docs_count = cursor.fetchone()[0]
 
             # Delete documents
-            cursor.execute("DELETE FROM documents WHERE collection_id = ?", (collection_id,))
+            cursor.execute("DELETE FROM documents WHERE source_collection_id = ?", (source_collection_id,))
 
             # Delete path contexts
-            cursor.execute("DELETE FROM path_contexts WHERE collection_id = ?", (collection_id,))
+            cursor.execute("DELETE FROM path_contexts WHERE source_collection_id = ?", (source_collection_id,))
 
             # Find and delete orphaned content hashes
             cursor.execute(
@@ -158,87 +158,87 @@ class CollectionRepository:
                 cursor.execute("DELETE FROM content WHERE hash = ?", (hash_val,))
                 cursor.execute("DELETE FROM content_vectors WHERE hash = ?", (hash_val,))
 
-            # Delete the collection
-            cursor.execute("DELETE FROM collections WHERE id = ?", (collection_id,))
+            # Delete the source collection
+            cursor.execute("DELETE FROM source_collections WHERE id = ?", (source_collection_id,))
 
-        logger.info(f"Collection removed: name={collection.name!r}, docs={docs_count}, orphans={len(orphaned_hashes)}")
+        logger.info(f"Source collection removed: name={source_collection.name!r}, docs={docs_count}, orphans={len(orphaned_hashes)}")
 
         return (docs_count, len(orphaned_hashes))
 
-    def rename(self, collection_id: int, new_name: str) -> None:
-        """Rename a collection.
+    def rename(self, source_collection_id: int, new_name: str) -> None:
+        """Rename a source collection.
 
         Args:
-            collection_id: ID of collection to rename.
-            new_name: New name for the collection.
+            source_collection_id: ID of source collection to rename.
+            new_name: New name for the source collection.
 
         Raises:
-            CollectionNotFoundError: If collection does not exist.
-            CollectionExistsError: If new name already exists.
+            SourceCollectionNotFoundError: If source collection does not exist.
+            SourceCollectionExistsError: If new name already exists.
         """
-        collection = self.get_by_id(collection_id)
-        if not collection:
-            raise CollectionNotFoundError(f"Collection {collection_id} not found")
+        source_collection = self.get_by_id(source_collection_id)
+        if not source_collection:
+            raise SourceCollectionNotFoundError(f"Source collection {source_collection_id} not found")
 
-        if new_name != collection.name and self.get_by_name(new_name):
-            raise CollectionExistsError(f"Collection '{new_name}' already exists")
+        if new_name != source_collection.name and self.get_by_name(new_name):
+            raise SourceCollectionExistsError(f"Source collection '{new_name}' already exists")
 
-        logger.debug(f"Renaming collection: {collection.name!r} -> {new_name!r}")
+        logger.debug(f"Renaming source collection: {source_collection.name!r} -> {new_name!r}")
 
         now = datetime.utcnow().isoformat()
 
         with self.db.transaction() as cursor:
             cursor.execute(
-                "UPDATE collections SET name = ?, updated_at = ? WHERE id = ?",
-                (new_name, now, collection_id),
+                "UPDATE source_collections SET name = ?, updated_at = ? WHERE id = ?",
+                (new_name, now, source_collection_id),
             )
 
-        logger.info(f"Collection renamed: {collection.name!r} -> {new_name!r}")
+        logger.info(f"Source collection renamed: {source_collection.name!r} -> {new_name!r}")
 
-    def update_collection_path(
-        self, collection_id: int, pwd: str, glob_pattern: str | None = None
+    def update_path(
+        self, source_collection_id: int, pwd: str, glob_pattern: str | None = None
     ) -> None:
-        """Update a collection's path and/or glob pattern.
+        """Update a source collection's path and/or glob pattern.
 
         Args:
-            collection_id: ID of collection to update.
+            source_collection_id: ID of source collection to update.
             pwd: New base directory path.
             glob_pattern: New glob pattern (optional).
 
         Raises:
-            CollectionNotFoundError: If collection does not exist.
+            SourceCollectionNotFoundError: If source collection does not exist.
         """
-        collection = self.get_by_id(collection_id)
-        if not collection:
-            raise CollectionNotFoundError(f"Collection {collection_id} not found")
+        source_collection = self.get_by_id(source_collection_id)
+        if not source_collection:
+            raise SourceCollectionNotFoundError(f"Source collection {source_collection_id} not found")
 
-        logger.debug(f"Updating collection path: name={collection.name!r}, pwd={pwd!r}, pattern={glob_pattern!r}")
+        logger.debug(f"Updating source collection path: name={source_collection.name!r}, pwd={pwd!r}, pattern={glob_pattern!r}")
 
         now = datetime.utcnow().isoformat()
 
         with self.db.transaction() as cursor:
             if glob_pattern:
                 cursor.execute(
-                    "UPDATE collections SET pwd = ?, glob_pattern = ?, updated_at = ? WHERE id = ?",
-                    (pwd, glob_pattern, now, collection_id),
+                    "UPDATE source_collections SET pwd = ?, glob_pattern = ?, updated_at = ? WHERE id = ?",
+                    (pwd, glob_pattern, now, source_collection_id),
                 )
             else:
                 cursor.execute(
-                    "UPDATE collections SET pwd = ?, updated_at = ? WHERE id = ?",
-                    (pwd, now, collection_id),
+                    "UPDATE source_collections SET pwd = ?, updated_at = ? WHERE id = ?",
+                    (pwd, now, source_collection_id),
                 )
 
-        logger.info(f"Collection path updated: name={collection.name!r}")
+        logger.info(f"Source collection path updated: name={source_collection.name!r}")
 
     @staticmethod
-    def _row_to_collection(row) -> Collection:
-        """Convert database row to Collection object.
+    def _row_to_source_collection(row) -> SourceCollection:
+        """Convert database row to SourceCollection object.
 
         Args:
             row: Database row from sqlite3.Row.
 
         Returns:
-            Collection object.
+            SourceCollection object.
         """
         # Handle source_config JSON parsing
         source_config_json = row["source_config"] if "source_config" in row.keys() else None
@@ -247,7 +247,7 @@ class CollectionRepository:
         # Handle source_type with default for backward compatibility
         source_type = row["source_type"] if "source_type" in row.keys() else "filesystem"
 
-        return Collection(
+        return SourceCollection(
             id=row["id"],
             name=row["name"],
             pwd=row["pwd"],
@@ -257,3 +257,7 @@ class CollectionRepository:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+
+# Backwards compatibility alias (deprecated)
+CollectionRepository = SourceCollectionRepository

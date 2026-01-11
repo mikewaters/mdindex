@@ -19,7 +19,7 @@ from ..search.adapters import (
     OntologyMetadataBooster,
 )
 from ..app.types import (
-    CollectionRepositoryProtocol,
+    SourceCollectionRepositoryProtocol,
     DatabaseProtocol,
     DocumentMetadataRepositoryProtocol,
     EmbeddingGeneratorProtocol,
@@ -49,7 +49,7 @@ class SearchService:
         search = SearchService(
             db=db,
             fts_repo=fts_repo,
-            collection_repo=collection_repo,
+            source_collection_repo=source_collection_repo,
             search_config=SearchConfig(fts_weight=1.0, vec_weight=1.0),
         )
         results = search.fts_search("machine learning", limit=10)
@@ -65,7 +65,7 @@ class SearchService:
         # Explicit dependencies (new API)
         db: DatabaseProtocol | None = None,
         fts_repo: FTSRepositoryProtocol | None = None,
-        collection_repo: CollectionRepositoryProtocol | None = None,
+        source_collection_repo: SourceCollectionRepositoryProtocol | None = None,
         embedding_repo: EmbeddingRepositoryProtocol | None = None,
         embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]] | None = None,
         query_expander_factory: Callable[[], Awaitable[QueryExpanderProtocol]] | None = None,
@@ -86,7 +86,7 @@ class SearchService:
         Args:
             db: Database for direct SQL operations.
             fts_repo: Repository for FTS search.
-            collection_repo: Repository for collection lookup.
+            source_collection_repo: Repository for source collection lookup.
             embedding_repo: Repository for embedding storage and vector search.
             embedding_generator_factory: Async factory for embedding generator.
             query_expander_factory: Async factory for query expander.
@@ -112,7 +112,7 @@ class SearchService:
             self._container = container
             self._db = container.db
             self._fts_repo = container.fts_repo
-            self._collection_repo = container.collection_repo
+            self._source_collection_repo = container.source_collection_repo
             self._embedding_repo = container.embedding_repo
             self._embedding_generator_factory = container.get_embedding_generator
             self._query_expander_factory = container.get_query_expander
@@ -127,13 +127,13 @@ class SearchService:
             self._rerank_candidates = container.config.search.rerank_candidates
         else:
             self._container = None
-            if db is None or fts_repo is None or collection_repo is None:
+            if db is None or fts_repo is None or source_collection_repo is None:
                 raise ValueError(
-                    "SearchService requires db, fts_repo, and collection_repo"
+                    "SearchService requires db, fts_repo, and source_collection_repo"
                 )
             self._db = db
             self._fts_repo = fts_repo
-            self._collection_repo = collection_repo
+            self._source_collection_repo = source_collection_repo
             self._embedding_repo = embedding_repo
             self._embedding_generator_factory = embedding_generator_factory
             self._query_expander_factory = query_expander_factory
@@ -163,7 +163,7 @@ class SearchService:
         return cls(
             db=container.db,
             fts_repo=container.fts_repo,
-            collection_repo=container.collection_repo,
+            source_collection_repo=container.source_collection_repo,
             embedding_repo=container.embedding_repo,
             embedding_generator_factory=container.get_embedding_generator,
             query_expander_factory=container.get_query_expander,  # type: ignore
@@ -416,9 +416,9 @@ class SearchService:
         if not collection_name:
             return None
 
-        collection = self._collection_repo.get_by_name(collection_name)
-        if collection:
-            return collection.id
+        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        if source_collection:
+            return source_collection.id
 
-        logger.warning(f"Collection not found: {collection_name}")
+        logger.warning(f"Source collection not found: {collection_name}")
         return None

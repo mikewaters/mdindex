@@ -11,7 +11,7 @@ from ..llm import create_llm_provider
 from ..llm.embeddings import EmbeddingGenerator
 from ..llm.query_expansion import QueryExpander
 from ..llm.reranker import DocumentReranker
-from ..store.collections import CollectionRepository
+from ..store.collections import SourceCollectionRepository
 from ..store.database import Database
 from ..store.documents import DocumentRepository
 from ..store.embeddings import EmbeddingRepository
@@ -44,9 +44,9 @@ class ServiceContainer:
         async with ServiceContainer(config) as services:
             from pmd.sources import get_default_registry
 
-            collection = services.collection_repo.get_by_name("docs")
+            source_collection = services.source_collection_repo.get_by_name("docs")
             registry = get_default_registry()
-            source = registry.create_source(collection)
+            source = registry.create_source(source_collection)
             result = await services.indexing.index_collection("docs", source=source)
             results = await services.search.hybrid_search("query")
 
@@ -85,7 +85,7 @@ class ServiceContainer:
         self._status: StatusService | None = None
 
         # Lazy-initialized repositories (shared across services)
-        self._collection_repo: CollectionRepository | None = None
+        self._source_collection_repo: SourceCollectionRepository | None = None
         self._document_repo: DocumentRepository | None = None
         self._embedding_repo: EmbeddingRepository | None = None
         self._fts_repo: FTS5SearchRepository | None = None
@@ -136,11 +136,17 @@ class ServiceContainer:
     # --- Repository accessors (shared across services) ---
 
     @property
-    def collection_repo(self) -> CollectionRepository:
-        """Get or create CollectionRepository."""
-        if self._collection_repo is None:
-            self._collection_repo = CollectionRepository(self.db)
-        return self._collection_repo
+    def source_collection_repo(self) -> SourceCollectionRepository:
+        """Get or create SourceCollectionRepository."""
+        if self._source_collection_repo is None:
+            self._source_collection_repo = SourceCollectionRepository(self.db)
+        return self._source_collection_repo
+
+    # Backwards compatibility alias
+    @property
+    def collection_repo(self) -> SourceCollectionRepository:
+        """Get or create SourceCollectionRepository (deprecated alias for source_collection_repo)."""
+        return self.source_collection_repo
 
     @property
     def document_repo(self) -> DocumentRepository:

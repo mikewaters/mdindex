@@ -59,7 +59,7 @@ class SearchRepository(ABC, Generic[QueryT]):
         self,
         query: QueryT,
         limit: int = 5,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
         min_score: float = 0.0,
     ) -> list[SearchResult]:
         """Execute search and return results.
@@ -68,7 +68,7 @@ class SearchRepository(ABC, Generic[QueryT]):
             query: Query in the format expected by the implementation.
                    String for FTS5, embedding vector for vector search.
             limit: Maximum number of results to return.
-            collection_id: Optional collection ID to limit search scope.
+            source_collection_id: Optional collection ID to limit search scope.
             min_score: Minimum score threshold for results (0.0-1.0).
 
         Returns:
@@ -113,7 +113,7 @@ class FTS5SearchRepository(SearchRepository[str]):
         self,
         query: str,
         limit: int = 5,
-        collection_id: int | None = None,
+        source_collection_id: int | None = None,
         min_score: float = 0.0,
     ) -> list[SearchResult]:
         """Perform BM25 full-text search using FTS5.
@@ -125,7 +125,7 @@ class FTS5SearchRepository(SearchRepository[str]):
         Args:
             query: Search query string (supports FTS5 syntax like AND, OR, NOT).
             limit: Maximum number of results to return.
-            collection_id: Optional collection ID to limit search scope.
+            source_collection_id: Optional collection ID to limit search scope.
             min_score: Minimum normalized score threshold (0.0-1.0).
 
         Returns:
@@ -134,20 +134,20 @@ class FTS5SearchRepository(SearchRepository[str]):
 
         Example:
             >>> results = repo.search("python OR programming", limit=5)
-            >>> results = repo.search("machine learning", collection_id=1)
+            >>> results = repo.search("machine learning", source_collection_id=1)
         """
         query_preview = query[:50] + "..." if len(query) > 50 else query
-        logger.debug(f"FTS5 search: {query_preview!r}, limit={limit}, collection_id={collection_id}")
+        logger.debug(f"FTS5 search: {query_preview!r}, limit={limit}, source_collection_id={source_collection_id}")
         start_time = time.perf_counter()
 
         # Escape and prepare query for FTS5
         fts_query = self._prepare_fts_query(query)
 
-        if collection_id is not None:
+        if source_collection_id is not None:
             sql = """
                 SELECT
                     d.id,
-                    d.collection_id,
+                    d.source_collection_id,
                     d.path,
                     d.path as display_path,
                     d.title,
@@ -158,16 +158,16 @@ class FTS5SearchRepository(SearchRepository[str]):
                 FROM documents_fts fts
                 JOIN documents d ON fts.rowid = d.id
                 JOIN content c ON d.hash = c.hash
-                WHERE documents_fts MATCH ? AND d.collection_id = ? AND d.active = 1
+                WHERE documents_fts MATCH ? AND d.source_collection_id = ? AND d.active = 1
                 ORDER BY fts.rank ASC
                 LIMIT ?
             """
-            cursor = self.db.execute(sql, (fts_query, collection_id, limit))
+            cursor = self.db.execute(sql, (fts_query, source_collection_id, limit))
         else:
             sql = """
                 SELECT
                     d.id,
-                    d.collection_id,
+                    d.source_collection_id,
                     d.path,
                     d.path as display_path,
                     d.title,
@@ -208,7 +208,7 @@ class FTS5SearchRepository(SearchRepository[str]):
                             title=row["title"],
                             context=None,
                             hash=row["hash"],
-                            collection_id=row["collection_id"],
+                            source_collection_id=row["source_collection_id"],
                             modified_at=row["modified_at"],
                             body_length=len(row["body"]) if row["body"] else 0,
                             body=row["body"],  # Include body for reranking
@@ -250,20 +250,20 @@ class FTS5SearchRepository(SearchRepository[str]):
                 (doc_id, path, body),
             )
 
-    def reindex_collection(self, collection_id: int) -> int:
+    def reindex_collection(self, source_collection_id: int) -> int:
         """Reindex all documents in a collection.
 
         Rebuilds the FTS5 index for all active documents in the specified
         collection. Useful after bulk imports or to fix index corruption.
 
         Args:
-            collection_id: ID of collection to reindex.
+            source_collection_id: ID of collection to reindex.
 
         Returns:
             Number of documents indexed.
 
         Example:
-            >>> count = repo.reindex_collection(collection_id=1)
+            >>> count = repo.reindex_collection(source_collection_id=1)
             >>> print(f"Reindexed {count} documents")
         """
         with self.db.transaction() as cursor:
@@ -272,9 +272,9 @@ class FTS5SearchRepository(SearchRepository[str]):
                 """
                 SELECT d.id, d.path, c.doc FROM documents d
                 JOIN content c ON d.hash = c.hash
-                WHERE d.collection_id = ? AND d.active = 1
+                WHERE d.source_collection_id = ? AND d.active = 1
                 """,
-                (collection_id,),
+                (source_collection_id,),
             )
             documents = cursor.fetchall()
 
@@ -282,10 +282,10 @@ class FTS5SearchRepository(SearchRepository[str]):
             cursor.execute(
                 """
                 DELETE FROM documents_fts WHERE rowid IN (
-                    SELECT id FROM documents WHERE collection_id = ?
+                    SELECT id FROM documents WHERE source_collection_id = ?
                 )
                 """,
-                (collection_id,),
+                (source_collection_id,),
             )
 
             # Reindex all documents

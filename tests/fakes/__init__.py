@@ -7,7 +7,7 @@ This module provides in-memory implementations of:
 Example:
     from tests.fakes import (
         InMemoryDatabase,
-        InMemoryCollectionRepository,
+        InMemorySourceCollectionRepository,
         InMemoryDocumentRepository,
         InMemoryFTSRepository,
     )
@@ -15,7 +15,7 @@ Example:
     # Create service with fakes
     service = IndexingService(
         db=InMemoryDatabase(),
-        collection_repo=InMemoryCollectionRepository(),
+        source_collection_repo=InMemorySourceCollectionRepository(),
         document_repo=InMemoryDocumentRepository(),
         fts_repo=InMemoryFTSRepository(),
     )
@@ -36,11 +36,14 @@ from .search import (
 from .repos import (
     InMemoryDatabase,
     InMemoryCursor,
-    InMemoryCollectionRepository,
+    InMemorySourceCollectionRepository,
     InMemoryDocumentRepository,
     InMemoryFTSRepository,
     InMemoryEmbeddingRepository,
 )
+
+# Backwards compatibility alias
+InMemoryCollectionRepository = InMemorySourceCollectionRepository
 
 # Use search module's make_search_result
 make_search_result = make_search_result_search
@@ -59,7 +62,8 @@ __all__ = [
     # Repository fakes
     "InMemoryDatabase",
     "InMemoryCursor",
-    "InMemoryCollectionRepository",
+    "InMemorySourceCollectionRepository",
+    "InMemoryCollectionRepository",  # Backwards compatibility alias
     "InMemoryDocumentRepository",
     "InMemoryFTSRepository",
     "InMemoryEmbeddingRepository",

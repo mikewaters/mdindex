@@ -72,7 +72,7 @@ Constants and reference schema (migrations are authoritative):
 
 **Tables (created by v0001_initial_schema):**
 - `content` - Content-addressable storage (hash-based)
-- `collections` - Named document collections
+- `source_collections` - Named document source collections
 - `documents` - File-to-content mappings
 - `documents_fts` - FTS5 virtual table
 - `content_vectors` - Embedding metadata
@@ -88,7 +88,7 @@ Constants and reference schema (migrations are authoritative):
 
 Key methods:
 - `add_or_update()` - Insert/update with content deduplication
-- `get()` - Retrieve by collection_id + path
+- `get()` - Retrieve by source_collection_id + path
 - `delete()` - Soft-delete (mark inactive)
 - `check_if_modified()` - Hash comparison for change detection
 
@@ -132,7 +132,7 @@ Key methods:
 
 ### `collections.py`
 
-**`CollectionRepository`** - Collection management
+**`SourceCollectionRepository`** - Source collection management
 
 Key methods:
 - `create()` - Create with validation
@@ -141,7 +141,7 @@ Key methods:
 
 **Invariants:**
 - Cascading deletion removes documents, orphaned content, embeddings
-- Collection names are unique
+- Source collection names are unique
 
 ### `source_metadata.py`
 
