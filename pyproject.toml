@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "pmd"
+name = "mdindex"
 version = "1.0.0"
 description = "Python Markdown Search - Hybrid search engine for markdown documents"
 readme = "README.md"
