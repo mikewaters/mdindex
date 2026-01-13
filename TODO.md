@@ -1,0 +1,4 @@
+- rename collection to sourcecollection (keep it in the cli)
+- remove _index_via_legacy and anything like it
+- move LLMs to dspy
+- use a better chunker wtpsplit sat-61-sm
