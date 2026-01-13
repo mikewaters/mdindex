@@ -77,8 +77,10 @@ def create_parser() -> argparse.ArgumentParser:
     add_parser.add_argument(
         "-g",
         "--glob",
-        default="**/*.md",
-        help="File glob pattern for filesystem sources (default: **/*.md)",
+        action="append",
+        dest="globs",
+        metavar="PATTERN",
+        help="File glob pattern (can be repeated; use ! prefix to exclude)",
     )
     add_parser.add_argument(
         "-s",
