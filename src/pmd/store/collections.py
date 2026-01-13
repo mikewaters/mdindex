@@ -62,7 +62,7 @@ class SourceCollectionRepository:
         self,
         name: str,
         pwd: str,
-        glob_pattern: str = "**/*.md",
+        glob_patterns: list[str] | str = "**/*.md",
         source_type: str = "filesystem",
         source_config: dict[str, Any] | None = None,
     ) -> SourceCollection:
@@ -71,7 +71,8 @@ class SourceCollectionRepository:
         Args:
             name: Unique name for the source collection.
             pwd: Base directory path (filesystem) or base URI (other sources).
-            glob_pattern: File pattern to match (default: **/*.md).
+            glob_patterns: File pattern(s) to match. Can be a single pattern string
+                or a list of patterns. Use ! prefix for exclusion patterns.
             source_type: Type of source ('filesystem', 'http', 'entity').
             source_config: Source-specific configuration as JSON-serializable dict.
 
@@ -81,16 +82,29 @@ class SourceCollectionRepository:
         Raises:
             SourceCollectionExistsError: If source collection with this name already exists.
         """
+        # Normalize to list
+        if isinstance(glob_patterns, str):
+            patterns_list = [glob_patterns]
+        else:
+            patterns_list = list(glob_patterns)
+
+        # Use first pattern for legacy glob_pattern column (for display)
+        primary_pattern = patterns_list[0] if patterns_list else "**/*.md"
+
         logger.debug(
             f"Creating source collection: name={name!r}, pwd={pwd!r}, "
-            f"pattern={glob_pattern!r}, source_type={source_type!r}"
+            f"patterns={patterns_list!r}, source_type={source_type!r}"
         )
 
         if self.get_by_name(name):
             raise SourceCollectionExistsError(f"Source collection '{name}' already exists")
 
         now = datetime.utcnow().isoformat()
-        source_config_json = json.dumps(source_config) if source_config else None
+
+        # Merge glob_patterns into source_config
+        merged_config = dict(source_config) if source_config else {}
+        merged_config["glob_patterns"] = patterns_list
+        source_config_json = json.dumps(merged_config)
 
         with self.db.transaction() as cursor:
             cursor.execute(
@@ -99,7 +113,7 @@ class SourceCollectionRepository:
                 (name, pwd, glob_pattern, source_type, source_config, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (name, pwd, glob_pattern, source_type, source_config_json, now, now),
+                (name, pwd, primary_pattern, source_type, source_config_json, now, now),
             )
             source_collection_id = cursor.lastrowid
 
@@ -109,9 +123,9 @@ class SourceCollectionRepository:
             id=source_collection_id,  # type: ignore
             name=name,
             pwd=pwd,
-            glob_pattern=glob_pattern,
+            glob_pattern=primary_pattern,
             source_type=source_type,
-            source_config=source_config,
+            source_config=merged_config,
             created_at=now,
             updated_at=now,
         )

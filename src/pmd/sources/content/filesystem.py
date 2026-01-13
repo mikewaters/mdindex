@@ -22,6 +22,7 @@ from .base import (
     SourceFetchError,
     SourceListError,
 )
+from .glob_matcher import MultiGlobMatcher, parse_glob_patterns
 from pmd.metadata import (
     ExtractedMetadata,
     MetadataProfileRegistry,
@@ -40,14 +41,15 @@ class FileSystemConfig:
 
     Attributes:
         base_path: Root directory to scan for documents.
-        glob_pattern: Pattern for matching files (default: '**/*.md').
+        glob_patterns: Patterns for matching files (default: ['**/*.md']).
+            Use ! prefix for exclusion patterns.
         encoding: File encoding to use (default: 'utf-8').
         follow_symlinks: Whether to follow symbolic links (default: False).
         metadata_profile: Optional profile name to force (default: auto-detect).
     """
 
     base_path: Path
-    glob_pattern: str = "**/*.md"
+    glob_patterns: list[str] = field(default_factory=lambda: ["**/*.md"])
     encoding: str = "utf-8"
     follow_symlinks: bool = False
     metadata_profile: str | None = None
@@ -71,9 +73,16 @@ class FileSystemConfig:
             # Bare path
             base_path = Path(config.uri)
 
+        # Handle both glob_patterns (new) and glob_pattern (legacy)
+        patterns = config.get("glob_patterns")
+        if patterns is None:
+            # Fall back to legacy single pattern
+            patterns = config.get("glob_pattern", "**/*.md")
+        patterns = parse_glob_patterns(patterns)
+
         return cls(
             base_path=base_path,
-            glob_pattern=config.get("glob_pattern", "**/*.md"),
+            glob_patterns=patterns,
             encoding=config.get("encoding", "utf-8"),
             follow_symlinks=config.get("follow_symlinks", False),
             metadata_profile=config.get("metadata_profile"),
@@ -122,11 +131,19 @@ class FileSystemSource(BaseDocumentSource):
 
     @property
     def glob_pattern(self) -> str:
-        """Get the glob pattern."""
-        return self._config.glob_pattern
+        """Get the primary glob pattern (for display)."""
+        return self._config.glob_patterns[0] if self._config.glob_patterns else "**/*.md"
+
+    @property
+    def glob_patterns(self) -> list[str]:
+        """Get all glob patterns."""
+        return self._config.glob_patterns
 
     def list_documents(self) -> Iterator[DocumentReference]:
-        """Enumerate all documents matching the glob pattern.
+        """Enumerate all documents matching the glob patterns.
+
+        Supports multiple include patterns (OR'd together) and exclude
+        patterns (prefixed with !).
 
         Yields:
             DocumentReference for each matching file.
@@ -147,14 +164,13 @@ class FileSystemSource(BaseDocumentSource):
             )
 
         logger.debug(
-            f"Listing documents: base={self._base_path}, pattern={self._config.glob_pattern}"
+            f"Listing documents: base={self._base_path}, patterns={self._config.glob_patterns}"
         )
 
         try:
-            for file_path in self._base_path.glob(self._config.glob_pattern):
-                if not file_path.is_file():
-                    continue
+            matcher = MultiGlobMatcher(self._config.glob_patterns)
 
+            for file_path in matcher.list_matching_files(self._base_path):
                 # Skip symlinks if not following them
                 if file_path.is_symlink() and not self._config.follow_symlinks:
                     logger.debug(f"Skipping symlink: {file_path}")
@@ -182,6 +198,8 @@ class FileSystemSource(BaseDocumentSource):
                     metadata=metadata,
                 )
 
+        except ValueError as e:
+            raise SourceListError(str(self._base_path), str(e))
         except PermissionError as e:
             raise SourceListError(str(self._base_path), f"Permission denied: {e}")
         except OSError as e:
