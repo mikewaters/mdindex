@@ -205,17 +205,6 @@ class RerankResult:
 
 
 @dataclass
-class PathContext:
-    """Context description for a path prefix."""
-
-    id: int
-    source_collection_id: int
-    path_prefix: str
-    context: str
-    created_at: str
-
-
-@dataclass
 class Chunk:
     """Document chunk for embedding."""
 

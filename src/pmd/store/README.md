@@ -77,7 +77,6 @@ Constants and reference schema (migrations are authoritative):
 - `documents_fts` - FTS5 virtual table
 - `content_vectors` - Embedding metadata
 - `content_vectors_vec` - Vector storage (sqlite-vec, created after extension load)
-- `path_contexts` - Directory-level context
 - `source_metadata` - Remote document metadata
 - `document_metadata` - Extracted tags/attributes
 - `document_tags` - Tag inverted index

@@ -15,12 +15,11 @@ PMD (Python Markdown Search) is a hybrid search engine for markdown documents co
    - [Store Module](#52-store-module)
    - [Services Module](#53-services-module)
    - [CLI Module](#54-cli-module)
-   - [MCP Module](#55-mcp-module)
-   - [LLM Module](#56-llm-module)
-   - [Search Module](#57-search-module)
-   - [Sources Module](#58-sources-module)
-   - [Utils Module](#59-utils-module)
-   - [Formatters Module](#510-formatters-module)
+   - [LLM Module](#55-llm-module)
+   - [Search Module](#56-search-module)
+   - [Sources Module](#57-sources-module)
+   - [Utils Module](#58-utils-module)
+   - [Formatters Module](#59-formatters-module)
 
 ---
 
@@ -31,7 +30,7 @@ PMD follows a classic layered architecture with clear separation of concerns:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    PRESENTATION LAYER                        │
-│         CLI Interface (cli/)    MCP Server (mcp/)           │
+│                    CLI Interface (cli/)                      │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
@@ -57,7 +56,7 @@ PMD follows a classic layered architecture with clear separation of concerns:
 
 | Layer | Responsibility | Key Components |
 |-------|---------------|----------------|
-| **Presentation** | User interface, command parsing, output formatting | CLI commands, MCP server |
+| **Presentation** | User interface, command parsing, output formatting | CLI commands |
 | **Service** | Business logic orchestration, transaction coordination | IndexingService, SearchService, StatusService |
 | **Repository** | Data access abstraction, query execution | All `*Repository` classes |
 | **Data** | Persistence, indexing, vector storage | SQLite, FTS5, sqlite-vec |
@@ -77,13 +76,11 @@ Several components span multiple layers:
 ### Component Interaction Diagram
 
 ```
-┌─────────────┐     ┌─────────────┐
-│   CLI       │     │  MCP Server │
-│  (argparse) │     │  (Protocol) │
-└──────┬──────┘     └──────┬──────┘
-       │                   │
-       └─────────┬─────────┘
-                 │
+┌─────────────┐
+│   CLI       │
+│  (argparse) │
+└──────┬──────┘
+       │
        ┌─────────▼─────────┐
        │  ServiceContainer  │
        │  (DI Container)    │
@@ -151,7 +148,6 @@ The `pmd` package (`src/pmd/`) is organized into the following modules:
 | `store` | Database access, repositories | `DocumentRepository`, `EmbeddingRepository`, `CollectionRepository` |
 | `services` | Business logic orchestration | `ServiceContainer`, `IndexingService`, `SearchService` |
 | `cli` | Command-line interface | `main()`, command handlers |
-| `mcp` | Model Context Protocol server | `PMDMCPServer` |
 | `llm` | LLM provider abstraction | `LLMProvider`, `EmbeddingGenerator`, `DocumentReranker` |
 | `search` | Search pipeline and algorithms | `HybridSearchPipeline`, `reciprocal_rank_fusion` |
 | `sources` | Document source abstraction | `DocumentSource`, `SourceRegistry` |
@@ -161,7 +157,7 @@ The `pmd` package (`src/pmd/`) is organized into the following modules:
 ### Module Dependency Graph
 
 ```
-cli, mcp
+cli
     ↓
 services (ServiceContainer)
     ↓
@@ -287,7 +283,6 @@ Detailed module documentation now lives alongside the implementation for easier 
 - Store Module: [src/pmd/store/README.md](src/pmd/store/README.md)
 - Services Module: [src/pmd/services/README.md](src/pmd/services/README.md)
 - CLI Module: [src/pmd/cli/README.md](src/pmd/cli/README.md)
-- MCP Module: [src/pmd/mcp/README.md](src/pmd/mcp/README.md)
 - LLM Module: [src/pmd/llm/README.md](src/pmd/llm/README.md)
 - Search Module: [src/pmd/search/README.md](src/pmd/search/README.md)
 - Sources Module: [src/pmd/sources/README.md](src/pmd/sources/README.md)
@@ -303,18 +298,6 @@ python -m pmd [command] [options]
 ```
 
 Implemented in `src/pmd/__main__.py`, delegates to `cli.main.main()`.
-
-### MCP Entry Point
-
-```python
-from pmd.mcp import PMDMCPServer
-from pmd.core.config import Config
-
-server = PMDMCPServer(Config.from_env())
-await server.initialize()
-# Use server methods
-await server.shutdown()
-```
 
 ---
 

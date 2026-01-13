@@ -3,7 +3,6 @@
 Renames:
 - Table: collections -> source_collections
 - Column: documents.collection_id -> documents.source_collection_id
-- Column: path_contexts.collection_id -> path_contexts.source_collection_id
 - Indexes: updated to reflect new names
 """
 
@@ -35,19 +34,11 @@ def up(conn):
     conn.execute(
         "ALTER TABLE documents RENAME COLUMN collection_id TO source_collection_id"
     )
-    conn.execute(
-        "ALTER TABLE path_contexts RENAME COLUMN collection_id TO source_collection_id"
-    )
 
     # Drop old indexes and create new ones with updated names
     conn.execute("DROP INDEX IF EXISTS idx_documents_collection")
-    conn.execute("DROP INDEX IF EXISTS idx_path_contexts_collection")
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_documents_source_collection "
         "ON documents(source_collection_id)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_path_contexts_source_collection "
-        "ON path_contexts(source_collection_id)"
     )

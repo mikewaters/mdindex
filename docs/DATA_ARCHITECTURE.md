@@ -137,30 +137,7 @@ CREATE TABLE IF NOT EXISTS content_vectors (
 
 **Primary Key**: `(hash, seq)` enables tracking multiple chunks per document.
 
-### 2.5 path_contexts
-
-Stores semantic context descriptions for directory path prefixes.
-
-```sql
-CREATE TABLE IF NOT EXISTS path_contexts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    collection_id INTEGER NOT NULL REFERENCES collections(id),
-    path_prefix TEXT NOT NULL,
-    context TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    UNIQUE(collection_id, path_prefix)
-);
-```
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| `id` | INTEGER | PRIMARY KEY, AUTOINCREMENT | Context identifier |
-| `collection_id` | INTEGER | NOT NULL, FK→collections | Parent collection |
-| `path_prefix` | TEXT | NOT NULL | Path prefix pattern |
-| `context` | TEXT | NOT NULL | Semantic description |
-| `created_at` | TEXT | NOT NULL | ISO timestamp |
-
-### 2.6 source_metadata
+### 2.5 source_metadata
 
 Tracks HTTP metadata for remote documents (ETags, Last-Modified) enabling efficient incremental updates.
 
@@ -266,16 +243,14 @@ CREATE VIRTUAL TABLE IF NOT EXISTS content_vectors_vec USING vec0(
 CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection_id);
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
 CREATE INDEX IF NOT EXISTS idx_content_vectors_hash ON content_vectors(hash);
-CREATE INDEX IF NOT EXISTS idx_path_contexts_collection ON path_contexts(collection_id);
 CREATE INDEX IF NOT EXISTS idx_source_metadata_uri ON source_metadata(source_uri);
 ```
 
 | Index | Table | Column(s) | Purpose |
-|-------|-------|-----------|---------|
+|-------|-------|-----------|--------|
 | `idx_documents_collection` | documents | collection_id | Fast collection-scoped queries |
 | `idx_documents_hash` | documents | hash | Content deduplication lookups |
 | `idx_content_vectors_hash` | content_vectors | hash | Embedding retrieval by content |
-| `idx_path_contexts_collection` | path_contexts | collection_id | Path context lookups |
 | `idx_source_metadata_uri` | source_metadata | source_uri | Metadata by URI |
 
 ---
@@ -292,62 +267,62 @@ CREATE INDEX IF NOT EXISTS idx_source_metadata_uri ON source_metadata(source_uri
 │ source_type     │                          │
 └────────┬────────┘                          │
          │                                   │
-         │ 1:N                               │ 1:N
+         │ 1:N                               │
          ▼                                   │
-┌─────────────────┐                 ┌────────┴────────┐
-│    documents    │                 │  path_contexts  │
-│─────────────────│                 │─────────────────│
-│ id (PK)         │◄───────┐        │ id (PK)         │
-│ collection_id   │───────►│        │ collection_id   │
-│ path            │        │        │ path_prefix     │
-│ hash ───────────┼──┐     │        │ context         │
-│ active          │  │     │        └─────────────────┘
-│ title           │  │     │
-└────────┬────────┘  │     │
-         │           │     │
-         │ 1:1       │     │
-         ▼           │     │
-┌─────────────────┐  │     │
-│ source_metadata │  │     │
-│─────────────────│  │     │
-│ id (PK)         │  │     │
-│ document_id ────┼──┘     │
-│ etag            │        │
-│ last_modified   │        │
-└─────────────────┘        │
-                           │
-         ┌─────────────────┘
-         │ N:1
-         ▼
-┌─────────────────┐
-│     content     │
-│─────────────────│
-│ hash (PK)       │◄─────────────────┐
-│ doc             │                  │
-│ created_at      │                  │
-└────────┬────────┘                  │
-         │                           │
-         │ 1:N                       │
-         ▼                           │
-┌─────────────────┐                  │
-│ content_vectors │                  │
-│─────────────────│                  │
-│ hash ───────────┼──────────────────┘
-│ seq             │
-│ pos             │
-│ model           │
-│ (PK: hash, seq) │
-└────────┬────────┘
-         │
-         │ 1:1
-         ▼
-┌─────────────────────┐
-│ content_vectors_vec │
-│─────────────────────│
-│ hash (PK, composite)│
-│ seq                 │
-│ embedding           │
-└─────────────────────┘
+┌─────────────────┐                          │
+│    documents    │                          │
+│─────────────────│                          │
+│ id (PK)         │◄───────┐                 │
+│ collection_id   │───────►│                 │
+│ path            │        │                 │
+│ hash ───────────┼──┐     │                 │
+│ active          │  │     │                 │
+│ title           │  │     │                 │
+└────────┬────────┘  │     │                 │
+         │           │     │                 │
+         │ 1:1       │     │                 │
+         ▼           │     │                 │
+┌─────────────────┐  │     │                 │
+│ source_metadata │  │     │                 │
+│─────────────────│  │     │                 │
+│ id (PK)         │  │     │                 │
+│ document_id ────┼──┘     │                 │
+│ etag            │        │                 │
+│ last_modified   │        │                 │
+└─────────────────┘        │                 │
+                           │                 │
+         ┌─────────────────┘                 │
+         │ N:1                               │
+         ▼                                   │
+┌─────────────────┐                          │
+│     content     │                          │
+│─────────────────│                          │
+│ hash (PK)       │◄─────────────────┐       │
+│ doc             │                  │       │
+│ created_at      │                  │       │
+└────────┬────────┘                  │       │
+         │                           │       │
+         │ 1:N                       │       │
+         ▼                           │       │
+┌─────────────────┐                  │       │
+│ content_vectors │                  │       │
+│─────────────────│                  │       │
+│ hash ───────────┼──────────────────┘       │
+│ seq             │                          │
+│ pos             │                          │
+│ model           │                          │
+│ (PK: hash, seq) │                          │
+└────────┬────────┘                          │
+         │                                   │
+         │ 1:1                               │
+         ▼                                   │
+┌─────────────────────┐                      │
+│ content_vectors_vec │                      │
+│─────────────────────│                      │
+│ hash (PK, composite)│                      │
+│ seq                 │                      │
+│ embedding           │                      │
+└─────────────────────┘                      │
 
 ┌─────────────────┐          ┌─────────────────┐
 │  documents_fts  │          │   ollama_cache  │
@@ -684,15 +659,6 @@ CREATE TABLE IF NOT EXISTS content_vectors (
     PRIMARY KEY (hash, seq)
 );
 
-CREATE TABLE IF NOT EXISTS path_contexts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    collection_id INTEGER NOT NULL REFERENCES collections(id),
-    path_prefix TEXT NOT NULL,
-    context TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    UNIQUE(collection_id, path_prefix)
-);
-
 CREATE TABLE IF NOT EXISTS ollama_cache (
     hash TEXT PRIMARY KEY,
     result TEXT NOT NULL,
@@ -728,6 +694,5 @@ CREATE VIRTUAL TABLE IF NOT EXISTS content_vectors_vec USING vec0(
 CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection_id);
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
 CREATE INDEX IF NOT EXISTS idx_content_vectors_hash ON content_vectors(hash);
-CREATE INDEX IF NOT EXISTS idx_path_contexts_collection ON path_contexts(collection_id);
 CREATE INDEX IF NOT EXISTS idx_source_metadata_uri ON source_metadata(source_uri);
 ```

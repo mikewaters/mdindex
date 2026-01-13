@@ -142,9 +142,6 @@ class SourceCollectionRepository:
             # Delete documents
             cursor.execute("DELETE FROM documents WHERE source_collection_id = ?", (source_collection_id,))
 
-            # Delete path contexts
-            cursor.execute("DELETE FROM path_contexts WHERE source_collection_id = ?", (source_collection_id,))
-
             # Find and delete orphaned content hashes
             cursor.execute(
                 """

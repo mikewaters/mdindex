@@ -1,28 +1,4 @@
 {
-  "hooks": {
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "command": "bd prime",
-            "type": "command"
-          }
-        ],
-        "matcher": ""
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "command": "bd prime",
-            "type": "command"
-          }
-        ],
-        "matcher": ""
-      }
-    ]
-  },
   "permissions": {
     "allow": [
       "Bash(wc:*)",
@@ -59,7 +35,34 @@
       "Bash(bd delete:*)",
       "Skill(work-breakdown)",
       "Bash(git rm:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(bd dep rm:*)",
+      "Bash(bd dep rm mdindex-85v mdindex-j6q)",
+      "Bash(bd dep rm mdindex-qj0 mdindex-j6q)"
+    ]
+  },
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bd prime"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bd prime"
+          }
+        ]
+      }
     ]
   }
 }

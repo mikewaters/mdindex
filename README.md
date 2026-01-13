@@ -13,7 +13,6 @@ A hybrid search engine for markdown documents with full-text search, vector sema
 - **Hybrid Search Pipeline** with Reciprocal Rank Fusion (RRF)
 - **Query Expansion** for improved recall
 - **Content-Addressable Storage** for efficient deduplication
-- **MCP Server Integration** for AI agent access
 - **Multiple Output Formats**: JSON, CSV, XML, Markdown, plain text
 
 ## Installation
@@ -286,40 +285,6 @@ query_embedding = [0.1] * 384  # Example embedding
 results = vector_search.search(query_embedding, limit=5)
 
 db.close()
-```
-
-### MCP Server Integration
-
-```python
-import asyncio
-from pmd.core.config import Config
-from pmd.mcp.server import PMDMCPServer
-
-async def run_mcp_server():
-    config = Config.from_env_or_file()
-    server = PMDMCPServer(config)
-
-    await server.initialize()
-
-    # Search
-    results = await server.search("python programming", limit=5)
-    print(results)
-
-    # Get document
-    doc = await server.get_document("notes", "example.md")
-    print(doc)
-
-    # List collections
-    collections = await server.list_collections()
-    print(collections)
-
-    # Get status
-    status = await server.get_status()
-    print(status)
-
-    await server.shutdown()
-
-asyncio.run(run_mcp_server())
 ```
 
 ## Configuration

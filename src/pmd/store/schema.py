@@ -60,23 +60,6 @@ CREATE TABLE IF NOT EXISTS content_vectors (
     PRIMARY KEY (hash, seq)
 );
 
--- Context descriptions
-CREATE TABLE IF NOT EXISTS path_contexts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_collection_id INTEGER NOT NULL REFERENCES source_collections(id),
-    path_prefix TEXT NOT NULL,
-    context TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    UNIQUE(source_collection_id, path_prefix)
-);
-
--- Ollama API response cache
-CREATE TABLE IF NOT EXISTS ollama_cache (
-    hash TEXT PRIMARY KEY,
-    result TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-
 -- Source metadata for remote documents
 CREATE TABLE IF NOT EXISTS source_metadata (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,7 +96,6 @@ CREATE TABLE IF NOT EXISTS document_tags (
 CREATE INDEX IF NOT EXISTS idx_documents_source_collection ON documents(source_collection_id);
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
 CREATE INDEX IF NOT EXISTS idx_content_vectors_hash ON content_vectors(hash);
-CREATE INDEX IF NOT EXISTS idx_path_contexts_source_collection ON path_contexts(source_collection_id);
 CREATE INDEX IF NOT EXISTS idx_source_metadata_uri ON source_metadata(source_uri);
 CREATE INDEX IF NOT EXISTS idx_document_tags_tag ON document_tags(tag);
 """

@@ -1,3 +1,3 @@
-# Instructions
+# Agent Instructions
 
-Use 'bd' for task tracking
+Immediately read @AGENT_INSTRUCTIONS.md
