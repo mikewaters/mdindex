@@ -589,3 +589,386 @@ class TestWeightedBoostResult:
         assert result.matching_tags == {"python": 1.0, "web": 0.7}
         assert result.total_match_weight == 1.7
         assert result.boost_applied == 1.5
+
+
+class TestGetDocumentTagsBatch:
+    """Tests for the get_document_tags_batch function."""
+
+    def test_fetches_tags_for_multiple_documents(self):
+        """Should fetch tags for all requested documents."""
+        from pmd.metadata.query.scoring import get_document_tags_batch
+
+        # Mock metadata repository
+        class MockMetadataRepo:
+            def get_tags(self, doc_id: int) -> set[str]:
+                tag_map = {
+                    1: {"python", "web"},
+                    2: {"rust", "systems"},
+                    3: {"javascript", "frontend"},
+                }
+                return tag_map.get(doc_id, set())
+
+        repo = MockMetadataRepo()
+        result = get_document_tags_batch(repo, [1, 2, 3])
+
+        assert result == {
+            1: {"python", "web"},
+            2: {"rust", "systems"},
+            3: {"javascript", "frontend"},
+        }
+
+    def test_handles_empty_document_list(self):
+        """Should return empty dict for empty input."""
+        from pmd.metadata.query.scoring import get_document_tags_batch
+
+        class MockMetadataRepo:
+            def get_tags(self, doc_id: int) -> set[str]:
+                return set()
+
+        repo = MockMetadataRepo()
+        result = get_document_tags_batch(repo, [])
+
+        assert result == {}
+
+    def test_handles_documents_with_no_tags(self):
+        """Should handle documents that have no tags."""
+        from pmd.metadata.query.scoring import get_document_tags_batch
+
+        class MockMetadataRepo:
+            def get_tags(self, doc_id: int) -> set[str]:
+                return set()  # No tags
+
+        repo = MockMetadataRepo()
+        result = get_document_tags_batch(repo, [1, 2])
+
+        assert result == {1: set(), 2: set()}
+
+    def test_preserves_document_ids(self):
+        """Should include all requested document IDs in result."""
+        from pmd.metadata.query.scoring import get_document_tags_batch
+
+        class MockMetadataRepo:
+            def get_tags(self, doc_id: int) -> set[str]:
+                if doc_id == 1:
+                    return {"python"}
+                return set()
+
+        repo = MockMetadataRepo()
+        result = get_document_tags_batch(repo, [1, 2, 3, 4])
+
+        assert set(result.keys()) == {1, 2, 3, 4}
+        assert result[1] == {"python"}
+        assert result[2] == set()
+
+
+class TestBuildPathToIdMap:
+    """Tests for the build_path_to_id_map function."""
+
+    def test_builds_mapping_for_valid_paths(self):
+        """Should build correct path to ID mapping."""
+        from pmd.metadata.query.scoring import build_path_to_id_map
+
+        # Mock database
+        class MockCursor:
+            def fetchall(self):
+                return [
+                    {"path": "docs/python.md", "id": 1},
+                    {"path": "docs/rust.md", "id": 2},
+                    {"path": "docs/javascript.md", "id": 3},
+                ]
+
+        class MockDB:
+            def execute(self, query: str, params: tuple):
+                return MockCursor()
+
+        db = MockDB()
+        paths = ["docs/python.md", "docs/rust.md", "docs/javascript.md"]
+        result = build_path_to_id_map(db, paths)
+
+        assert result == {
+            "docs/python.md": 1,
+            "docs/rust.md": 2,
+            "docs/javascript.md": 3,
+        }
+
+    def test_returns_empty_for_empty_paths(self):
+        """Should return empty dict for empty paths list."""
+        from pmd.metadata.query.scoring import build_path_to_id_map
+
+        class MockDB:
+            def execute(self, query: str, params: tuple):
+                raise AssertionError("Should not be called for empty paths")
+
+        db = MockDB()
+        result = build_path_to_id_map(db, [])
+
+        assert result == {}
+
+    def test_filters_inactive_documents(self):
+        """Should only return active documents (active = 1)."""
+        from pmd.metadata.query.scoring import build_path_to_id_map
+
+        class MockCursor:
+            def fetchall(self):
+                # Only active documents should be returned
+                return [
+                    {"path": "docs/python.md", "id": 1},
+                    # inactive documents filtered out by WHERE clause
+                ]
+
+        class MockDB:
+            def execute(self, query: str, params: tuple):
+                # Verify the query includes active = 1
+                assert "active = 1" in query
+                return MockCursor()
+
+        db = MockDB()
+        paths = ["docs/python.md", "docs/inactive.md"]
+        result = build_path_to_id_map(db, paths)
+
+        assert result == {"docs/python.md": 1}
+
+    def test_handles_missing_paths(self):
+        """Should only include paths that exist in database."""
+        from pmd.metadata.query.scoring import build_path_to_id_map
+
+        class MockCursor:
+            def fetchall(self):
+                # Only return found paths
+                return [
+                    {"path": "docs/python.md", "id": 1},
+                ]
+
+        class MockDB:
+            def execute(self, query: str, params: tuple):
+                return MockCursor()
+
+        db = MockDB()
+        paths = ["docs/python.md", "docs/nonexistent.md", "docs/missing.md"]
+        result = build_path_to_id_map(db, paths)
+
+        # Only the found path should be in result
+        assert result == {"docs/python.md": 1}
+        assert "docs/nonexistent.md" not in result
+
+    def test_uses_parameterized_query(self):
+        """Should use parameterized query to prevent SQL injection."""
+        from pmd.metadata.query.scoring import build_path_to_id_map
+
+        class MockCursor:
+            def fetchall(self):
+                return []
+
+        class MockDB:
+            def __init__(self):
+                self.query = None
+                self.params = None
+
+            def execute(self, query: str, params: tuple):
+                self.query = query
+                self.params = params
+                return MockCursor()
+
+        db = MockDB()
+        paths = ["path1.md", "path2.md", "path3.md"]
+        build_path_to_id_map(db, paths)
+
+        # Should have correct number of placeholders
+        assert db.query.count("?") == len(paths)
+        # Should pass paths as tuple params
+        assert db.params == tuple(paths)
+
+    def test_handles_single_path(self):
+        """Should handle single path correctly."""
+        from pmd.metadata.query.scoring import build_path_to_id_map
+
+        class MockCursor:
+            def fetchall(self):
+                return [{"path": "docs/single.md", "id": 42}]
+
+        class MockDB:
+            def execute(self, query: str, params: tuple):
+                return MockCursor()
+
+        db = MockDB()
+        result = build_path_to_id_map(db, ["docs/single.md"])
+
+        assert result == {"docs/single.md": 42}
+
+    def test_handles_duplicate_paths_in_input(self):
+        """Should handle duplicate paths in input list."""
+        from pmd.metadata.query.scoring import build_path_to_id_map
+
+        class MockCursor:
+            def fetchall(self):
+                return [{"path": "docs/dup.md", "id": 1}]
+
+        class MockDB:
+            def execute(self, query: str, params: tuple):
+                return MockCursor()
+
+        db = MockDB()
+        # Duplicate paths in input
+        paths = ["docs/dup.md", "docs/dup.md", "docs/dup.md"]
+        result = build_path_to_id_map(db, paths)
+
+        # Should still only return one mapping
+        assert result == {"docs/dup.md": 1}
+
+    def test_handles_paths_with_special_characters(self):
+        """Should handle paths with special characters."""
+        from pmd.metadata.query.scoring import build_path_to_id_map
+
+        class MockCursor:
+            def fetchall(self):
+                return [
+                    {"path": "docs/my file with spaces.md", "id": 1},
+                    {"path": "docs/file-with-dashes.md", "id": 2},
+                    {"path": "docs/file_with_underscores.md", "id": 3},
+                ]
+
+        class MockDB:
+            def execute(self, query: str, params: tuple):
+                return MockCursor()
+
+        db = MockDB()
+        paths = [
+            "docs/my file with spaces.md",
+            "docs/file-with-dashes.md",
+            "docs/file_with_underscores.md",
+        ]
+        result = build_path_to_id_map(db, paths)
+
+        assert len(result) == 3
+        assert result["docs/my file with spaces.md"] == 1
+
+
+class TestScoredResultProtocol:
+    """Tests to verify that MockResult satisfies ScoredResult protocol."""
+
+    def test_mock_result_has_required_attributes(self):
+        """MockResult should have all attributes required by ScoredResult protocol."""
+        result = MockResult(file="test.md", score=1.0)
+
+        assert hasattr(result, "file")
+        assert hasattr(result, "score")
+        assert isinstance(result.file, str)
+        assert isinstance(result.score, float)
+
+    def test_mock_result_score_is_mutable(self):
+        """MockResult score should be mutable for in-place updates."""
+        result = MockResult(file="test.md", score=1.0)
+        result.score = 2.0
+
+        assert result.score == 2.0
+
+
+class TestApplyMetadataBoostV2EdgeCases:
+    """Additional edge case tests for apply_metadata_boost_v2."""
+
+    def test_zero_weight_tag_matches(self):
+        """Tags with zero weight should not contribute to boost."""
+        results = [MockResult(file="doc1.md", score=1.0)]
+        query_tags = {"python": 0.0, "web": 1.0}
+        doc_id_to_tags = {1: {"python", "web"}}
+        doc_path_to_id = {"doc1.md": 1}
+
+        boosted = apply_metadata_boost_v2(
+            results, query_tags, doc_id_to_tags, doc_path_to_id,
+            boost_factor=1.5,
+        )
+
+        _, boost_info = boosted[0]
+        # Only web (weight 1.0) should contribute
+        assert boost_info.total_match_weight == 1.0
+        assert boost_info.matching_tags == {"python": 0.0, "web": 1.0}
+
+    def test_negative_weight_ignored(self):
+        """Negative weights should still be included if they match."""
+        results = [MockResult(file="doc1.md", score=1.0)]
+        query_tags = {"python": -0.5, "web": 1.0}  # Negative weight
+        doc_id_to_tags = {1: {"python", "web"}}
+        doc_path_to_id = {"doc1.md": 1}
+
+        boosted = apply_metadata_boost_v2(
+            results, query_tags, doc_id_to_tags, doc_path_to_id,
+            boost_factor=1.5,
+        )
+
+        _, boost_info = boosted[0]
+        # Sum includes negative weight: 1.0 + (-0.5) = 0.5
+        assert boost_info.total_match_weight == pytest.approx(0.5)
+
+    def test_fractional_weights(self):
+        """Should handle fractional weights correctly."""
+        results = [MockResult(file="doc1.md", score=1.0)]
+        query_tags = {"tag1": 0.33, "tag2": 0.66, "tag3": 0.99}
+        doc_id_to_tags = {1: {"tag1", "tag2", "tag3"}}
+        doc_path_to_id = {"doc1.md": 1}
+
+        boosted = apply_metadata_boost_v2(
+            results, query_tags, doc_id_to_tags, doc_path_to_id,
+            boost_factor=1.2,
+        )
+
+        _, boost_info = boosted[0]
+        assert boost_info.total_match_weight == pytest.approx(0.33 + 0.66 + 0.99)
+        assert boost_info.boost_applied == pytest.approx(1.2 ** (0.33 + 0.66 + 0.99))
+
+    def test_empty_results_list(self):
+        """Empty results list should return empty list."""
+        boosted = apply_metadata_boost_v2(
+            [], {"python": 1.0}, {1: {"python"}}, {"doc1.md": 1}
+        )
+        assert boosted == []
+
+    def test_very_high_total_weight_respects_max(self):
+        """Very high total weight should be capped by max_boost."""
+        results = [MockResult(file="doc1.md", score=1.0)]
+        # 100 tags each with weight 1.0 = total weight 100
+        query_tags = {f"tag{i}": 1.0 for i in range(100)}
+        doc_id_to_tags = {1: {f"tag{i}" for i in range(100)}}
+        doc_path_to_id = {"doc1.md": 1}
+
+        boosted = apply_metadata_boost_v2(
+            results, query_tags, doc_id_to_tags, doc_path_to_id,
+            boost_factor=1.5,
+            max_boost=2.0,
+        )
+
+        _, boost_info = boosted[0]
+        # 1.5 ** 100 would be huge, but should be capped at 2.0
+        assert boost_info.boost_applied == 2.0
+
+    def test_boost_factor_one_no_boost(self):
+        """boost_factor of 1.0 should result in no boost."""
+        results = [MockResult(file="doc1.md", score=1.0)]
+        query_tags = {"python": 1.0}
+        doc_id_to_tags = {1: {"python"}}
+        doc_path_to_id = {"doc1.md": 1}
+
+        boosted = apply_metadata_boost_v2(
+            results, query_tags, doc_id_to_tags, doc_path_to_id,
+            boost_factor=1.0,
+        )
+
+        _, boost_info = boosted[0]
+        assert boost_info.boost_applied == 1.0
+        assert boost_info.boosted_score == 1.0
+
+    def test_handles_zero_score(self):
+        """Should handle documents with zero score."""
+        results = [MockResult(file="doc1.md", score=0.0)]
+        query_tags = {"python": 1.0}
+        doc_id_to_tags = {1: {"python"}}
+        doc_path_to_id = {"doc1.md": 1}
+
+        boosted = apply_metadata_boost_v2(
+            results, query_tags, doc_id_to_tags, doc_path_to_id,
+            boost_factor=1.5,
+        )
+
+        _, boost_info = boosted[0]
+        # 0.0 * 1.5 = 0.0
+        assert boost_info.boosted_score == 0.0
+        assert boost_info.boost_applied == 1.5  # Boost was calculated

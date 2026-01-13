@@ -213,6 +213,14 @@ class TestOntologyGetDescendants:
 
         assert descendants == []
 
+    def test_max_depth_zero(self):
+        """max_depth=0 should return empty list."""
+        ontology = Ontology(SAMPLE_ADJACENCY)
+
+        descendants = ontology.get_descendants("ml", max_depth=0)
+
+        assert descendants == []
+
 
 class TestOntologyExpandForMatching:
     """Tests for expand_for_matching method."""
@@ -348,6 +356,18 @@ class TestOntologyNode:
         assert node.children == ["ml/supervised"]
         assert node.description == "Machine learning"
 
+    def test_default_factory_separate_instances(self):
+        """Should create separate list instances for each node."""
+        node1 = OntologyNode(tag="test1")
+        node2 = OntologyNode(tag="test2")
+
+        # Modify node1's children list
+        node1.children.append("test1/child")
+
+        # node2's children should remain empty
+        assert node1.children == ["test1/child"]
+        assert node2.children == []
+
 
 class TestLoadOntology:
     """Tests for loading ontology from files."""
@@ -395,6 +415,15 @@ class TestLoadOntology:
         with pytest.raises(FileNotFoundError):
             load_ontology("/nonexistent/path.json")
 
+    def test_load_invalid_json(self):
+        """Should raise JSONDecodeError for malformed JSON."""
+        with NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write("{ invalid json content }")
+            f.flush()
+
+            with pytest.raises(json.JSONDecodeError):
+                load_ontology(f.name)
+
 
 class TestLoadDefaultOntology:
     """Tests for default ontology loading."""
@@ -415,6 +444,27 @@ class TestLoadDefaultOntology:
 
 class TestOntologyEdgeCases:
     """Edge case tests for Ontology."""
+
+    def test_missing_children_key(self):
+        """Should handle adjacency entries without children key."""
+        adjacency = {
+            "ml": {
+                "children": ["ml/supervised"],
+                "description": "Machine learning",
+            },
+            "python": {
+                # Missing children key - should not cause error
+                "description": "Python programming",
+            },
+        }
+
+        ontology = Ontology(adjacency)
+
+        # Should successfully create ontology
+        assert ontology.has_tag("ml")
+        assert ontology.has_tag("python")
+        # python has no children since key was missing
+        assert ontology.get_children("python") == []
 
     def test_deep_hierarchy(self):
         """Should handle deeply nested hierarchies."""
