@@ -7,9 +7,14 @@ exclude = [
     "**/venv",
 ]
 source_roots = [
-    ".",
+    "src/pmd",
+    "app",
 ]
 
-[[modules ]]
-path = "src"
+[[modules]]
+path = "pmd"
 depends_on = []
+
+[[modules]]
+path = "app"
+depends_on = ["pmd"]
