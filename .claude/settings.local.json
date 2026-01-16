@@ -38,7 +38,11 @@
       "Bash(git reset:*)",
       "Bash(bd dep rm:*)",
       "Bash(bd dep rm mdindex-85v mdindex-j6q)",
-      "Bash(bd dep rm mdindex-qj0 mdindex-j6q)"
+      "Bash(bd dep rm mdindex-qj0 mdindex-j6q)",
+      "Bash(python -m pytest:*)",
+      "Bash(python:*)",
+      "Bash(tree:*)",
+      "Bash(git push:*)"
     ]
   },
   "hooks": {
