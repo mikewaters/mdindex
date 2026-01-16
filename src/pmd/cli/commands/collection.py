@@ -10,6 +10,49 @@ from pmd.store.collections import SourceCollectionRepository
 from pmd.store.database import Database
 
 
+def _print_patterns(patterns: list[str]) -> None:
+    """Print glob patterns in a readable format.
+
+    Args:
+        patterns: List of glob patterns.
+    """
+    if len(patterns) == 1:
+        print(f"  Pattern: {patterns[0]}")
+    else:
+        print("  Patterns:")
+        for pattern in patterns:
+            prefix = "    !" if pattern.startswith("!") else "    "
+            display = pattern[1:] if pattern.startswith("!") else pattern
+            if pattern.startswith("!"):
+                print(f"    !{display} (exclude)")
+            else:
+                print(f"    {pattern}")
+
+
+def _format_patterns_brief(patterns: list[str]) -> str:
+    """Format patterns for brief display (list command).
+
+    Args:
+        patterns: List of glob patterns.
+
+    Returns:
+        Comma-separated pattern string, truncated if needed.
+    """
+    if len(patterns) == 1:
+        return patterns[0]
+
+    includes = [p for p in patterns if not p.startswith("!")]
+    excludes = [p for p in patterns if p.startswith("!")]
+
+    parts = includes[:2]  # Show up to 2 include patterns
+    if len(includes) > 2:
+        parts.append(f"+{len(includes) - 2} more")
+    if excludes:
+        parts.append(f"{len(excludes)} excludes")
+
+    return ", ".join(parts)
+
+
 def _get_source_collection_id(db: Database, name: str) -> int:
     """Get source collection ID by name.
 
@@ -65,9 +108,12 @@ def _add_source_collection(repo: SourceCollectionRepository, args) -> None:
 
     Args:
         repo: SourceCollectionRepository instance.
-        args: Parsed arguments with name, path, glob, source, etc.
+        args: Parsed arguments with name, path, globs, source, etc.
     """
     source_type = getattr(args, "source", "filesystem")
+
+    # Get glob patterns from args (may be None if not specified)
+    glob_patterns = getattr(args, "globs", None) or ["**/*.md"]
 
     if source_type == "filesystem":
         # Resolve to absolute path for filesystem sources
@@ -81,12 +127,12 @@ def _add_source_collection(repo: SourceCollectionRepository, args) -> None:
             source_collection = repo.create(
                 args.name,
                 resolved_path,
-                args.glob,
+                glob_patterns,
                 source_type="filesystem",
             )
             print(f"Created filesystem collection '{source_collection.name}'")
             print(f"  Path: {source_collection.pwd}")
-            print(f"  Pattern: {source_collection.glob_pattern}")
+            _print_patterns(source_collection.glob_patterns)
         except SourceCollectionExistsError as e:
             print(f"Error: {e}")
             raise
@@ -111,7 +157,7 @@ def _add_source_collection(repo: SourceCollectionRepository, args) -> None:
             source_collection = repo.create(
                 args.name,
                 args.path,  # Store original URL
-                args.glob,
+                glob_patterns,
                 source_type="http",
                 source_config=source_config,
             )
@@ -140,7 +186,7 @@ def _add_source_collection(repo: SourceCollectionRepository, args) -> None:
             source_collection = repo.create(
                 args.name,
                 args.path,
-                args.glob,
+                glob_patterns,
                 source_type="entity",
                 source_config=source_config,
             )
@@ -178,7 +224,7 @@ def _list_source_collections(repo: SourceCollectionRepository) -> None:
         print(f"  {source_indicator} {coll.name}")
         if coll.source_type == "filesystem":
             print(f"    Path: {coll.pwd}")
-            print(f"    Pattern: {coll.glob_pattern}")
+            print(f"    Pattern: {_format_patterns_brief(coll.glob_patterns)}")
         elif coll.source_type == "http":
             print(f"    URL: {coll.pwd}")
         else:
@@ -223,7 +269,7 @@ def _show_source_collection(repo: SourceCollectionRepository, db: Database, args
 
     if source_collection.source_type == "filesystem":
         print(f"  Path: {source_collection.pwd}")
-        print(f"  Pattern: {source_collection.glob_pattern}")
+        _print_patterns(source_collection.glob_patterns)
     elif source_collection.source_type == "http":
         print(f"  URL: {source_collection.pwd}")
         if source_collection.source_config:

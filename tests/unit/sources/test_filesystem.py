@@ -221,3 +221,87 @@ class TestFileSystemSource:
             # We need to fetch to get content_type
             # For now just verify files are listed
             assert ref.path in files
+
+
+class TestFileSystemSourceMultiGlob:
+    """Tests for multi-glob pattern support."""
+
+    def test_create_with_multiple_patterns(self, tmp_path: Path):
+        """Can create FileSystemSource with multiple patterns."""
+        config = SourceConfig(
+            uri=str(tmp_path),
+            extra={"glob_patterns": ["**/*.md", "**/*.txt"]},
+        )
+        source = FileSystemSource(config)
+
+        assert source.glob_patterns == ["**/*.md", "**/*.txt"]
+        assert source.glob_pattern == "**/*.md"  # Primary pattern
+
+    def test_multiple_patterns_match_union(self, tmp_path: Path):
+        """Multiple patterns match files from all patterns (OR)."""
+        (tmp_path / "doc.md").write_text("# Doc")
+        (tmp_path / "notes.txt").write_text("Notes")
+        (tmp_path / "data.json").write_text("{}")
+
+        config = SourceConfig(
+            uri=str(tmp_path),
+            extra={"glob_patterns": ["**/*.md", "**/*.txt"]},
+        )
+        source = FileSystemSource(config)
+
+        docs = list(source.list_documents())
+        paths = {d.path for d in docs}
+
+        assert "doc.md" in paths
+        assert "notes.txt" in paths
+        assert "data.json" not in paths
+
+    def test_exclude_pattern_filters_files(self, tmp_path: Path):
+        """Exclude patterns (! prefix) filter out files."""
+        (tmp_path / "doc.md").write_text("# Doc")
+        (tmp_path / "drafts").mkdir()
+        (tmp_path / "drafts" / "wip.md").write_text("# WIP")
+
+        config = SourceConfig(
+            uri=str(tmp_path),
+            extra={"glob_patterns": ["**/*.md", "!**/drafts/**"]},
+        )
+        source = FileSystemSource(config)
+
+        docs = list(source.list_documents())
+        paths = {d.path for d in docs}
+
+        assert "doc.md" in paths
+        assert "drafts/wip.md" not in paths
+
+    def test_backwards_compatible_single_pattern(self, tmp_path: Path):
+        """Single glob_pattern config still works (backwards compat)."""
+        (tmp_path / "doc.md").write_text("# Doc")
+        (tmp_path / "notes.txt").write_text("Notes")
+
+        config = SourceConfig(
+            uri=str(tmp_path),
+            extra={"glob_pattern": "**/*.md"},  # Legacy single pattern
+        )
+        source = FileSystemSource(config)
+
+        assert source.glob_patterns == ["**/*.md"]
+
+        docs = list(source.list_documents())
+        paths = {d.path for d in docs}
+
+        assert "doc.md" in paths
+        assert "notes.txt" not in paths
+
+    def test_glob_patterns_takes_precedence(self, tmp_path: Path):
+        """glob_patterns takes precedence over glob_pattern if both present."""
+        config = SourceConfig(
+            uri=str(tmp_path),
+            extra={
+                "glob_pattern": "**/*.md",
+                "glob_patterns": ["**/*.txt"],
+            },
+        )
+        source = FileSystemSource(config)
+
+        assert source.glob_patterns == ["**/*.txt"]

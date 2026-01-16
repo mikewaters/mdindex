@@ -57,9 +57,9 @@ class SourceCollection:
         id: Unique source collection ID.
         name: Human-readable source collection name.
         pwd: Base directory path (for filesystem sources).
-        glob_pattern: File pattern to match (for filesystem sources).
+        glob_pattern: Primary file pattern (for display/legacy).
         source_type: Type of source ('filesystem', 'http', 'entity').
-        source_config: JSON config for non-filesystem sources.
+        source_config: JSON config including glob_patterns list.
         created_at: When the source collection was created.
         updated_at: When the source collection was last modified.
     """
@@ -72,6 +72,17 @@ class SourceCollection:
     updated_at: str
     source_type: str = "filesystem"
     source_config: Optional[dict] = None
+
+    @property
+    def glob_patterns(self) -> list[str]:
+        """Get all glob patterns for this collection.
+
+        Returns list from source_config['glob_patterns'] if present,
+        otherwise falls back to single glob_pattern.
+        """
+        if self.source_config and "glob_patterns" in self.source_config:
+            return self.source_config["glob_patterns"]
+        return [self.glob_pattern]
 
     def get_source_uri(self) -> str:
         """Get the source URI for this source collection.
@@ -100,6 +111,8 @@ class SourceCollection:
             "uri": self.get_source_uri(),
         }
         if self.source_type == "filesystem":
+            base["glob_patterns"] = self.glob_patterns
+            # Keep glob_pattern for backwards compatibility
             base["glob_pattern"] = self.glob_pattern
         if self.source_config:
             base.update(self.source_config)

@@ -209,21 +209,47 @@ pmd collection add NAME PATH [OPTIONS]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `-g, --glob` | pattern | `**/*.md` | File glob pattern (filesystem sources) |
+| `-g, --glob` | pattern | `**/*.md` | File glob pattern (can be repeated; use `!` prefix to exclude) |
 | `-s, --source` | choice | `filesystem` | Source type: filesystem, http, entity |
 | `--sitemap` | url | — | Sitemap URL (HTTP sources) |
 | `--auth-type` | choice | `none` | Auth type: none, bearer, basic, api_key |
 | `--auth-token` | str | — | Auth token (or `$ENV:VAR_NAME` reference) |
 | `--username` | str | — | Username (basic auth) |
 
+**Glob Pattern Syntax:**
+
+Multiple `-g` flags can be specified. Patterns are OR'd together (file matches if it satisfies ANY pattern).
+Use `!` prefix to exclude files matching a pattern.
+
+| Pattern | Description |
+|---------|-------------|
+| `**/*.md` | All markdown files recursively |
+| `*.txt` | Text files in root directory only |
+| `docs/**/*.md` | Markdown files in docs/ subdirectory |
+| `!**/drafts/**` | Exclude files in any drafts/ directory |
+| `!**/node_modules/**` | Exclude node_modules |
+
 **Examples:**
 
 ```bash
-# Add local markdown files
-pmd collection add docs ./docs --glob "**/*.md"
+# Add local markdown files (default pattern)
+pmd collection add docs ./docs
 
-# Add with different pattern
-pmd collection add notes ~/notes --glob "*.txt"
+# Add with specific pattern
+pmd collection add notes ~/notes -g "*.txt"
+
+# Add multiple file types
+pmd collection add project ./src -g "**/*.md" -g "**/*.rst" -g "**/*.txt"
+
+# Include markdown but exclude drafts
+pmd collection add docs ./docs -g "**/*.md" -g "!**/drafts/**"
+
+# Index Python project docs, excluding tests and cache
+pmd collection add pyproject ./src \
+  -g "**/*.md" \
+  -g "**/*.rst" \
+  -g "!**/__pycache__/**" \
+  -g "!**/test_*.md"
 
 # Add HTTP source with sitemap
 pmd collection add api-docs https://api.example.com \
