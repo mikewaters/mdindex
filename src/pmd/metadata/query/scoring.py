@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from pmd.search.metadata.scoring import ScoredResult
 
 if TYPE_CHECKING:
-    from pmd.metadata.store import DocumentMetadataRepository
+    from pmd.store.repositories.metadata import DocumentMetadataRepository
 
 
 @dataclass

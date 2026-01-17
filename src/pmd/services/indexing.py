@@ -16,8 +16,9 @@ from pmd.sources import (
     get_default_registry,
 )
 from pmd.metadata import (
-    ExtractedMetadata, get_default_profile_registry, DocumentMetadataRepository
+    ExtractedMetadata, get_default_profile_registry
 )
+from pmd.store.repositories.metadata import DocumentMetadataRepository
 from pmd.app.protocols import (
     SourceCollectionRepositoryProtocol,
     DatabaseProtocol,

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pmd.core.types import SearchResult
-    from pmd.store.search import FTS5SearchRepository
+    from pmd.store.repositories.fts import FTS5SearchRepository
 
 
 class FTS5TextSearcher:
@@ -19,7 +19,7 @@ class FTS5TextSearcher:
     implementing the TextSearcher protocol for use in HybridSearchPipeline.
 
     Example:
-        >>> from pmd.store.search import FTS5SearchRepository
+        >>> from pmd.store.repositories.fts import FTS5SearchRepository
         >>> fts_repo = FTS5SearchRepository(db)
         >>> searcher = FTS5TextSearcher(fts_repo)
         >>> results = searcher.search("python programming", limit=10)

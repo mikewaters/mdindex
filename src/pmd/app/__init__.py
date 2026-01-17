@@ -250,12 +250,12 @@ async def create_application(config: "Config") -> Application:
     """
     # Lazy imports to avoid circular dependencies
     from pmd.store.database import Database
-    from pmd.store.collections import SourceCollectionRepository
-    from pmd.store.documents import DocumentRepository
-    from pmd.store.content import ContentRepository
-    from pmd.store.search import FTS5SearchRepository
-    from pmd.store.embeddings import EmbeddingRepository
-    from pmd.store.source_metadata import SourceMetadataRepository
+    from pmd.store.repositories.collections import SourceCollectionRepository
+    from pmd.store.repositories.documents import DocumentRepository
+    from pmd.store.repositories.content import ContentRepository
+    from pmd.store.repositories.fts import FTS5SearchRepository
+    from pmd.store.repositories.embeddings import EmbeddingRepository
+    from pmd.store.repositories.source_metadata import SourceMetadataRepository
     from pmd.services.indexing import IndexingService
     from pmd.services.loading import LoadingService
     from pmd.services.search import SearchService
@@ -266,8 +266,8 @@ async def create_application(config: "Config") -> Application:
         LexicalTagMatcher,
         Ontology,
         TagRetriever,
-        DocumentMetadataRepository,
     )
+    from pmd.store.repositories.metadata import DocumentMetadataRepository
     from pmd.services.caching import DocumentCacher
 
     # Create and connect database

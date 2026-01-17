@@ -14,8 +14,8 @@ from pmd.app.protocols import BoostInfo
 if TYPE_CHECKING:
     from pmd.core.types import RankedResult
     from pmd.store.database import Database
-    from pmd.store.documents import DocumentRepository
-    from pmd.metadata.store import DocumentMetadataRepository
+    from pmd.store.repositories.documents import DocumentRepository
+    from pmd.store.repositories.metadata import DocumentMetadataRepository
     from pmd.metadata.model.ontology import Ontology
 
 
@@ -31,7 +31,7 @@ class OntologyMetadataBooster:
     - Without ontology: Uses simple set-based tag matching
 
     Example:
-        >>> from pmd.metadata.store import DocumentMetadataRepository
+        >>> from pmd.store.repositories.metadata import DocumentMetadataRepository
         >>> metadata_repo = DocumentMetadataRepository(db)
         >>> booster = OntologyMetadataBooster(db, metadata_repo)
         >>> boosted = booster.boost(results, {"python": 1.0, "ml": 0.7})

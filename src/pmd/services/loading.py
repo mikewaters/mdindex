@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     )
     from pmd.core.types import SourceCollection
     from pmd.sources import SourceRegistry
-    from pmd.store.source_metadata import SourceMetadataRepository
+    from pmd.store.repositories.source_metadata import SourceMetadataRepository
     from .loading_llamaindex import LlamaIndexLoaderAdapter
 
 

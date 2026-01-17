@@ -1,18 +1,13 @@
 """Document metadata persistence layer.
 
-This subpackage provides storage for extracted document metadata
-including tags, attributes, and the profile used for extraction.
+DEPRECATED: This module has been moved to pmd.store.repositories.metadata.
 
-Repository:
-- DocumentMetadataRepository: CRUD operations for document metadata
+Import directly from the new location:
+    from pmd.store.repositories.metadata import DocumentMetadataRepository
 
-The repository uses two tables:
-- document_metadata: Main metadata storage (profile, tags JSON, attributes)
-- document_tags: Junction table for fast tag-based lookups
+Or from the store package:
+    from pmd.store import DocumentMetadataRepository
 """
 
-from pmd.metadata.store.repository import DocumentMetadataRepository
-
-__all__ = [
-    "DocumentMetadataRepository",
-]
+# This file is intentionally empty after the migration.
+# The DocumentMetadataRepository now lives at pmd.store.repositories.metadata

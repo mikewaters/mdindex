@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from .embeddings import EmbeddingRepository
-from .search import SearchRepository
+from .repositories.embeddings import EmbeddingRepository
+from .repositories.fts import SearchRepository
 from ..core.types import SearchResult
 
 

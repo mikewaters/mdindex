@@ -37,8 +37,8 @@ if TYPE_CHECKING:
     from pmd.services.caching import DocumentCacher
     from pmd.workflows.contracts import IngestionRequest
     from pmd.services.loading import LoadedDocument
-    from pmd.store.source_metadata import SourceMetadataRepository
-    from pmd.metadata import DocumentMetadataRepository
+    from pmd.store.repositories.source_metadata import SourceMetadataRepository
+    from pmd.store.repositories.metadata import DocumentMetadataRepository
 
 
 class IngestionPipeline:
@@ -110,8 +110,8 @@ class IngestionPipeline:
             SourceCollectionNotFoundError: If collection does not exist.
         """
         from pmd.services.indexing import IndexResult
-        from pmd.store.source_metadata import SourceMetadataRepository
-        from pmd.metadata import DocumentMetadataRepository
+        from pmd.store.repositories.source_metadata import SourceMetadataRepository
+        from pmd.store.repositories.metadata import DocumentMetadataRepository
 
         collection_name = request.collection_name
         force = request.force
@@ -228,7 +228,7 @@ class IngestionPipeline:
         Returns:
             "indexed" if persisted, "skipped" if content unchanged.
         """
-        from pmd.store.source_metadata import SourceMetadata
+        from pmd.store.repositories.source_metadata import SourceMetadata
         from pmd.metadata import StoredDocumentMetadata
 
         # Store document content

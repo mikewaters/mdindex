@@ -6,7 +6,7 @@ from typing import Any
 
 from pmd.core.config import Config
 from pmd.core.exceptions import SourceCollectionExistsError, SourceCollectionNotFoundError
-from pmd.store.collections import SourceCollectionRepository
+from pmd.store.repositories.collections import SourceCollectionRepository
 from pmd.store.database import Database
 
 

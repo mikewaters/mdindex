@@ -9,7 +9,7 @@ from ..core.types import Chunk
 from ..search.chunking import chunk_document
 from ..search.text import is_indexable
 from ..store.database import Database
-from ..store.embeddings import EmbeddingRepository
+from ..store.repositories.embeddings import EmbeddingRepository
 from .base import LLMProvider
 
 

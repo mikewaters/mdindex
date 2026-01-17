@@ -28,8 +28,8 @@ For specialized functionality, import directly from subpackages:
     # Query-time
     from pmd.metadata.query import LexicalTagMatcher, create_default_matcher
 
-    # Storage
-    from pmd.metadata.store import DocumentMetadataRepository
+    # Storage (now in pmd.store.repositories)
+    from pmd.store.repositories.metadata import DocumentMetadataRepository
 
 Example
 -------
@@ -105,13 +105,6 @@ from pmd.metadata.query import (
     get_document_tags_batch,
 )
 
-# =============================================================================
-# Store - Persistence
-# =============================================================================
-from pmd.metadata.store import (
-    DocumentMetadataRepository,
-)
-
 __all__ = [
     # === Model Types ===
     "ExtractedMetadata",
@@ -156,6 +149,4 @@ __all__ = [
     "apply_metadata_boost_v2",
     "build_path_to_id_map",
     "get_document_tags_batch",
-    # === Store ===
-    "DocumentMetadataRepository",
 ]

@@ -16,7 +16,7 @@ from pmd.core.types import SearchResult, SearchSource
 
 if TYPE_CHECKING:
     from pmd.store.database import Database
-    from pmd.metadata import DocumentMetadataRepository
+    from pmd.store.repositories.metadata import DocumentMetadataRepository
 
 
 @dataclass
