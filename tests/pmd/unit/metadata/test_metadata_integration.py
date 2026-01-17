@@ -167,9 +167,16 @@ class TestPublicAPIConsistency:
         assert True
 
     def test_subpackage_imports_work(self):
-        """Direct subpackage imports work correctly."""
-        from pmd.metadata.model import Ontology, ExtractedMetadata
-        from pmd.metadata.extraction import GenericProfile
-        from pmd.metadata.query import LexicalTagMatcher
+        """Direct imports from new module structure work correctly."""
+        # Extraction module
+        from pmd.extraction.types import ExtractedMetadata
+        from pmd.extraction.profiles import GenericProfile
+        from pmd.extraction.registry import MetadataProfileRegistry
+        # Ontology module
+        from pmd.ontology.model import Ontology
+        from pmd.ontology.inference import LexicalTagMatcher
+        from pmd.ontology.retrieval import TagRetriever
+        from pmd.ontology.scoring import apply_metadata_boost
+        # Store repositories
         from pmd.store.repositories.metadata import DocumentMetadataRepository
         assert True

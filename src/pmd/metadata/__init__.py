@@ -1,32 +1,23 @@
 """Unified metadata domain for PMD.
 
-This package provides the complete metadata handling subsystem with clear
-submodules for different concerns:
+This package provides the complete metadata handling subsystem. The implementation
+has been split into focused modules:
 
-Subpackages
------------
-model
-    Core types: ExtractedMetadata, StoredDocumentMetadata, Ontology, TagAliases
-extraction
-    Source-aware extraction: profiles (Obsidian, Drafts, Generic), parsing
-query
-    Query-time operations: tag inference, retrieval, scoring
-store
-    Persistence: DocumentMetadataRepository
+- pmd.extraction: Document metadata extraction profiles and types
+- pmd.ontology: Tag ontology, matching, and scoring
+
+This module re-exports commonly used types for backward compatibility.
 
 Public API
 ----------
-This module re-exports commonly used types from subpackages for convenience.
-For specialized functionality, import directly from subpackages:
-
     # Core types (most common)
     from pmd.metadata import Ontology, ExtractedMetadata, TagAliases
 
     # Extraction profiles
-    from pmd.metadata.extraction import ObsidianProfile, get_default_profile_registry
+    from pmd.metadata import ObsidianProfile, get_default_profile_registry
 
     # Query-time
-    from pmd.metadata.query import LexicalTagMatcher, create_default_matcher
+    from pmd.metadata import LexicalTagMatcher, create_default_matcher
 
     # Storage (now in pmd.store.repositories)
     from pmd.store.repositories.metadata import DocumentMetadataRepository
@@ -34,8 +25,7 @@ For specialized functionality, import directly from subpackages:
 Example
 -------
 >>> from pmd.metadata import Ontology, TagAliases, ExtractedMetadata
->>> from pmd.metadata.extraction import GenericProfile
->>> from pmd.metadata.query import create_default_matcher
+>>> from pmd.metadata import GenericProfile, create_default_matcher
 >>>
 >>> # Extract metadata from document
 >>> profile = GenericProfile()
@@ -47,36 +37,35 @@ Example
 """
 
 # =============================================================================
-# Model - Core types and ontology
+# Extraction Types - from pmd.extraction
 # =============================================================================
-from pmd.metadata.model import (
-    # Types
+from pmd.extraction.types import (
     ExtractedMetadata,
     MetadataProfile,
     StoredDocumentMetadata,
-    # Ontology
-    Ontology,
-    OntologyNode,
-    load_default_ontology,
-    load_ontology,
-    # Aliases
-    TagAliases,
-    load_aliases,
-    load_default_aliases,
 )
 
 # =============================================================================
-# Extraction - Source-aware metadata extraction
+# Extraction Profiles - from pmd.extraction.profiles
 # =============================================================================
-from pmd.metadata.extraction import (
-    # Profiles
+from pmd.extraction.profiles import (
     GenericProfile,
     DraftsProfile,
     ObsidianProfile,
-    # Registry
+)
+
+# =============================================================================
+# Extraction Registry - from pmd.extraction
+# =============================================================================
+from pmd.extraction.registry import (
     MetadataProfileRegistry,
     get_default_profile_registry,
-    # Parsing utilities
+)
+
+# =============================================================================
+# Parsing utilities - from pmd.extraction.profiles.parsing
+# =============================================================================
+from pmd.extraction.profiles.parsing import (
     FrontmatterResult,
     parse_frontmatter,
     extract_inline_tags,
@@ -84,18 +73,42 @@ from pmd.metadata.extraction import (
 )
 
 # =============================================================================
-# Query - Query-time inference and scoring
+# Ontology - from pmd.ontology
 # =============================================================================
-from pmd.metadata.query import (
-    # Inference
+from pmd.ontology.model import (
+    Ontology,
+    OntologyNode,
+    load_default_ontology,
+    load_ontology,
+)
+from pmd.ontology.aliases import (
+    TagAliases,
+    load_aliases,
+    load_default_aliases,
+)
+
+# =============================================================================
+# Query-time inference - from pmd.ontology.inference
+# =============================================================================
+from pmd.ontology.inference import (
     LexicalTagMatcher,
     TagMatch,
     create_default_matcher,
-    # Retrieval
+)
+
+# =============================================================================
+# Tag retrieval - from pmd.ontology.retrieval
+# =============================================================================
+from pmd.ontology.retrieval import (
     TagRetriever,
     TagSearchConfig,
     create_tag_retriever,
-    # Scoring
+)
+
+# =============================================================================
+# Metadata scoring - from pmd.ontology.scoring
+# =============================================================================
+from pmd.ontology.scoring import (
     MetadataBoostConfig,
     BoostResult,
     WeightedBoostResult,
@@ -106,11 +119,11 @@ from pmd.metadata.query import (
 )
 
 __all__ = [
-    # === Model Types ===
+    # === Extraction Types ===
     "ExtractedMetadata",
     "MetadataProfile",
     "StoredDocumentMetadata",
-    # Ontology
+    # === Ontology ===
     "Ontology",
     "OntologyNode",
     "load_default_ontology",
@@ -119,8 +132,7 @@ __all__ = [
     "TagAliases",
     "load_aliases",
     "load_default_aliases",
-    # === Extraction ===
-    # Profiles
+    # === Extraction Profiles ===
     "GenericProfile",
     "DraftsProfile",
     "ObsidianProfile",
