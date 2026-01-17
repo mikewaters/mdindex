@@ -16,6 +16,7 @@ from tests.pmd.fakes import (
     InMemoryFTSRepository,
     InMemoryEmbeddingRepository,
     InMemoryLoadingService,
+    InMemoryTextSearcher,
 )
 
 
@@ -97,39 +98,37 @@ class TestSearchServiceWithFakes:
         db = InMemoryDatabase()
         fts_repo = InMemoryFTSRepository()
         collection_repo = InMemorySourceCollectionRepository()
+        text_searcher = InMemoryTextSearcher()
 
         service = SearchService(
             db=db,
-            fts_repo=fts_repo,
             source_collection_repo=collection_repo,
+            fts_repo=fts_repo,
+            text_searcher=text_searcher,
         )
 
         assert service._db is db
         assert service._fts_repo is fts_repo
         assert service._source_collection_repo is collection_repo
+        assert service._text_searcher is text_searcher
 
     def test_can_construct_with_all_optional_deps(self):
         """SearchService should accept all optional dependencies."""
         db = InMemoryDatabase()
         fts_repo = InMemoryFTSRepository()
         collection_repo = InMemorySourceCollectionRepository()
-        embedding_repo = InMemoryEmbeddingRepository()
-
-        async def fake_embedding_generator():
-            return None
+        text_searcher = InMemoryTextSearcher()
 
         service = SearchService(
             db=db,
-            fts_repo=fts_repo,
             source_collection_repo=collection_repo,
-            embedding_repo=embedding_repo,
-            embedding_generator_factory=fake_embedding_generator,
+            fts_repo=fts_repo,
+            text_searcher=text_searcher,
             fts_weight=2.0,
             vec_weight=0.5,
             rrf_k=100,
         )
 
-        assert service._embedding_repo is embedding_repo
         assert service._fts_weight == 2.0
         assert service._vec_weight == 0.5
         assert service._rrf_k == 100
@@ -139,6 +138,7 @@ class TestSearchServiceWithFakes:
         db = InMemoryDatabase()
         collection_repo = InMemorySourceCollectionRepository()
         fts_repo = InMemoryFTSRepository()
+        text_searcher = InMemoryTextSearcher()
 
         # Pre-configure results using make_search_result helper
         from tests.pmd.fakes import make_search_result
@@ -152,8 +152,9 @@ class TestSearchServiceWithFakes:
 
         service = SearchService(
             db=db,
-            fts_repo=fts_repo,
             source_collection_repo=collection_repo,
+            fts_repo=fts_repo,
+            text_searcher=text_searcher,
         )
 
         results = service.fts_search("query")
@@ -272,8 +273,9 @@ class TestServiceIsolation:
 
         search = SearchService(
             db=search_db,
-            fts_repo=InMemoryFTSRepository(),
             source_collection_repo=InMemorySourceCollectionRepository(),
+            fts_repo=InMemoryFTSRepository(),
+            text_searcher=InMemoryTextSearcher(),
         )
 
         status = StatusService(

@@ -2,34 +2,30 @@
 
 from __future__ import annotations
 
-from typing import Callable, Awaitable
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from ..core.types import RankedResult, SearchResult
 from ..search.pipeline import HybridSearchPipeline, SearchPipelineConfig
-from ..search.adapters import (
-    FTS5TextSearcher,
-    EmbeddingVectorSearcher,
-    TagRetrieverAdapter,
-    LexicalTagInferencer,
-    LLMQueryExpanderAdapter,
-    LLMRerankerAdapter,
-    OntologyMetadataBooster,
-)
 from ..app.protocols import (
     SourceCollectionRepositoryProtocol,
     DatabaseProtocol,
-    DocumentMetadataRepositoryProtocol,
-    EmbeddingGeneratorProtocol,
-    EmbeddingRepositoryProtocol,
-    FTSRepositoryProtocol,
-    OntologyProtocol,
-    QueryExpanderProtocol,
-    DocumentRerankerProtocol,
-    TagMatcherProtocol,
-    TagRetrieverProtocol,
 )
+
+if TYPE_CHECKING:
+    from ..app.protocols import (
+        TextSearcher,
+        VectorSearcher,
+        TagSearcher,
+        QueryExpander,
+        Reranker,
+        MetadataBooster,
+        TagInferencer,
+        FTSRepositoryProtocol,
+        EmbeddingGeneratorProtocol,
+    )
+
 
 class SearchService:
     """Service for document search operations.
@@ -39,66 +35,74 @@ class SearchService:
     - Vector semantic search
     - Hybrid search combining FTS and vector with optional reranking
 
-    Example:
+    The service receives pre-created adapter instances rather than factories,
+    simplifying the dependency graph and making the service easier to test.
 
+    Example:
         search = SearchService(
             db=db,
-            fts_repo=fts_repo,
             source_collection_repo=source_collection_repo,
+            text_searcher=fts_text_searcher,
             fts_weight=1.0,
             vec_weight=1.0,
         )
-        results = search.fts_search("machine learning", limit=10)
+        results = await search.hybrid_search("machine learning", limit=10)
     """
 
     def __init__(
         self,
         db: DatabaseProtocol,
-        fts_repo: FTSRepositoryProtocol,
         source_collection_repo: SourceCollectionRepositoryProtocol,
-        embedding_repo: EmbeddingRepositoryProtocol | None = None,
-        embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]] | None = None,
-        query_expander_factory: Callable[[], Awaitable[QueryExpanderProtocol]] | None = None,
-        reranker_factory: Callable[[], Awaitable[DocumentRerankerProtocol]] | None = None,
-        tag_matcher_factory: Callable[[], TagMatcherProtocol | None] | None = None,
-        ontology_factory: Callable[[], OntologyProtocol | None] | None = None,
-        tag_retriever_factory: Callable[[], TagRetrieverProtocol | None] | None = None,
-        metadata_repo_factory: Callable[[], DocumentMetadataRepositoryProtocol | None] | None = None,
+        fts_repo: "FTSRepositoryProtocol",
+        # Pre-created adapters
+        text_searcher: "TextSearcher",
+        vector_searcher: "VectorSearcher | None" = None,
+        query_expander: "QueryExpander | None" = None,
+        reranker: "Reranker | None" = None,
+        tag_inferencer: "TagInferencer | None" = None,
+        tag_searcher: "TagSearcher | None" = None,
+        metadata_booster: "MetadataBooster | None" = None,
+        embedding_generator: "EmbeddingGeneratorProtocol | None" = None,
+        # Config
         fts_weight: float = 1.0,
         vec_weight: float = 1.0,
         rrf_k: int = 60,
         rerank_candidates: int = 30,
     ):
-        """Initialize SearchService.
+        """Initialize SearchService with pre-created adapters.
 
         Args:
             db: Database for direct SQL operations.
-            fts_repo: Repository for FTS search.
             source_collection_repo: Repository for source collection lookup.
-            embedding_repo: Repository for embedding storage and vector search.
-            embedding_generator_factory: Async factory for embedding generator.
-            query_expander_factory: Async factory for query expander.
-            reranker_factory: Async factory for document reranker.
-            tag_matcher_factory: Factory for tag matcher.
-            ontology_factory: Factory for ontology.
-            tag_retriever_factory: Factory for tag retriever.
-            metadata_repo_factory: Factory for metadata repository.
+            fts_repo: Repository for FTS search.
+            text_searcher: Pre-created text searcher adapter.
+            vector_searcher: Pre-created vector searcher adapter (optional).
+            query_expander: Pre-created query expander adapter (optional).
+            reranker: Pre-created reranker adapter (optional).
+            tag_inferencer: Pre-created tag inferencer adapter (optional).
+            tag_searcher: Pre-created tag searcher adapter (optional).
+            metadata_booster: Pre-created metadata booster adapter (optional).
+            embedding_generator: Embedding generator for vector search (optional).
             fts_weight: Weight for FTS results in hybrid search.
             vec_weight: Weight for vector results in hybrid search.
             rrf_k: RRF parameter k.
             rerank_candidates: Number of candidates for reranking.
         """
         self._db = db
-        self._fts_repo = fts_repo
         self._source_collection_repo = source_collection_repo
-        self._embedding_repo = embedding_repo
-        self._embedding_generator_factory = embedding_generator_factory
-        self._query_expander_factory = query_expander_factory
-        self._reranker_factory = reranker_factory
-        self._tag_matcher_factory = tag_matcher_factory
-        self._ontology_factory = ontology_factory
-        self._tag_retriever_factory = tag_retriever_factory
-        self._metadata_repo_factory = metadata_repo_factory
+        self._fts_repo = fts_repo
+
+        # Store adapters
+        self._text_searcher = text_searcher
+        self._vector_searcher = vector_searcher
+        self._query_expander = query_expander
+        self._reranker = reranker
+        self._tag_inferencer = tag_inferencer
+        self._tag_searcher = tag_searcher
+        self._metadata_booster = metadata_booster
+        self._embedding_generator = embedding_generator
+
+        # Config
         self._fts_weight = fts_weight
         self._vec_weight = vec_weight
         self._rrf_k = rrf_k
@@ -174,7 +178,7 @@ class SearchService:
                 "Vector search not available (sqlite-vec extension not loaded)"
             )
 
-        if not self._embedding_generator_factory:
+        if not self._embedding_generator:
             raise RuntimeError("Embedding generator not configured")
 
         collection_id = self._resolve_collection_id(collection_name)
@@ -185,23 +189,21 @@ class SearchService:
         )
 
         # Generate query embedding
-        embedding_generator = await self._embedding_generator_factory()
-        query_embedding = await embedding_generator.embed_query(query)
+        query_embedding = await self._embedding_generator.embed_query(query)
 
         if not query_embedding:
             logger.warning("Failed to generate query embedding")
             return []
 
-        # Execute vector search
-        if not self._embedding_repo:
-            logger.warning("Vector search requires embedding_repo")
+        # Execute vector search via the vector searcher adapter
+        if not self._vector_searcher:
+            logger.warning("Vector searcher not available")
             return []
 
-        results = self._embedding_repo.search_vectors(
-            query_embedding,
+        results = await self._vector_searcher.search(
+            query,
             limit=limit,
             source_collection_id=collection_id,
-            min_score=min_score,
         )
 
         logger.debug(f"Vector search returned {len(results)} results")
@@ -246,57 +248,7 @@ class SearchService:
             f"boost={enable_metadata_boost}"
         )
 
-        # Create port adapters from explicit dependencies
-        text_searcher = FTS5TextSearcher(self._fts_repo) # type: ignore
-
-        # Vector searcher (requires embedding generator)
-        vector_searcher = None
-        if self.vec_available and self._embedding_generator_factory:
-            embedding_generator = await self._embedding_generator_factory()
-            vector_searcher = EmbeddingVectorSearcher(embedding_generator) # type: ignore
-
-        # Query expander adapter
-        query_expander = None
-        if enable_query_expansion and self._query_expander_factory:
-            llm_expander = await self._query_expander_factory()
-            query_expander = LLMQueryExpanderAdapter(llm_expander) # type: ignore
-
-        # Reranker adapter
-        reranker = None
-        if enable_reranking and self._reranker_factory:
-            llm_reranker = await self._reranker_factory()
-            reranker = LLMRerankerAdapter(llm_reranker) # type: ignore
-
-        # Tag inferencer (used by both tag retrieval and metadata boost)
-        tag_inferencer = None
-        tag_searcher = None
-        metadata_booster = None
-
-        if enable_tag_retrieval or enable_metadata_boost:
-            # Get tag matcher and optionally ontology
-            tag_matcher = self._tag_matcher_factory() if self._tag_matcher_factory else None
-            ontology = self._ontology_factory() if self._ontology_factory else None
-
-            if tag_matcher:
-                tag_inferencer = LexicalTagInferencer(tag_matcher, ontology) # type: ignore
-
-                # Tag searcher for tag-based retrieval
-                if enable_tag_retrieval and self._tag_retriever_factory:
-                    tag_retriever = self._tag_retriever_factory()
-                    if tag_retriever:
-                        tag_searcher = TagRetrieverAdapter(tag_retriever) # type: ignore
-
-                # Metadata booster for score boosting
-                if enable_metadata_boost and self._metadata_repo_factory:
-                    metadata_repo = self._metadata_repo_factory()
-                    if metadata_repo:
-                        metadata_booster = OntologyMetadataBooster(
-                            self._db, # type: ignore
-                            metadata_repo, # type: ignore
-                            ontology, # type: ignore
-                        )
-
-        # Configure pipeline
+        # Configure pipeline with feature flags
         pipeline_config = SearchPipelineConfig(
             fts_weight=self._fts_weight,
             vec_weight=self._vec_weight,
@@ -308,15 +260,16 @@ class SearchService:
             enable_metadata_boost=enable_metadata_boost,
         )
 
-        # Create and execute pipeline with port adapters
+        # Create pipeline with pre-created adapters
+        # The pipeline will respect the config flags to enable/disable features
         pipeline = HybridSearchPipeline(
-            text_searcher=text_searcher,
-            vector_searcher=vector_searcher,
-            tag_searcher=tag_searcher,
-            query_expander=query_expander,
-            reranker=reranker,
-            metadata_booster=metadata_booster,
-            tag_inferencer=tag_inferencer,
+            text_searcher=self._text_searcher,
+            vector_searcher=self._vector_searcher if self.vec_available else None,
+            tag_searcher=self._tag_searcher,
+            query_expander=self._query_expander,
+            reranker=self._reranker,
+            metadata_booster=self._metadata_booster,
+            tag_inferencer=self._tag_inferencer,
             config=pipeline_config,
         )
 

@@ -7,6 +7,7 @@ from pmd.app import create_application
 from pmd.core.config import Config
 from pmd.core.types import SearchResult, SearchSource
 from pmd.services.search import SearchService
+from pmd.search.adapters import FTS5TextSearcher
 from pmd.store.repositories.collections import SourceCollectionRepository
 from pmd.store.repositories.documents import DocumentRepository
 from pmd.store.repositories.embeddings import EmbeddingRepository
@@ -21,13 +22,13 @@ class TestSearchServiceFtsSearch:
         """fts_search should return empty list for empty database."""
         source_collection_repo = SourceCollectionRepository(db)
         fts_repo = FTS5SearchRepository(db)
-        embedding_repo = EmbeddingRepository(db)
+        text_searcher = FTS5TextSearcher(fts_repo)
 
         service = SearchService(
             db=db,
-            fts_repo=fts_repo,
             source_collection_repo=source_collection_repo,
-            embedding_repo=embedding_repo,
+            fts_repo=fts_repo,
+            text_searcher=text_searcher,
         )
 
         results = service.fts_search("test query")
@@ -38,13 +39,13 @@ class TestSearchServiceFtsSearch:
         """fts_search should return a list."""
         source_collection_repo = SourceCollectionRepository(db)
         fts_repo = FTS5SearchRepository(db)
-        embedding_repo = EmbeddingRepository(db)
+        text_searcher = FTS5TextSearcher(fts_repo)
 
         service = SearchService(
             db=db,
-            fts_repo=fts_repo,
             source_collection_repo=source_collection_repo,
-            embedding_repo=embedding_repo,
+            fts_repo=fts_repo,
+            text_searcher=text_searcher,
         )
 
         results = service.fts_search("test", limit=5)
@@ -56,13 +57,13 @@ class TestSearchServiceFtsSearch:
         source_collection_repo = SourceCollectionRepository(db)
         document_repo = DocumentRepository(db)
         fts_repo = FTS5SearchRepository(db)
-        embedding_repo = EmbeddingRepository(db)
+        text_searcher = FTS5TextSearcher(fts_repo)
 
         service = SearchService(
             db=db,
-            fts_repo=fts_repo,
             source_collection_repo=source_collection_repo,
-            embedding_repo=embedding_repo,
+            fts_repo=fts_repo,
+            text_searcher=text_searcher,
         )
 
         # Create collection and document
@@ -101,13 +102,13 @@ class TestSearchServiceFtsSearch:
         source_collection_repo = SourceCollectionRepository(db)
         document_repo = DocumentRepository(db)
         fts_repo = FTS5SearchRepository(db)
-        embedding_repo = EmbeddingRepository(db)
+        text_searcher = FTS5TextSearcher(fts_repo)
 
         service = SearchService(
             db=db,
-            fts_repo=fts_repo,
             source_collection_repo=source_collection_repo,
-            embedding_repo=embedding_repo,
+            fts_repo=fts_repo,
+            text_searcher=text_searcher,
         )
 
         # Create collection and multiple documents
@@ -140,13 +141,13 @@ class TestSearchServiceFtsSearch:
         source_collection_repo = SourceCollectionRepository(db)
         document_repo = DocumentRepository(db)
         fts_repo = FTS5SearchRepository(db)
-        embedding_repo = EmbeddingRepository(db)
+        text_searcher = FTS5TextSearcher(fts_repo)
 
         service = SearchService(
             db=db,
-            fts_repo=fts_repo,
             source_collection_repo=source_collection_repo,
-            embedding_repo=embedding_repo,
+            fts_repo=fts_repo,
+            text_searcher=text_searcher,
         )
 
         # Create two collections
@@ -188,13 +189,13 @@ class TestSearchServiceResolveCollectionId:
         """_resolve_collection_id should return None for None input."""
         source_collection_repo = SourceCollectionRepository(db)
         fts_repo = FTS5SearchRepository(db)
-        embedding_repo = EmbeddingRepository(db)
+        text_searcher = FTS5TextSearcher(fts_repo)
 
         service = SearchService(
             db=db,
-            fts_repo=fts_repo,
             source_collection_repo=source_collection_repo,
-            embedding_repo=embedding_repo,
+            fts_repo=fts_repo,
+            text_searcher=text_searcher,
         )
 
         result = service._resolve_collection_id(None)
@@ -205,13 +206,13 @@ class TestSearchServiceResolveCollectionId:
         """_resolve_collection_id should return ID for existing collection."""
         source_collection_repo = SourceCollectionRepository(db)
         fts_repo = FTS5SearchRepository(db)
-        embedding_repo = EmbeddingRepository(db)
+        text_searcher = FTS5TextSearcher(fts_repo)
 
         service = SearchService(
             db=db,
-            fts_repo=fts_repo,
             source_collection_repo=source_collection_repo,
-            embedding_repo=embedding_repo,
+            fts_repo=fts_repo,
+            text_searcher=text_searcher,
         )
 
         collection = source_collection_repo.create(
@@ -226,13 +227,13 @@ class TestSearchServiceResolveCollectionId:
         """_resolve_collection_id should return None for unknown collection."""
         source_collection_repo = SourceCollectionRepository(db)
         fts_repo = FTS5SearchRepository(db)
-        embedding_repo = EmbeddingRepository(db)
+        text_searcher = FTS5TextSearcher(fts_repo)
 
         service = SearchService(
             db=db,
-            fts_repo=fts_repo,
             source_collection_repo=source_collection_repo,
-            embedding_repo=embedding_repo,
+            fts_repo=fts_repo,
+            text_searcher=text_searcher,
         )
 
         result = service._resolve_collection_id("nonexistent")
