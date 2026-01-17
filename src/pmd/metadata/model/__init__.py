@@ -7,18 +7,19 @@ This subpackage provides the foundational types for metadata handling:
 - Aliases: Tag alias mappings for normalization
 """
 
-from .types import (
+# Re-export from new locations (extraction/ and ontology/ modules)
+from pmd.extraction.types import (
     ExtractedMetadata,
     MetadataProfile,
     StoredDocumentMetadata,
 )
-from .ontology import (
+from pmd.ontology.model import (
     Ontology,
     OntologyNode,
     load_default_ontology,
     load_ontology,
 )
-from .aliases import (
+from pmd.ontology.aliases import (
     TagAliases,
     load_aliases,
     load_default_aliases,

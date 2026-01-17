@@ -7,7 +7,8 @@ Other metadata functionality has moved to pmd.metadata:
     from pmd.metadata import LexicalTagMatcher, TagRetriever
 """
 
-from pmd.search.metadata.scoring import (
+# Re-export from new location (pmd.ontology)
+from pmd.ontology.booster_scoring import (
     BoostResult,
     MetadataBoostConfig,
     ScoredResult,

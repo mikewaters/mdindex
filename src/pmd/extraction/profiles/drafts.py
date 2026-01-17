@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import re
 
-from pmd.metadata.model import ExtractedMetadata
-from pmd.metadata.extraction.parsing import (
+from pmd.extraction.types import ExtractedMetadata
+from pmd.extraction.profiles.parsing import (
     extract_inline_tags,
     extract_tags_from_field,
     parse_frontmatter,

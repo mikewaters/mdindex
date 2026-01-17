@@ -2,7 +2,7 @@
 
 import pytest
 
-from pmd.metadata.model.types import (
+from pmd.extraction.types import (
     ExtractedMetadata,
     MetadataProfile,
     StoredDocumentMetadata,

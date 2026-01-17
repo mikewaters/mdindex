@@ -9,7 +9,7 @@ from pmd.metadata import (
     ObsidianProfile,
     DraftsProfile,
 )
-from pmd.metadata.extraction.registry import ProfileRegistration
+from pmd.extraction.registry import ProfileRegistration
 
 
 class MockProfile:

@@ -13,11 +13,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, TYPE_CHECKING
 
-from pmd.metadata.extraction.drafts import detect_drafts_content
-from pmd.metadata.extraction.obsidian import detect_obsidian_content
+from pmd.extraction.profiles.drafts import detect_drafts_content
+from pmd.extraction.profiles.obsidian import detect_obsidian_content
 
 if TYPE_CHECKING:
-    from pmd.metadata.model import MetadataProfile
+    from pmd.extraction.types import MetadataProfile
 
 
 # Type for detector functions
@@ -168,9 +168,9 @@ def get_default_profile_registry() -> MetadataProfileRegistry:
 
 def _register_builtin_profiles(registry: MetadataProfileRegistry) -> None:
     """Register built-in metadata profiles."""
-    from pmd.metadata.extraction.generic import GenericProfile
-    from pmd.metadata.extraction.drafts import DraftsProfile
-    from pmd.metadata.extraction.obsidian import ObsidianProfile
+    from pmd.extraction.profiles.generic import GenericProfile
+    from pmd.extraction.profiles.drafts import DraftsProfile
+    from pmd.extraction.profiles.obsidian import ObsidianProfile
 
     # Generic profile as lowest-priority fallback
     registry.register(

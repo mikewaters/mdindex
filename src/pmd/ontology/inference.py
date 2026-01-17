@@ -7,7 +7,7 @@ allowing the search system to boost documents with matching tags.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
 
@@ -219,10 +219,9 @@ def load_default_aliases() -> dict[str, str]:
         Dictionary mapping alias -> canonical tag.
 
     Note:
-        This function is kept for backward compatibility.
-        Prefer using pmd.metadata.load_default_aliases() directly.
+        This function uses pmd.metadata.load_default_aliases() internally.
     """
-    from pmd.metadata import load_default_aliases as _load_aliases
+    from pmd.ontology.aliases import load_default_aliases as _load_aliases
 
     aliases = _load_aliases()
     return aliases.all_aliases()

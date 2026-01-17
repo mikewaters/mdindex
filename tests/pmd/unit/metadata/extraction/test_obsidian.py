@@ -11,7 +11,7 @@ from pmd.metadata import (
     ObsidianProfile,
     ExtractedMetadata,
 )
-from pmd.metadata.extraction.obsidian import detect_obsidian_content
+from pmd.extraction.profiles.obsidian import detect_obsidian_content
 
 
 class TestObsidianProfileExtractMetadataFrontmatter:

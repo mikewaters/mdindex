@@ -3,7 +3,7 @@
 import pytest
 
 from pmd.metadata import DraftsProfile, ExtractedMetadata
-from pmd.metadata.extraction.drafts import detect_drafts_content
+from pmd.extraction.profiles.drafts import detect_drafts_content
 
 
 class TestDraftsProfileExtractMetadataFrontmatter:

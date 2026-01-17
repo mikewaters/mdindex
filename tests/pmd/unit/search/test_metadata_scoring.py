@@ -10,7 +10,7 @@ from pmd.metadata import (
     apply_metadata_boost,
     apply_metadata_boost_v2,
 )
-from pmd.metadata.query.scoring import _calculate_boost
+from pmd.ontology.scoring import _calculate_boost
 
 
 @dataclass
@@ -596,7 +596,7 @@ class TestGetDocumentTagsBatch:
 
     def test_fetches_tags_for_multiple_documents(self):
         """Should fetch tags for all requested documents."""
-        from pmd.metadata.query.scoring import get_document_tags_batch
+        from pmd.ontology.scoring import get_document_tags_batch
 
         # Mock metadata repository
         class MockMetadataRepo:
@@ -619,7 +619,7 @@ class TestGetDocumentTagsBatch:
 
     def test_handles_empty_document_list(self):
         """Should return empty dict for empty input."""
-        from pmd.metadata.query.scoring import get_document_tags_batch
+        from pmd.ontology.scoring import get_document_tags_batch
 
         class MockMetadataRepo:
             def get_tags(self, doc_id: int) -> set[str]:
@@ -632,7 +632,7 @@ class TestGetDocumentTagsBatch:
 
     def test_handles_documents_with_no_tags(self):
         """Should handle documents that have no tags."""
-        from pmd.metadata.query.scoring import get_document_tags_batch
+        from pmd.ontology.scoring import get_document_tags_batch
 
         class MockMetadataRepo:
             def get_tags(self, doc_id: int) -> set[str]:
@@ -645,7 +645,7 @@ class TestGetDocumentTagsBatch:
 
     def test_preserves_document_ids(self):
         """Should include all requested document IDs in result."""
-        from pmd.metadata.query.scoring import get_document_tags_batch
+        from pmd.ontology.scoring import get_document_tags_batch
 
         class MockMetadataRepo:
             def get_tags(self, doc_id: int) -> set[str]:
@@ -666,7 +666,7 @@ class TestBuildPathToIdMap:
 
     def test_builds_mapping_for_valid_paths(self):
         """Should build correct path to ID mapping."""
-        from pmd.metadata.query.scoring import build_path_to_id_map
+        from pmd.ontology.scoring import build_path_to_id_map
 
         # Mock database
         class MockCursor:
@@ -693,7 +693,7 @@ class TestBuildPathToIdMap:
 
     def test_returns_empty_for_empty_paths(self):
         """Should return empty dict for empty paths list."""
-        from pmd.metadata.query.scoring import build_path_to_id_map
+        from pmd.ontology.scoring import build_path_to_id_map
 
         class MockDB:
             def execute(self, query: str, params: tuple):
@@ -706,7 +706,7 @@ class TestBuildPathToIdMap:
 
     def test_filters_inactive_documents(self):
         """Should only return active documents (active = 1)."""
-        from pmd.metadata.query.scoring import build_path_to_id_map
+        from pmd.ontology.scoring import build_path_to_id_map
 
         class MockCursor:
             def fetchall(self):
@@ -730,7 +730,7 @@ class TestBuildPathToIdMap:
 
     def test_handles_missing_paths(self):
         """Should only include paths that exist in database."""
-        from pmd.metadata.query.scoring import build_path_to_id_map
+        from pmd.ontology.scoring import build_path_to_id_map
 
         class MockCursor:
             def fetchall(self):
@@ -753,7 +753,7 @@ class TestBuildPathToIdMap:
 
     def test_uses_parameterized_query(self):
         """Should use parameterized query to prevent SQL injection."""
-        from pmd.metadata.query.scoring import build_path_to_id_map
+        from pmd.ontology.scoring import build_path_to_id_map
 
         class MockCursor:
             def fetchall(self):
@@ -780,7 +780,7 @@ class TestBuildPathToIdMap:
 
     def test_handles_single_path(self):
         """Should handle single path correctly."""
-        from pmd.metadata.query.scoring import build_path_to_id_map
+        from pmd.ontology.scoring import build_path_to_id_map
 
         class MockCursor:
             def fetchall(self):
@@ -797,7 +797,7 @@ class TestBuildPathToIdMap:
 
     def test_handles_duplicate_paths_in_input(self):
         """Should handle duplicate paths in input list."""
-        from pmd.metadata.query.scoring import build_path_to_id_map
+        from pmd.ontology.scoring import build_path_to_id_map
 
         class MockCursor:
             def fetchall(self):
@@ -817,7 +817,7 @@ class TestBuildPathToIdMap:
 
     def test_handles_paths_with_special_characters(self):
         """Should handle paths with special characters."""
-        from pmd.metadata.query.scoring import build_path_to_id_map
+        from pmd.ontology.scoring import build_path_to_id_map
 
         class MockCursor:
             def fetchall(self):

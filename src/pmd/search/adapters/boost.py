@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from pmd.store.database import Database
     from pmd.store.repositories.documents import DocumentRepository
     from pmd.store.repositories.metadata import DocumentMetadataRepository
-    from pmd.metadata.model.ontology import Ontology
+    from pmd.ontology.model import Ontology
 
 
 class OntologyMetadataBooster:

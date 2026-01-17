@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from pmd.metadata.model.aliases import (
+from pmd.ontology.aliases import (
     TagAliases,
     load_aliases,
     load_default_aliases,

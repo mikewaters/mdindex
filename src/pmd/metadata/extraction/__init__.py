@@ -18,13 +18,13 @@ Parsing utilities:
 - extract_tags_from_field: Parse tags from various YAML formats
 """
 
-# Profiles
-from pmd.metadata.extraction.generic import GenericProfile
-from pmd.metadata.extraction.drafts import DraftsProfile
-from pmd.metadata.extraction.obsidian import ObsidianProfile
+# Re-export from new location (pmd.extraction)
+from pmd.extraction.profiles.generic import GenericProfile
+from pmd.extraction.profiles.drafts import DraftsProfile
+from pmd.extraction.profiles.obsidian import ObsidianProfile
 
 # Registry
-from pmd.metadata.extraction.registry import (
+from pmd.extraction.registry import (
     MetadataProfileRegistry,
     get_default_profile_registry,
     DetectorFunc,
@@ -32,7 +32,7 @@ from pmd.metadata.extraction.registry import (
 )
 
 # Parsing utilities
-from pmd.metadata.extraction.parsing import (
+from pmd.extraction.profiles.parsing import (
     FrontmatterResult,
     extract_inline_tags,
     extract_tags_from_field,
@@ -40,8 +40,8 @@ from pmd.metadata.extraction.parsing import (
 )
 
 # Detection functions (for custom registry setup)
-from pmd.metadata.extraction.obsidian import detect_obsidian_content
-from pmd.metadata.extraction.drafts import detect_drafts_content
+from pmd.extraction.profiles.obsidian import detect_obsidian_content
+from pmd.extraction.profiles.drafts import detect_drafts_content
 
 __all__ = [
     # Profiles

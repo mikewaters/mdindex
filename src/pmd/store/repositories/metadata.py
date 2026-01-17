@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from pmd.metadata.model import StoredDocumentMetadata
+from pmd.extraction.types import StoredDocumentMetadata
 
 if TYPE_CHECKING:
     from pmd.store.database import Database

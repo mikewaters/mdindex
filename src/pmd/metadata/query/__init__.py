@@ -21,8 +21,8 @@ Utilities:
 - build_path_to_id_map: Path to document ID mapping
 """
 
-# Inference
-from pmd.metadata.query.inference import (
+# Re-export from new location (pmd.ontology)
+from pmd.ontology.inference import (
     LexicalTagMatcher,
     TagMatch,
     create_default_matcher,
@@ -30,14 +30,14 @@ from pmd.metadata.query.inference import (
 )
 
 # Retrieval
-from pmd.metadata.query.retrieval import (
+from pmd.ontology.retrieval import (
     TagRetriever,
     TagSearchConfig,
     create_tag_retriever,
 )
 
 # Scoring
-from pmd.metadata.query.scoring import (
+from pmd.ontology.scoring import (
     BoostResult,
     MetadataBoostConfig,
     ScoredResult,

@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pmd.core.types import SearchResult
-    from pmd.metadata.query.retrieval import TagRetriever
-    from pmd.metadata.query.inference import LexicalTagMatcher
-    from pmd.metadata.model.ontology import Ontology
+    from pmd.ontology.retrieval import TagRetriever
+    from pmd.ontology.inference import LexicalTagMatcher
+    from pmd.ontology.model import Ontology
 
 
 class TagRetrieverAdapter:
@@ -21,7 +21,7 @@ class TagRetrieverAdapter:
     implementing the TagSearcher protocol for use in HybridSearchPipeline.
 
     Example:
-        >>> from pmd.metadata.query.retrieval import TagRetriever
+        >>> from pmd.ontology.retrieval import TagRetriever
         >>> tag_retriever = TagRetriever(db, metadata_repo)
         >>> searcher = TagRetrieverAdapter(tag_retriever)
         >>> results = searcher.search({"python": 1.0, "ml": 0.7}, limit=10)
@@ -63,8 +63,8 @@ class LexicalTagInferencer:
     ontology-based expansion, hiding the complexity from the pipeline.
 
     Example:
-        >>> from pmd.metadata.query.inference import LexicalTagMatcher
-        >>> from pmd.metadata.model.ontology import Ontology
+        >>> from pmd.ontology.inference import LexicalTagMatcher
+        >>> from pmd.ontology.model import Ontology
         >>> matcher = LexicalTagMatcher(known_tags, aliases)
         >>> ontology = Ontology(adjacency)
         >>> inferencer = LexicalTagInferencer(matcher, ontology)

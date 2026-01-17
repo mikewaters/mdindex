@@ -4,7 +4,7 @@ import pytest
 import re
 from unittest.mock import MagicMock
 
-from pmd.metadata.extraction.registry import (
+from pmd.extraction.registry import (
     MetadataProfileRegistry,
     ProfileRegistration,
     get_default_profile_registry,

@@ -11,7 +11,7 @@ from pmd.metadata import (
     TagMatch,
     create_default_matcher,
 )
-from pmd.metadata.query.inference import load_default_aliases
+from pmd.ontology.inference import load_default_aliases
 
 
 class TestTagMatchDataclass:
