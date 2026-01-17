@@ -2,22 +2,21 @@
 
 Provides functions to boost search result scores based on tag matches,
 improving relevance when document tags match query-inferred tags.
+
+Note: This module re-exports from pmd.search.metadata.scoring for backward
+compatibility. The canonical location for scoring types is pmd.search.metadata.scoring.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
+
+# Import ScoredResult from canonical location
+from pmd.search.metadata.scoring import ScoredResult
 
 if TYPE_CHECKING:
     from pmd.metadata.store import DocumentMetadataRepository
-
-
-class ScoredResult(Protocol):
-    """Protocol for objects with a score that can be boosted."""
-
-    score: float
-    file: str  # Document path/identifier
 
 
 @dataclass

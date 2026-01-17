@@ -24,20 +24,14 @@ import asyncio
 import hashlib
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from pmd.metadata import ExtractedMetadata, get_default_profile_registry
 from pmd.sources.content.base import DocumentReference, FetchResult
+from pmd.sources.content.llamaindex import SupportsLoadData
 
 if TYPE_CHECKING:
     from .loading import LoadedDocument
-
-
-class SupportsLoadData(Protocol):
-    """Protocol for LlamaIndex-like loaders/readers."""
-
-    def load_data(self, **kwargs: Any) -> list[Any]:
-        ...
 
 
 @dataclass
