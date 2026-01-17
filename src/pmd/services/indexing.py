@@ -18,7 +18,7 @@ from pmd.sources import (
 from pmd.metadata import (
     ExtractedMetadata, get_default_profile_registry, DocumentMetadataRepository
 )
-from pmd.app.types import (
+from pmd.app.protocols import (
     SourceCollectionRepositoryProtocol,
     DatabaseProtocol,
     DocumentRepositoryProtocol,

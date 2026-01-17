@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from pmd.search.ports import BoostInfo
+from pmd.app.protocols import BoostInfo
 
 if TYPE_CHECKING:
     from pmd.core.types import RankedResult

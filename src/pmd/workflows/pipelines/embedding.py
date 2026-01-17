@@ -25,7 +25,7 @@ from loguru import logger
 from pmd.core.exceptions import SourceCollectionNotFoundError
 
 if TYPE_CHECKING:
-    from pmd.app.types import (
+    from pmd.app.protocols import (
         SourceCollectionRepositoryProtocol,
         DocumentRepositoryProtocol,
         EmbeddingGeneratorProtocol,

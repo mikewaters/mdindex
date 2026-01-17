@@ -8,7 +8,7 @@ from typing import Callable, Awaitable, Protocol
 from loguru import logger
 
 from ..core.types import IndexStatus
-from ..app.types import (
+from ..app.protocols import (
     SourceCollectionRepositoryProtocol,
 )
 

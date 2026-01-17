@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pmd.search.ports import RerankScore
+from pmd.app.protocols import RerankScore
 
 if TYPE_CHECKING:
     from pmd.core.types import RankedResult

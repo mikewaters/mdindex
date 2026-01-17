@@ -27,7 +27,7 @@ from pmd.core.exceptions import SourceCollectionNotFoundError
 from pmd.search.text import is_indexable
 
 if TYPE_CHECKING:
-    from pmd.app.types import (
+    from pmd.app.protocols import (
         SourceCollectionRepositoryProtocol,
         DocumentRepositoryProtocol,
         FTSRepositoryProtocol,

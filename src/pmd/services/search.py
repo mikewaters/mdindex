@@ -17,7 +17,7 @@ from ..search.adapters import (
     LLMRerankerAdapter,
     OntologyMetadataBooster,
 )
-from ..app.types import (
+from ..app.protocols import (
     SourceCollectionRepositoryProtocol,
     DatabaseProtocol,
     DocumentMetadataRepositoryProtocol,

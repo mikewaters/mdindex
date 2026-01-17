@@ -22,7 +22,7 @@ from pmd.sources.content.base import (
 )
 
 if TYPE_CHECKING:
-    from pmd.app.types import (
+    from pmd.app.protocols import (
         SourceCollectionRepositoryProtocol,
         DatabaseProtocol,
         DocumentRepositoryProtocol,

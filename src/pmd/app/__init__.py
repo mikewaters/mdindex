@@ -26,7 +26,10 @@ if TYPE_CHECKING:
     from ..store.database import Database
     from ..llm.base import LLMProvider
 
-from .types import (
+from .protocols import (
+    # Data types
+    BoostInfo,
+    RerankScore,
     # Database protocol
     DatabaseProtocol,
     # Repository protocols
@@ -49,17 +52,29 @@ from .types import (
     # Config protocols
     ConfigProtocol,
     SearchConfigProtocol,
+    # Search pipeline protocols
+    TextSearcher,
+    VectorSearcher,
+    TagSearcher,
+    QueryExpander,
+    Reranker,
+    MetadataBooster,
+    TagInferencer,
     # Type aliases
     SourceCollectionRepo,
     DocumentRepo,
     FTSRepo,
     EmbeddingRepo,
+    LoadingService,
 )
 
 __all__ = [
     # Application
     "Application",
     "create_application",
+    # Data types
+    "BoostInfo",
+    "RerankScore",
     # Database
     "DatabaseProtocol",
     # Repositories
@@ -82,11 +97,20 @@ __all__ = [
     # Config
     "ConfigProtocol",
     "SearchConfigProtocol",
+    # Search pipeline protocols
+    "TextSearcher",
+    "VectorSearcher",
+    "TagSearcher",
+    "QueryExpander",
+    "Reranker",
+    "MetadataBooster",
+    "TagInferencer",
     # Aliases
     "SourceCollectionRepo",
     "DocumentRepo",
     "FTSRepo",
     "EmbeddingRepo",
+    "LoadingService",
 ]
 
 

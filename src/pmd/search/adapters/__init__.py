@@ -2,7 +2,7 @@
 
 This module provides adapter classes that wrap existing infrastructure
 (repositories, LLM providers) and implement the port protocols defined
-in pmd.search.ports.
+in pmd.app.protocols.
 
 Adapters:
     - FTS5TextSearcher: Wraps FTS5SearchRepository

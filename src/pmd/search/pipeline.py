@@ -12,7 +12,7 @@ The pipeline uses Reciprocal Rank Fusion (RRF) to combine results from
 multiple retrieval methods, then optionally applies LLM reranking with
 position-aware blending via `pmd.search.scoring.blend_scores`.
 
-The pipeline depends on abstract ports (defined in `pmd.search.ports`) rather
+The pipeline depends on abstract ports (defined in `pmd.app.protocols`) rather
 than concrete implementations, making it testable with in-memory fakes.
 
 Typical usage:
@@ -35,7 +35,7 @@ Typical usage:
     results = await pipeline.search("machine learning clustering", limit=10)
 
 See Also:
-    - `pmd.search.ports`: Port protocol definitions
+    - `pmd.app.protocols`: Port protocol definitions
     - `pmd.search.adapters`: Adapter implementations
     - `pmd.search.scoring`: Score normalization and blending functions
     - `pmd.search.fusion`: Reciprocal Rank Fusion implementation
@@ -54,7 +54,7 @@ from pmd.search.fusion import reciprocal_rank_fusion
 from pmd.search.scoring import blend_scores, normalize_scores
 
 if TYPE_CHECKING:
-    from pmd.search.ports import (
+    from pmd.app.protocols import (
         TextSearcher,
         VectorSearcher,
         TagSearcher,
@@ -172,7 +172,7 @@ class HybridSearchPipeline:
         >>> results = await pipeline.search("graph database neo4j", limit=5)
 
     See Also:
-        - `pmd.search.ports`: Port protocol definitions
+        - `pmd.app.protocols`: Port protocol definitions
         - `pmd.search.adapters`: Adapter implementations
         - `pmd.search.scoring.blend_scores`: Position-aware score blending
     """
