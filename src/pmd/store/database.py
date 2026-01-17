@@ -2,7 +2,7 @@
 
 This module provides both synchronous and asynchronous database access via SQLAlchemy.
 The Database class (sync) and AsyncDatabase class (async) manage engine lifecycle,
-session factories, and schema initialization including Alembic migrations.
+session factories, and schema initialization including database migrations.
 
 Note: FTS5 and sqlite-vec virtual tables require raw SQL and are managed via
 the connection() context managers rather than ORM sessions.
@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..core.exceptions import DatabaseError
-from .migrate import upgrade as alembic_upgrade
+from .migrate import upgrade as run_migrations
 from .schema import get_vector_schema
 
 
@@ -309,7 +309,7 @@ class Database:
     """Synchronous SQLAlchemy database manager for PMD.
 
     Manages a SQLAlchemy Engine and Session factory for synchronous database access.
-    On connect, runs Alembic migrations and optionally loads sqlite-vec extension.
+    On connect, runs database migrations and optionally loads sqlite-vec extension.
 
     Example:
         db = Database(Path("index.db"))
@@ -360,10 +360,10 @@ class Database:
             # Create session factory
             self._session_factory = sessionmaker(bind=self._engine, expire_on_commit=False)
 
-            # Run Alembic migrations
-            logger.debug("Running Alembic migrations")
-            alembic_upgrade(self.db_url)
-            logger.debug("Alembic migrations complete")
+            # Run database migrations
+            logger.debug("Running database migrations")
+            run_migrations(self.db_url)
+            logger.debug("Database migrations complete")
 
             # Load sqlite-vec extension via a connection
             with self._engine.connect() as conn:
@@ -614,12 +614,11 @@ class AsyncDatabase:
             # Ensure parent directory exists
             self.path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Run Alembic migrations synchronously first
-            # (Alembic doesn't have full async support)
+            # Run database migrations synchronously first
             sync_url = f"sqlite:///{self.path.resolve()}"
-            logger.debug("Running Alembic migrations (sync)")
-            alembic_upgrade(sync_url)
-            logger.debug("Alembic migrations complete")
+            logger.debug("Running database migrations (sync)")
+            run_migrations(sync_url)
+            logger.debug("Database migrations complete")
 
             # Create async engine
             self._engine = create_async_engine(

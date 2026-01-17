@@ -28,7 +28,6 @@ dependencies = [
     "arize-phoenix-otel>=0.14.0",
     "pyyaml>=6.0.3",
     "sqlalchemy>=2.0.0",
-    "alembic>=1.13.0",
     "aiosqlite>=0.20.0",
     "fsspec>=2024.0.0",
     "litellm>=1.50.0",
@@ -45,5 +44,12 @@ loaders = [
 [project.scripts]
 pmd = "pmd.cli.main:main"
 
+# Flat layout: pyproject.toml is co-located with package files in src/pmd/
+# For wheel builds, include current directory as the 'pmd' package
 [tool.hatch.build.targets.wheel]
 packages = ["."]
+
+# For editable installs, add the parent directory (src/) to Python path
+# This allows 'import pmd' to find src/pmd/ as a package
+[tool.hatch.build.targets.editable]
+dev-mode-dirs = [".."]
