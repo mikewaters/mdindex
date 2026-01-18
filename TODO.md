@@ -1,8 +1,11 @@
 ## Migrate from substrate
 - Add a Resources table, even URLs and stuff.  It will contain the URI, and generate a Document which could be the actual document content, or in the case of a url the cached web page, or the highlights etc. The Resource will be cached, not the document, so we can iterate on things like “collect resource type X”.
+An obsidian resource would have the obsidian:// uri etc 
 - I can have scripts for raindrop, heptabase, obsidian etc, rather than build a comprehensive CLI.
 - obsidian et al can be in a Substrate integrations library, or sub module of pmd, “from pmd.integrations.obsidian import VaultCollector;”. Decision lies in if integrations like obsidian are needed outside of indexing.
-- rename pmd to index
+- rename pmd to catalog
+- 
+
 ## Tasks
 - review the other substrates components
 - migrate external config to Pydantic so cli, api, and Python clients can use the same validated structures
@@ -12,6 +15,9 @@
 - move all my codebases into one repository 
 - add a resources “host” for filtering by local stuff
 - skip indexing LLM slop: pipeline get it, what is it, what should I do with it
+- have a separate index for community detection, where the index is not ontology-aligned; instead it goes ham on entity extraction etc
+
+———
  
 ## Decisions
 - need a Resource type, which will generate one or more documents
@@ -20,6 +26,8 @@
 - Substrate is an app that uses various libraries that handle domains like data catalog hosting and ontology definition/storage
 - Substrate should support local first for all features but optionally use centrally hosted data, hosted indexing/classification, use external capabilities like OpenAi, or be hosted and externally accessible by api itself.
 - Substrate should be usable as a tool by a coding agent
+
+———
 
 ## Roadmap
 ### Local, then centralized
@@ -37,6 +45,8 @@ Need to be able to iterate on data stores, without rewriting codebase. And so th
 ### Pipelines
 Need to introduce a more robust pipeline which can be assembled in code, graphed/visualized, and monitored during runtime.
 
+———
+
 ## Substrate Architecture
 ### Terminology
 - Resource: refers to a document, url, or text chunk. Each resource has an unique uri 
@@ -44,8 +54,11 @@ Need to introduce a more robust pipeline which can be assembled in code, graphed
 ### Interfaces
 #### Scripts
 Obsidian importer accepts a vault path, uses the obsidian source type and configures my ontology. 
+
 ### Domains
 #### The Ontology
+The Ontology associates content with relevance and meaning.
+
 Responsible for:
 - maintaining entity and topic data stores
 - providing classification primitives
@@ -53,6 +66,7 @@ Responsible for:
 - can be configured for each context (life, work, interest etc)
 - 
 #### Data Catalog
+The Data Catalog records all resources collected by the end user. It assists with collection and surfacing of content, aligned with the users Ontology. 
 
 Responsible for:
 - providing search/retrieval and collection primitives
@@ -73,7 +87,7 @@ Interfaces:
 - content browser and UI for operation
 - http and Python api
 
-#### Context (Life, Work etc)
+#### Context (cross-cutting)
 System provides base classes/protocols and registries, as well as common classes like ObsidianVaultCollector which can be subclasses or parameterized.
 System provides base classes for Entity and Resource, consuming app (of which Substrate is the only one) defines the context and this is used to build out the database schema and populate it.
 Separate contexts are not mixed, there should be strict separation at the database level.
@@ -89,6 +103,7 @@ Depends on:
 - provides classes for the apps they use
 - 
 
+———
 
 ## Features
 ### Ontology Engineering and Labeling
@@ -104,6 +119,9 @@ Classifies the input text, resource, or document to perform a store operation or
 Given a blob of text, or a url, find the document that should contain that.
 #### use case: Ensure this document I’m going to store has the right classification
 Given some text that won’t be appended to another document, allow a user to provide hints to assist correct classification.
+#### use case: integration with user tools
+- create or update existing documents in some other tool - an improvement to the use cases above 
+- update document metadata in other tools, for example update obsidian frontmatter when an obsidian document is classified
 
 ### Search/Retrieval
 #### Use case: Find resources related to an entity
@@ -114,6 +132,7 @@ My code projects are indexed for text
 
 #### use case: task lists (Todoist, ClickUp)
 #### use case: logbook 
+#### use case: tip of my tongue
 
 ### Distillation
 #### use case: collections
@@ -126,3 +145,4 @@ Pre-computed search results in virtual document form that link text chunks or do
 Depends-on:: Epic: Storage and classification of sub-document chunks
 I should not need to explicitly create “collections” for everything; classification (topic modeling and entity resolution) at the chunk level (h3 etc) should be able to create enough “related content chunks” to distill NEW virtual documents representing some leaf node topic. If I save a block of text talking about “chunking source code”, and there are N other text chunks discussing same, I shouldn’t even need to query for this; there should be a topic that links to content chunks.
 
+———
