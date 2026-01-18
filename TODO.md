@@ -56,6 +56,9 @@ Need to introduce a more robust pipeline which can be assembled in code, graphed
 - Fact (Identity, role, constraints)
 - Preference
 - Concern ("Context": Activity, Effort, Goal, Problem etc)
+- Memory
+- Decisions
+Some of these can have temporal dimensions, like creation and lifetime
 ### Interfaces
 #### Scripts
 Obsidian importer accepts a vault path, uses the obsidian source type and configures my ontology. 
