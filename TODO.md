@@ -50,7 +50,12 @@ Need to introduce a more robust pipeline which can be assembled in code, graphed
 ## Substrate Architecture
 ### Terminology
 - Resource: refers to a document, url, or text chunk. Each resource has an unique uri 
-- 
+### Classes
+- Entity
+- Concept
+- Fact (Identity, role, constraints)
+- Preference
+- Concern ("Context": Activity, Effort, Goal, Problem etc)
 ### Interfaces
 #### Scripts
 Obsidian importer accepts a vault path, uses the obsidian source type and configures my ontology. 
