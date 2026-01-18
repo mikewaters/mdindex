@@ -15,7 +15,7 @@ An obsidian resource would have the obsidian:// uri etc
 - move all my codebases into one repository 
 - add a resources “host” for filtering by local stuff
 - skip indexing LLM slop: pipeline get it, what is it, what should I do with it
-- have a separate index for community detection, where the index is not ontology-aligned; instead it goes ham on entity extraction etc
+- have a separate index for community detection, where the index is not ontology-aligned; instead it goes ham on entity extraction etc. Maybe this is a separate graph, using standard graphrag library
 
 ———
  
@@ -60,7 +60,7 @@ Obsidian importer accepts a vault path, uses the obsidian source type and config
 The Ontology associates content with relevance and meaning.
 
 Responsible for:
-- maintaining entity and topic data stores
+- maintaining entity and topic data stores; should this include claim, fact, decision etc?
 - providing classification primitives
 - support ontology improvement
 - can be configured for each context (life, work, interest etc)
