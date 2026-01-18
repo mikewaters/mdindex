@@ -1,3 +1,0 @@
-# jest
-
-Js testing

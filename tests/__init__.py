@@ -1,1 +1,1 @@
-"""Test suite for PMD."""
+"""Test suite for mdingest."""

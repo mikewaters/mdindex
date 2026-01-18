@@ -1,1 +1,0 @@
-<https://x.com/cpluss_x/status/1992954319679983907?s=20>

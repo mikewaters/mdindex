@@ -1,1 +1,0 @@
-<https://itsgoingdown.org/the-guide-to-peer-to-peer-encryption-and-tor-new-communication-infrastructure-for-anarchists/>

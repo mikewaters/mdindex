@@ -1,5 +1,8 @@
 # PMD - Python Markdown Search
 
+# Per-library coverage can be run with:
+pytest tests/pmd/ --cov=src/pmd --cov-report=html:coverage/pmd
+
 # Instrumentation with Phoenix
 `phoenix serve`
 

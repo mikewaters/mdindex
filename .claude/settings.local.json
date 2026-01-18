@@ -42,7 +42,10 @@
       "Bash(python -m pytest:*)",
       "Bash(python:*)",
       "Bash(tree:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv pip list:*)",
+      "Bash(uv:*)"
     ]
   },
   "hooks": {
