@@ -10,7 +10,8 @@
 - move LLMs to dspy
 - use a better chunker wtpsplit sat-61-sm
 - move all my codebases into one repository 
-- add a resources host for filtering by local stuff
+- add a resources “host” for filtering by local stuff
+- skip indexing LLM slop: pipeline get it, what is it, what should I do with it
  
 ## Decisions
 - need a Resource type, which will generate one or more documents
