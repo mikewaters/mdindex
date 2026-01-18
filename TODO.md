@@ -1,4 +1,48 @@
+## Migrate from substrate
+- Add a Resources table, even URLs and stuff.  It will contain the URI, and generate a Document which could be the actual document content, or in the case of a url the cached web page, or the highlights etc. The Resource will be cached, not the document, so we can iterate on things like “collect resource type X”.
+- I can have scripts for raindrop, heptabase, obsidian etc, rather than build a comprehensive CLI.
+- obsidian et al can be in a Substrate integrations library, or sub module of pmd, “from pmd.integrations.obsidian import VaultCollector;”. Decision lies in if integrations like obsidian are needed outside of indexing.
+- rename pmd to index
+## Tasks
+- review the other substrates components
+- migrate external config to Pydantic so cli, api, and Python clients can use the same validated structures
+- remove _index_via_legacy and anything like it
+- move LLMs to dspy
+- use a better chunker wtpsplit sat-61-sm
+- move all my codebases into one repository 
+- add a resources host for filtering by local stuff
+ 
+## Decisions
+- need a Resource type, which will generate one or more documents
+- Resources will be cached in their original form with the addition of metadata if it can’t be an intrinsic part of the cached thing (like it’s created and modified dates)
+- a Document is a thing to be indexed; a Resource is the representation of a thing in the world.
+- Substrate is an app that uses various libraries that handle domains like data catalog hosting and ontology definition/storage
+- Substrate should support local first for all features but optionally use centrally hosted data, hosted indexing/classification, use external capabilities like OpenAi, or be hosted and externally accessible by api itself.
+- Substrate should be usable as a tool by a coding agent
+
+## Roadmap
+### Local, then centralized
+- Collection happens locally, and documents are copied to the local object store
+- Indexing is done against the cache
+- Databases are local
+Next step would be to centralize the object store and the database. 
+
+### Multiple contexts
+Single context per repo for now, next would be multiple database support and per-context initialization.
+
+### Data stores
+Need to be able to iterate on data stores, without rewriting codebase. And so this will need to be configuration-driven.
+
+### Pipelines
+Need to introduce a more robust pipeline which can be assembled in code, graphed/visualized, and monitored during runtime.
+
 ## Substrate Architecture
+### Terminology
+- Resource: refers to a document, url, or text chunk. Each resource has an unique uri 
+- 
+### Interfaces
+#### Scripts
+Obsidian importer accepts a vault path, uses the obsidian source type and configures my ontology. 
 ### Domains
 #### The Ontology
 Responsible for:
@@ -28,22 +72,56 @@ Interfaces:
 - content browser and UI for operation
 - http and Python api
 
-#### Context (Life)
+#### Context (Life, Work etc)
+System provides base classes/protocols and registries, as well as common classes like ObsidianVaultCollector which can be subclasses or parameterized.
+System provides base classes for Entity and Resource, consuming app (of which Substrate is the only one) defines the context and this is used to build out the database schema and populate it.
+Separate contexts are not mixed, there should be strict separation at the database level.
+
 User can define:
-- content source app classes for their data catalog
-- can configure how each source should be indexed
-- 
+- content-source-app classes for their data catalog; includes which files to collect, how different file types should be indexed, how to translate metadata into their ontology
+- classes for the various resource types they are interested in
+- classes for the entity types they are interested in
+- cues to inform entity linking, like areas of interest
 
 Depends on:
 - provides classes to build out the ontology
 - provides classes for the apps they use
 - 
 
-## Tasks
-- migrate external config to Pydantic so cli, api, and Python clients can use the same validated structures
-- 
 
+## Features
+### Ontology Engineering and Labeling
+Improve the ontology given a document which has ontologically-significant content.
 
-- remove _index_via_legacy and anything like it
-- move LLMs to dspy
-- use a better chunker wtpsplit sat-61-sm
+- Identify new entities, concepts, topics etc
+- identify entities that we aren’t interested in and can exclude from future classification
+- Improve classification ability when encountering text that isn’t properly classified in the way it should have been
+ 
+### File this for me
+Classifies the input text, resource, or document to perform a store operation or suggestion.
+#### use case: Save text fragment to existing document
+Given a blob of text, or a url, find the document that should contain that.
+#### use case: Ensure this document I’m going to store has the right classification
+Given some text that won’t be appended to another document, allow a user to provide hints to assist correct classification.
+
+### Search/Retrieval
+#### Use case: Find resources related to an entity
+Many resources may be related to an entity, but the end user should not need to associate that resource with the entity - the system should do so, and provide the ability to surface those resources easily.
+
+#### use case: where’s my project for X
+My code projects are indexed for text 
+
+#### use case: task lists (Todoist, ClickUp)
+#### use case: logbook 
+
+### Distillation
+#### use case: collections
+Given a list of known-interesting flagged topics, allow a user to associate a new or existing resource with a topic with low effort.
+#### use case: magnetic folders
+Given a known-interesting flagged topic, aggressively collect related resources.
+
+#### use case: topic distillation
+Pre-computed search results in virtual document form that link text chunks or documents together using a single Topic leaf node.
+Depends-on:: Epic: Storage and classification of sub-document chunks
+I should not need to explicitly create “collections” for everything; classification (topic modeling and entity resolution) at the chunk level (h3 etc) should be able to create enough “related content chunks” to distill NEW virtual documents representing some leaf node topic. If I save a block of text talking about “chunking source code”, and there are N other text chunks discussing same, I shouldn’t even need to query for this; there should be a topic that links to content chunks.
+
