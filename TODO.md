@@ -16,6 +16,7 @@ An obsidian resource would have the obsidian:// uri etc
 - add a resources “host” for filtering by local stuff
 - skip indexing LLM slop: pipeline get it, what is it, what should I do with it
 - have a separate index for community detection, where the index is not ontology-aligned; instead it goes ham on entity extraction etc. Maybe this is a separate graph, using standard graphrag library
+- Define my `models` layer - what are the abstractions that I want substrate to use for memory aug?
 
 ———
  
