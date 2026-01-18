@@ -4,7 +4,7 @@ An obsidian resource would have the obsidian:// uri etc
 - I can have scripts for raindrop, heptabase, obsidian etc, rather than build a comprehensive CLI.
 - obsidian et al can be in a Substrate integrations library, or sub module of pmd, “from pmd.integrations.obsidian import VaultCollector;”. Decision lies in if integrations like obsidian are needed outside of indexing.
 - rename pmd to catalog
-- 
+- Singlefile source, or chatgpt/claude/perplexity convo source
 
 ## Tasks
 - review the other substrates components
