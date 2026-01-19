@@ -13,7 +13,6 @@ from pmd.core.exceptions import SourceCollectionNotFoundError
 from pmd.core.types import SourceCollection
 from pmd.sources import (
     DocumentSource,
-    SourceRegistry,
     get_default_registry,
 )
 from pmd.metadata import (
@@ -93,8 +92,7 @@ class IndexingService:
         self,
         data: IndexingData,
         loader: LoadingServiceProtocol,
-        embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]],
-        source_registry: SourceRegistry | None = None,
+        embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]] | None = None,
         cacher: "DocumentCacher | None" = None,
     ):
         """Initialize IndexingService.
@@ -103,13 +101,12 @@ class IndexingService:
             data: Data access layer for indexing operations.
             loader: Loading service for document retrieval.
             embedding_generator_factory: Async factory for embedding generator.
-            source_registry: Optional source registry for creating sources.
             cacher: Optional document cacher for local file caching.
         """
         self._data = data
         self._loader = loader
         self._embedding_generator_factory = embedding_generator_factory
-        self._source_registry = source_registry or get_default_registry()
+        self._source_registry = get_default_registry()
         self._cacher = cacher
 
     @property

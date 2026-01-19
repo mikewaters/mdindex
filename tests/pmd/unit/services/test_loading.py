@@ -9,17 +9,14 @@ from pmd.core.exceptions import SourceCollectionNotFoundError
 from pmd.app import create_application
 from pmd.data import LoadingData
 from pmd.services.loading import LoadingService, LoadedDocument, EagerLoadResult, LoadResult
-from pmd.sources import FileSystemSource, SourceConfig, SourceFetchError, get_default_registry
+from pmd.sources import FileSystemSource, SourceConfig, SourceFetchError
 from pmd.sources.content.base import DocumentReference, FetchResult
 
 
 def _create_loading_service(app) -> LoadingService:
     """Create a LoadingService with data access layer from an Application."""
     loading_data = LoadingData(app.db)
-    return LoadingService(
-        data=loading_data,
-        source_registry=get_default_registry(),
-    )
+    return LoadingService(data=loading_data)
 
 
 def _filesystem_source_for(collection) -> FileSystemSource:

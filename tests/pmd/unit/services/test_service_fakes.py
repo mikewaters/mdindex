@@ -13,7 +13,6 @@ from pmd.services.indexing import IndexingService
 from pmd.services.loading import LoadingService
 from pmd.services.search import SearchService
 from pmd.services.status import StatusService
-from pmd.sources import get_default_registry
 from pmd.store.database import Database
 from pmd.store.repositories.fts import FTS5SearchRepository
 
@@ -135,15 +134,11 @@ class TestLoadingServiceWithDataAccess:
     def test_can_construct_with_data_access(self, db: Database):
         """LoadingService should accept data access layer."""
         data = LoadingData(db)
-        source_registry = get_default_registry()
 
-        service = LoadingService(
-            data=data,
-            source_registry=source_registry,
-        )
+        service = LoadingService(data=data)
 
         assert service._data is data
-        assert service._source_registry is source_registry
+        assert service._source_registry is not None
 
 
 class TestServiceIsolation:
@@ -173,10 +168,7 @@ class TestServiceIsolation:
             vec_available=True,
         )
 
-        loading = LoadingService(
-            data=loading_data,
-            source_registry=get_default_registry(),
-        )
+        loading = LoadingService(data=loading_data)
 
         # Each service should work independently
         assert indexing.vec_available == db.vec_available

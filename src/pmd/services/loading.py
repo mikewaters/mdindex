@@ -21,10 +21,10 @@ from pmd.sources.content.base import (
     FetchResult,
     SourceFetchError,
 )
+from pmd.sources import get_default_registry
 
 if TYPE_CHECKING:
     from pmd.core.types import SourceCollection
-    from pmd.sources import SourceRegistry
     from .loading_llamaindex import LlamaIndexLoaderAdapter
 
 
@@ -125,10 +125,7 @@ class LoadingService:
     - No embeddings.
 
     Example:
-        loader = LoadingService(
-            data=LoadingData(db),
-            source_registry=source_registry,
-        )
+        loader = LoadingService(data=LoadingData(db))
         result = await loader.load_collection_eager("my-docs")
         for doc in result.documents:
             print(doc.path, doc.title)
@@ -137,16 +134,14 @@ class LoadingService:
     def __init__(
         self,
         data: LoadingData,
-        source_registry: "SourceRegistry",
     ):
         """Initialize LoadingService.
 
         Args:
             data: Data access layer for loading operations (collections, documents, metadata).
-            source_registry: Registry for creating document sources.
         """
         self._data = data
-        self._source_registry = source_registry
+        self._source_registry = get_default_registry()
 
     async def load_collection_eager(
         self,

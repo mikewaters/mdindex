@@ -131,7 +131,6 @@ async def create_application(config: "Config") -> Application:
     from pmd.services.loading import LoadingService
     from pmd.services.search import SearchService
     from pmd.services.status import StatusService
-    from pmd.sources import get_default_registry
     from pmd.llm import create_llm_provider, EmbeddingGenerator
     from pmd.services.caching import DocumentCacher
 
@@ -166,24 +165,17 @@ async def create_application(config: "Config") -> Application:
     async def get_embedding_generator():
         return EmbeddingGenerator(llm_provider, embedding_repo, config)
 
-    # Create source registry
-    source_registry = get_default_registry()
-
     # Create document cacher (if enabled in config)
     cacher = DocumentCacher(config.cache) if config.cache.enabled else None
 
     # Create loading service with data access layer
-    loading = LoadingService(
-        data=loading_data,
-        source_registry=source_registry,
-    )
+    loading = LoadingService(data=loading_data)
 
     # Create services with data access layer
     indexing = IndexingService(
         data=indexing_data,
         loader=loading,
         embedding_generator_factory=get_embedding_generator,  # type: ignore
-        source_registry=source_registry,
         cacher=cacher,
     )
 
