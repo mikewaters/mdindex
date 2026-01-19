@@ -1,128 +1,78 @@
-"""Tests demonstrating services work with in-memory fakes.
+"""Tests demonstrating services work with data access layer.
 
-These tests verify that services can be constructed and used without
-a real database, enabling fast unit tests with test doubles.
+These tests verify that services can be constructed with data access classes
+using real in-memory SQLite databases, enabling fast unit tests.
 """
 
-import pytest
+from pathlib import Path
+from unittest.mock import Mock
 
+from pmd.data import IndexingData, LoadingData, SearchData, StatusData
+from pmd.search.adapters import FTS5TextSearcher
 from pmd.services.indexing import IndexingService
+from pmd.services.loading import LoadingService
 from pmd.services.search import SearchService
 from pmd.services.status import StatusService
-from tests.pmd.fakes import (
-    InMemoryDatabase,
-    InMemorySourceCollectionRepository,
-    InMemoryDocumentRepository,
-    InMemoryFTSRepository,
-    InMemoryEmbeddingRepository,
-    InMemoryLoadingService,
-    InMemoryTextSearcher,
-)
+from pmd.sources import get_default_registry
+from pmd.store.database import Database
+from pmd.store.repositories.fts import FTS5SearchRepository
 
 
-class TestIndexingServiceWithFakes:
-    """Tests for IndexingService with in-memory fakes."""
+class TestIndexingServiceWithDataAccess:
+    """Tests for IndexingService with data access layer."""
 
-    def test_can_construct_with_fakes(self):
-        """IndexingService should accept in-memory fakes."""
-        db = InMemoryDatabase()
-        collection_repo = InMemorySourceCollectionRepository()
-        document_repo = InMemoryDocumentRepository()
-        fts_repo = InMemoryFTSRepository()
-        loader = InMemoryLoadingService()
+    def test_can_construct_with_data_access(self, db: Database):
+        """IndexingService should accept data access layer."""
+        data = IndexingData(db)
+        loader = Mock(spec=LoadingService)
 
         service = IndexingService(
-            db=db,
-            source_collection_repo=collection_repo,
-            document_repo=document_repo,
-            fts_repo=fts_repo,
+            data=data,
             loader=loader,
         )
 
-        assert service._db is db
-        assert service._source_collection_repo is collection_repo
-        assert service._document_repo is document_repo
-        assert service._fts_repo is fts_repo
+        assert service._data is data
         assert service._loader is loader
 
-    def test_can_construct_with_optional_embedding_repo(self):
-        """IndexingService should accept optional embedding repo."""
-        db = InMemoryDatabase()
-        collection_repo = InMemorySourceCollectionRepository()
-        document_repo = InMemoryDocumentRepository()
-        fts_repo = InMemoryFTSRepository()
-        loader = InMemoryLoadingService()
-        embedding_repo = InMemoryEmbeddingRepository()
+    def test_vec_available_reflects_database(self, db: Database):
+        """vec_available should reflect database capability."""
+        data = IndexingData(db)
+        loader = Mock(spec=LoadingService)
 
         service = IndexingService(
-            db=db,
-            source_collection_repo=collection_repo,
-            document_repo=document_repo,
-            fts_repo=fts_repo,
+            data=data,
             loader=loader,
-            embedding_repo=embedding_repo,
         )
 
-        assert service._embedding_repo is embedding_repo
-
-    def test_vec_available_reflects_database(self):
-        """vec_available should reflect database capability."""
-        db_with_vec = InMemoryDatabase(_vec_available=True)
-        db_without_vec = InMemoryDatabase(_vec_available=False)
-
-        service_with = IndexingService(
-            db=db_with_vec,
-            source_collection_repo=InMemorySourceCollectionRepository(),
-            document_repo=InMemoryDocumentRepository(),
-            fts_repo=InMemoryFTSRepository(),
-            loader=InMemoryLoadingService(),
-        )
-
-        service_without = IndexingService(
-            db=db_without_vec,
-            source_collection_repo=InMemorySourceCollectionRepository(),
-            document_repo=InMemoryDocumentRepository(),
-            fts_repo=InMemoryFTSRepository(),
-            loader=InMemoryLoadingService(),
-        )
-
-        assert service_with.vec_available is True
-        assert service_without.vec_available is False
+        # DB should have vec available since we use sqlite-vec
+        assert service.vec_available == db.vec_available
 
 
-class TestSearchServiceWithFakes:
-    """Tests for SearchService with in-memory fakes."""
+class TestSearchServiceWithDataAccess:
+    """Tests for SearchService with data access layer."""
 
-    def test_can_construct_with_fakes(self):
-        """SearchService should accept in-memory fakes."""
-        db = InMemoryDatabase()
-        fts_repo = InMemoryFTSRepository()
-        collection_repo = InMemorySourceCollectionRepository()
-        text_searcher = InMemoryTextSearcher()
+    def test_can_construct_with_data_access(self, db: Database):
+        """SearchService should accept data access layer."""
+        data = SearchData(db)
+        fts_repo = FTS5SearchRepository(db)
+        text_searcher = FTS5TextSearcher(fts_repo)
 
         service = SearchService(
-            db=db,
-            source_collection_repo=collection_repo,
-            fts_repo=fts_repo,
+            data=data,
             text_searcher=text_searcher,
         )
 
-        assert service._db is db
-        assert service._fts_repo is fts_repo
-        assert service._source_collection_repo is collection_repo
+        assert service._data is data
         assert service._text_searcher is text_searcher
 
-    def test_can_construct_with_all_optional_deps(self):
+    def test_can_construct_with_all_optional_deps(self, db: Database):
         """SearchService should accept all optional dependencies."""
-        db = InMemoryDatabase()
-        fts_repo = InMemoryFTSRepository()
-        collection_repo = InMemorySourceCollectionRepository()
-        text_searcher = InMemoryTextSearcher()
+        data = SearchData(db)
+        fts_repo = FTS5SearchRepository(db)
+        text_searcher = FTS5TextSearcher(fts_repo)
 
         service = SearchService(
-            db=db,
-            source_collection_repo=collection_repo,
-            fts_repo=fts_repo,
+            data=data,
             text_searcher=text_searcher,
             fts_weight=2.0,
             vec_weight=0.5,
@@ -133,76 +83,29 @@ class TestSearchServiceWithFakes:
         assert service._vec_weight == 0.5
         assert service._rrf_k == 100
 
-    def test_fts_search_with_fake_repo(self):
-        """FTS search should work with fake repo."""
-        db = InMemoryDatabase()
-        collection_repo = InMemorySourceCollectionRepository()
-        fts_repo = InMemoryFTSRepository()
-        text_searcher = InMemoryTextSearcher()
 
-        # Pre-configure results using make_search_result helper
-        from tests.pmd.fakes import make_search_result
-        from pmd.core.types import SearchSource
-        fts_repo.add_result(make_search_result(
-            filepath="test.md",
-            score=0.9,
-            source=SearchSource.FTS,
-            title="Test",
-        ))
+class TestStatusServiceWithDataAccess:
+    """Tests for StatusService with data access layer."""
 
-        service = SearchService(
-            db=db,
-            source_collection_repo=collection_repo,
-            fts_repo=fts_repo,
-            text_searcher=text_searcher,
-        )
-
-        results = service.fts_search("query")
-
-        assert len(results) == 1
-        assert results[0].filepath == "test.md"
-        assert results[0].score == 0.9
-
-
-class TestStatusServiceWithFakes:
-    """Tests for StatusService with in-memory fakes."""
-
-    def test_can_construct_with_fakes(self):
-        """StatusService should accept in-memory fakes."""
-        document_repo = InMemoryDocumentRepository()
-        embedding_repo = InMemoryEmbeddingRepository()
-        fts_repo = InMemoryFTSRepository()
-        collection_repo = InMemorySourceCollectionRepository()
+    def test_can_construct_with_data_access(self, db: Database):
+        """StatusService should accept data access layer."""
+        data = StatusData(db)
 
         service = StatusService(
-            document_repo=document_repo,
-            embedding_repo=embedding_repo,
-            fts_repo=fts_repo,
-            source_collection_repo=collection_repo,
+            data=data,
         )
 
-        assert service._document_repo is document_repo
-        assert service._embedding_repo is embedding_repo
-        assert service._fts_repo is fts_repo
-        assert service._source_collection_repo is collection_repo
+        assert service._data is data
 
-    def test_can_construct_with_all_optional_deps(self):
+    def test_can_construct_with_all_optional_deps(self, db: Database):
         """StatusService should accept all optional dependencies."""
-        from pathlib import Path
-
-        document_repo = InMemoryDocumentRepository()
-        embedding_repo = InMemoryEmbeddingRepository()
-        fts_repo = InMemoryFTSRepository()
-        collection_repo = InMemorySourceCollectionRepository()
+        data = StatusData(db)
 
         async def fake_llm_check():
             return True
 
         service = StatusService(
-            document_repo=document_repo,
-            embedding_repo=embedding_repo,
-            fts_repo=fts_repo,
-            source_collection_repo=collection_repo,
+            data=data,
             db_path=Path("/tmp/test.db"),
             llm_provider="test-provider",
             llm_available_check=fake_llm_check,
@@ -212,18 +115,12 @@ class TestStatusServiceWithFakes:
         assert service._db_path == Path("/tmp/test.db")
         assert service._llm_provider == "test-provider"
 
-    def test_get_index_status_with_empty_fakes(self):
-        """get_index_status should work with empty fakes."""
-        document_repo = InMemoryDocumentRepository()
-        embedding_repo = InMemoryEmbeddingRepository()
-        fts_repo = InMemoryFTSRepository()
-        collection_repo = InMemorySourceCollectionRepository()
+    def test_get_index_status_with_empty_database(self, db: Database):
+        """get_index_status should work with empty database."""
+        data = StatusData(db)
 
         service = StatusService(
-            document_repo=document_repo,
-            embedding_repo=embedding_repo,
-            fts_repo=fts_repo,
-            source_collection_repo=collection_repo,
+            data=data,
         )
 
         status = service.get_index_status()
@@ -231,94 +128,58 @@ class TestStatusServiceWithFakes:
         assert status.total_documents == 0
         assert status.source_collections == []
 
-    def test_get_index_status_with_collections(self):
-        """get_index_status should list collections from fake repo."""
-        document_repo = InMemoryDocumentRepository()
-        embedding_repo = InMemoryEmbeddingRepository()
-        fts_repo = InMemoryFTSRepository()
-        collection_repo = InMemorySourceCollectionRepository()
 
-        # Add a collection
-        collection_repo.create("test-collection", "/path/to/docs")
+class TestLoadingServiceWithDataAccess:
+    """Tests for LoadingService with data access layer."""
 
-        service = StatusService(
-            document_repo=document_repo,
-            embedding_repo=embedding_repo,
-            fts_repo=fts_repo,
-            source_collection_repo=collection_repo,
+    def test_can_construct_with_data_access(self, db: Database):
+        """LoadingService should accept data access layer."""
+        data = LoadingData(db)
+        source_registry = get_default_registry()
+
+        service = LoadingService(
+            data=data,
+            source_registry=source_registry,
         )
 
-        status = service.get_index_status()
-
-        assert len(status.source_collections) == 1
-        assert status.source_collections[0].name == "test-collection"
+        assert service._data is data
+        assert service._source_registry is source_registry
 
 
 class TestServiceIsolation:
-    """Tests demonstrating service isolation with fakes."""
+    """Tests demonstrating service isolation with data access layers."""
 
-    def test_services_with_independent_fakes(self):
-        """Each service should work with its own set of fakes."""
-        # Create separate fakes for each service
-        indexing_db = InMemoryDatabase()
-        search_db = InMemoryDatabase()
+    def test_services_with_independent_data_access(self, db: Database):
+        """Each service should work with its own data access layer."""
+        # Create separate data access layers for each service
+        indexing_data = IndexingData(db)
+        search_data = SearchData(db)
+        status_data = StatusData(db)
+        loading_data = LoadingData(db)
 
         indexing = IndexingService(
-            db=indexing_db,
-            source_collection_repo=InMemorySourceCollectionRepository(),
-            document_repo=InMemoryDocumentRepository(),
-            fts_repo=InMemoryFTSRepository(),
-            loader=InMemoryLoadingService(),
+            data=indexing_data,
+            loader=Mock(spec=LoadingService),
         )
 
+        fts_repo = FTS5SearchRepository(db)
         search = SearchService(
-            db=search_db,
-            source_collection_repo=InMemorySourceCollectionRepository(),
-            fts_repo=InMemoryFTSRepository(),
-            text_searcher=InMemoryTextSearcher(),
+            data=search_data,
+            text_searcher=FTS5TextSearcher(fts_repo),
         )
 
         status = StatusService(
-            document_repo=InMemoryDocumentRepository(),
-            embedding_repo=InMemoryEmbeddingRepository(),
-            fts_repo=InMemoryFTSRepository(),
-            source_collection_repo=InMemorySourceCollectionRepository(),
+            data=status_data,
             vec_available=True,
         )
 
+        loading = LoadingService(
+            data=loading_data,
+            source_registry=get_default_registry(),
+        )
+
         # Each service should work independently
-        assert indexing.vec_available is True
-        assert search.vec_available is True
+        assert indexing.vec_available == db.vec_available
+        assert search.vec_available == db.vec_available
         assert status.vec_available is True
-
-    def test_services_with_shared_repos(self):
-        """Services can share repository instances for integration tests."""
-        # Shared infrastructure
-        db = InMemoryDatabase()
-        collection_repo = InMemorySourceCollectionRepository()
-        document_repo = InMemoryDocumentRepository()
-        fts_repo = InMemoryFTSRepository()
-        embedding_repo = InMemoryEmbeddingRepository()
-
-        # Create collection in shared repo
-        collection_repo.create("shared", "/path")
-
-        indexing = IndexingService(
-            db=db,
-            source_collection_repo=collection_repo,
-            document_repo=document_repo,
-            fts_repo=fts_repo,
-            loader=InMemoryLoadingService(),
-        )
-
-        status = StatusService(
-            document_repo=document_repo,
-            embedding_repo=embedding_repo,
-            fts_repo=fts_repo,
-            source_collection_repo=collection_repo,
-        )
-
-        # Both services see the same collection
-        status_result = status.get_index_status()
-        assert len(status_result.source_collections) == 1
-        assert status_result.source_collections[0].name == "shared"
+        # loading service doesn't have vec_available

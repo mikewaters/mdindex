@@ -210,11 +210,11 @@ class TestCreateApplication:
     ):
         """Services created by create_application should have proper dependencies."""
         async with await create_application(config) as app:
-            # IndexingService should have database access
-            assert hasattr(app.indexing, "_db")
+            # IndexingService should have data access layer
+            assert hasattr(app.indexing, "_data")
 
-            # SearchService should have repository access
-            assert hasattr(app.search, "_fts_repo")
+            # SearchService should have data access layer
+            assert hasattr(app.search, "_data")
 
-            # StatusService should have source_collection_repo access
-            assert hasattr(app.status, "_source_collection_repo")
+            # StatusService should have data access layer
+            assert hasattr(app.status, "_data")

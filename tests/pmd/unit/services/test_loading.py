@@ -7,10 +7,19 @@ from unittest.mock import AsyncMock, MagicMock
 from pmd.core.config import Config
 from pmd.core.exceptions import SourceCollectionNotFoundError
 from pmd.app import create_application
+from pmd.data import LoadingData
 from pmd.services.loading import LoadingService, LoadedDocument, EagerLoadResult, LoadResult
-from pmd.sources import FileSystemSource, SourceConfig, SourceFetchError
+from pmd.sources import FileSystemSource, SourceConfig, SourceFetchError, get_default_registry
 from pmd.sources.content.base import DocumentReference, FetchResult
-from pmd.store.repositories.source_metadata import SourceMetadataRepository
+
+
+def _create_loading_service(app) -> LoadingService:
+    """Create a LoadingService with data access layer from an Application."""
+    loading_data = LoadingData(app.db)
+    return LoadingService(
+        data=loading_data,
+        source_registry=get_default_registry(),
+    )
 
 
 def _filesystem_source_for(collection) -> FileSystemSource:
@@ -36,16 +45,7 @@ class TestLoadingServiceEager:
             app.source_collection_repo.create("test", str(tmp_path), "**/*.md")
             collection = app.source_collection_repo.get_by_name("test")
             source = _filesystem_source_for(collection)
-            source_metadata_repo = SourceMetadataRepository(app.db)
-
-            from pmd.sources import get_default_registry
-            loader = LoadingService(
-                db=app.db,
-                source_collection_repo=app.source_collection_repo,
-                document_repo=app.document_repo,
-                source_metadata_repo=source_metadata_repo,
-                source_registry=get_default_registry(),
-            )
+            loader = _create_loading_service(app)
 
             result = await loader.load_collection_eager("test", source=source)
 
@@ -64,16 +64,7 @@ class TestLoadingServiceEager:
             app.source_collection_repo.create("test", str(tmp_path), "**/*.md")
             collection = app.source_collection_repo.get_by_name("test")
             source = _filesystem_source_for(collection)
-            source_metadata_repo = SourceMetadataRepository(app.db)
-
-            from pmd.sources import get_default_registry
-            loader = LoadingService(
-                db=app.db,
-                source_collection_repo=app.source_collection_repo,
-                document_repo=app.document_repo,
-                source_metadata_repo=source_metadata_repo,
-                source_registry=get_default_registry(),
-            )
+            loader = _create_loading_service(app)
 
             result = await loader.load_collection_eager("test", source=source)
 
@@ -87,16 +78,7 @@ class TestLoadingServiceEager:
     async def test_collection_not_found_raises(self, config: Config):
         """load_collection_eager raises for unknown collection."""
         async with await create_application(config) as app:
-            source_metadata_repo = SourceMetadataRepository(app.db)
-
-            from pmd.sources import get_default_registry
-            loader = LoadingService(
-                db=app.db,
-                source_collection_repo=app.source_collection_repo,
-                document_repo=app.document_repo,
-                source_metadata_repo=source_metadata_repo,
-                source_registry=get_default_registry(),
-            )
+            loader = _create_loading_service(app)
 
             with pytest.raises(SourceCollectionNotFoundError):
                 await loader.load_collection_eager("nonexistent")
@@ -108,16 +90,7 @@ class TestLoadingServiceEager:
 
         async with await create_application(config) as app:
             app.source_collection_repo.create("test", str(tmp_path), "**/*.md")
-            source_metadata_repo = SourceMetadataRepository(app.db)
-
-            from pmd.sources import get_default_registry
-            loader = LoadingService(
-                db=app.db,
-                source_collection_repo=app.source_collection_repo,
-                document_repo=app.document_repo,
-                source_metadata_repo=source_metadata_repo,
-                source_registry=get_default_registry(),
-            )
+            loader = _create_loading_service(app)
 
             # Don't pass source - should be resolved from collection
             result = await loader.load_collection_eager("test")
@@ -138,16 +111,7 @@ class TestLoadingServiceStream:
             app.source_collection_repo.create("test", str(tmp_path), "**/*.md")
             collection = app.source_collection_repo.get_by_name("test")
             source = _filesystem_source_for(collection)
-            source_metadata_repo = SourceMetadataRepository(app.db)
-
-            from pmd.sources import get_default_registry
-            loader = LoadingService(
-                db=app.db,
-                source_collection_repo=app.source_collection_repo,
-                document_repo=app.document_repo,
-                source_metadata_repo=source_metadata_repo,
-                source_registry=get_default_registry(),
-            )
+            loader = _create_loading_service(app)
 
             result = await loader.load_collection_stream("test", source=source)
 
@@ -176,16 +140,7 @@ class TestLoadingServiceChangeDetection:
             app.source_collection_repo.create("test", str(tmp_path), "**/*.md")
             collection = app.source_collection_repo.get_by_name("test")
             source = _filesystem_source_for(collection)
-            source_metadata_repo = SourceMetadataRepository(app.db)
-
-            from pmd.sources import get_default_registry
-            loader = LoadingService(
-                db=app.db,
-                source_collection_repo=app.source_collection_repo,
-                document_repo=app.document_repo,
-                source_metadata_repo=source_metadata_repo,
-                source_registry=get_default_registry(),
-            )
+            loader = _create_loading_service(app)
 
             # First load - should return document
             result1 = await loader.load_collection_eager("test", source=source)
@@ -215,16 +170,7 @@ class TestLoadingServiceChangeDetection:
             app.source_collection_repo.create("test", str(tmp_path), "**/*.md")
             collection = app.source_collection_repo.get_by_name("test")
             source = _filesystem_source_for(collection)
-            source_metadata_repo = SourceMetadataRepository(app.db)
-
-            from pmd.sources import get_default_registry
-            loader = LoadingService(
-                db=app.db,
-                source_collection_repo=app.source_collection_repo,
-                document_repo=app.document_repo,
-                source_metadata_repo=source_metadata_repo,
-                source_registry=get_default_registry(),
-            )
+            loader = _create_loading_service(app)
 
             # First load and index
             result1 = await loader.load_collection_eager("test", source=source)
@@ -253,16 +199,7 @@ class TestLoadingServiceTitleExtraction:
             app.source_collection_repo.create("test", str(tmp_path), "**/*.md")
             collection = app.source_collection_repo.get_by_name("test")
             source = _filesystem_source_for(collection)
-            source_metadata_repo = SourceMetadataRepository(app.db)
-
-            from pmd.sources import get_default_registry
-            loader = LoadingService(
-                db=app.db,
-                source_collection_repo=app.source_collection_repo,
-                document_repo=app.document_repo,
-                source_metadata_repo=source_metadata_repo,
-                source_registry=get_default_registry(),
-            )
+            loader = _create_loading_service(app)
 
             result = await loader.load_collection_eager("test", source=source)
 
@@ -278,16 +215,7 @@ class TestLoadingServiceTitleExtraction:
             app.source_collection_repo.create("test", str(tmp_path), "**/*.md")
             collection = app.source_collection_repo.get_by_name("test")
             source = _filesystem_source_for(collection)
-            source_metadata_repo = SourceMetadataRepository(app.db)
-
-            from pmd.sources import get_default_registry
-            loader = LoadingService(
-                db=app.db,
-                source_collection_repo=app.source_collection_repo,
-                document_repo=app.document_repo,
-                source_metadata_repo=source_metadata_repo,
-                source_registry=get_default_registry(),
-            )
+            loader = _create_loading_service(app)
 
             result = await loader.load_collection_eager("test", source=source)
 
@@ -307,8 +235,6 @@ class TestLoadingServiceErrorHandling:
 
         async with await create_application(config) as app:
             app.source_collection_repo.create("test", str(tmp_path), "**/*.md")
-            collection = app.source_collection_repo.get_by_name("test")
-            source_metadata_repo = SourceMetadataRepository(app.db)
 
             # Create a mock source that fails on one document
             mock_source = MagicMock()
@@ -327,14 +253,7 @@ class TestLoadingServiceErrorHandling:
             mock_source.fetch_content = mock_fetch
             mock_source.check_modified = AsyncMock(return_value=True)
 
-            from pmd.sources import get_default_registry
-            loader = LoadingService(
-                db=app.db,
-                source_collection_repo=app.source_collection_repo,
-                document_repo=app.document_repo,
-                source_metadata_repo=source_metadata_repo,
-                source_registry=get_default_registry(),
-            )
+            loader = _create_loading_service(app)
 
             # Should not raise, but capture error
             result = await loader.load_collection_eager("test", source=mock_source)

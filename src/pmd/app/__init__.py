@@ -26,28 +26,10 @@ from .protocols import (
     # Data types
     BoostInfo,
     RerankScore,
-    # Database protocol
-    DatabaseProtocol,
-    # Repository protocols
-    SourceCollectionRepositoryProtocol,
-    DocumentRepositoryProtocol,
-    FTSRepositoryProtocol,
-    EmbeddingRepositoryProtocol,
     # LLM protocols
-    LLMProviderProtocol,
     EmbeddingGeneratorProtocol,
-    QueryExpanderProtocol,
-    DocumentRerankerProtocol,
-    # Metadata protocols
-    TagMatcherProtocol,
-    OntologyProtocol,
-    TagRetrieverProtocol,
-    DocumentMetadataRepositoryProtocol,
     # Service protocols
     LoadingServiceProtocol,
-    # Config protocols
-    ConfigProtocol,
-    SearchConfigProtocol,
     # Search pipeline protocols
     TextSearcher,
     VectorSearcher,
@@ -57,10 +39,6 @@ from .protocols import (
     MetadataBooster,
     TagInferencer,
     # Type aliases
-    SourceCollectionRepo,
-    DocumentRepo,
-    FTSRepo,
-    EmbeddingRepo,
     LoadingService,
 )
 
@@ -71,28 +49,10 @@ __all__ = [
     # Data types
     "BoostInfo",
     "RerankScore",
-    # Database
-    "DatabaseProtocol",
-    # Repositories
-    "SourceCollectionRepositoryProtocol",
-    "DocumentRepositoryProtocol",
-    "FTSRepositoryProtocol",
-    "EmbeddingRepositoryProtocol",
     # LLM
-    "LLMProviderProtocol",
     "EmbeddingGeneratorProtocol",
-    "QueryExpanderProtocol",
-    "DocumentRerankerProtocol",
-    # Metadata
-    "TagMatcherProtocol",
-    "OntologyProtocol",
-    "TagRetrieverProtocol",
-    "DocumentMetadataRepositoryProtocol",
     # Services
     "LoadingServiceProtocol",
-    # Config
-    "ConfigProtocol",
-    "SearchConfigProtocol",
     # Search pipeline protocols
     "TextSearcher",
     "VectorSearcher",
@@ -102,9 +62,5 @@ __all__ = [
     "MetadataBooster",
     "TagInferencer",
     # Aliases
-    "SourceCollectionRepo",
-    "DocumentRepo",
-    "FTSRepo",
-    "EmbeddingRepo",
     "LoadingService",
 ]

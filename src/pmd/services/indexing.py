@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Awaitable, Protocol
+from datetime import datetime
+from typing import Callable, Awaitable, TYPE_CHECKING
 
 from loguru import logger
 
@@ -20,22 +21,17 @@ from pmd.metadata import (
 )
 from pmd.store.repositories.metadata import DocumentMetadataRepository
 from pmd.app.protocols import (
-    SourceCollectionRepositoryProtocol,
-    DatabaseProtocol,
-    DocumentRepositoryProtocol,
     EmbeddingGeneratorProtocol,
-    EmbeddingRepositoryProtocol,
-    FTSRepositoryProtocol,
     LoadingServiceProtocol,
 )
+from pmd.data import IndexingData
+from pmd.store import Database
+from pmd.search.text import is_indexable
 
-
-class ContentRepositoryProtocol(Protocol):
-    """Protocol for content repository operations needed by IndexingService."""
-
-    def count_orphaned(self) -> int: ...
-    def delete_orphaned(self) -> int: ...
-
+if TYPE_CHECKING:
+    from pmd.services.loading import LoadedDocument
+    from pmd.services.caching import DocumentCacher
+    from pmd.store.repositories.source_metadata import SourceMetadataRepository
 
 
 @dataclass
@@ -88,11 +84,7 @@ class IndexingService:
     Example:
 
         indexing = IndexingService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            document_repo=document_repo,
-            fts_repo=fts_repo,
-            embedding_repo=embedding_repo,
+            data=IndexingData(db),
             loader=loading_service,
         )
         result = await indexing.index_collection("my-docs", source=source)
@@ -100,13 +92,8 @@ class IndexingService:
 
     def __init__(
         self,
-        db: DatabaseProtocol,
-        source_collection_repo: SourceCollectionRepositoryProtocol,
-        document_repo: DocumentRepositoryProtocol,
-        fts_repo: FTSRepositoryProtocol,
+        data: IndexingData,
         loader: LoadingServiceProtocol,
-        content_repo: ContentRepositoryProtocol | None = None,
-        embedding_repo: EmbeddingRepositoryProtocol | None = None,
         embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]] | None = None,
         llm_available_check: Callable[[], Awaitable[bool]] | None = None,
         source_registry: SourceRegistry | None = None,
@@ -115,25 +102,15 @@ class IndexingService:
         """Initialize IndexingService.
 
         Args:
-            db: Database for direct SQL operations.
-            source_collection_repo: Repository for collection operations.
-            document_repo: Repository for document operations.
-            fts_repo: Repository for FTS indexing.
+            data: Data access layer for indexing operations.
             loader: Loading service for document retrieval.
-            content_repo: Repository for content storage operations.
-            embedding_repo: Repository for embedding storage.
             embedding_generator_factory: Async factory for embedding generator.
             llm_available_check: Async function to check if LLM is available.
             source_registry: Optional source registry for creating sources.
             cacher: Optional document cacher for local file caching.
         """
-        self._db = db
-        self._source_collection_repo = source_collection_repo
-        self._document_repo = document_repo
-        self._fts_repo = fts_repo
+        self._data = data
         self._loader = loader
-        self._content_repo = content_repo
-        self._embedding_repo = embedding_repo
         self._embedding_generator_factory = embedding_generator_factory
         self._llm_available_check = llm_available_check
         self._source_registry = source_registry or get_default_registry()
@@ -142,7 +119,7 @@ class IndexingService:
     @property
     def vec_available(self) -> bool:
         """Check if vector storage is available."""
-        return self._db.vec_available
+        return self._data.db.vec_available
 
     async def index_collection(
         self,
@@ -169,7 +146,7 @@ class IndexingService:
             SourceCollectionNotFoundError: If collection does not exist.
             RuntimeError: If no loader is configured.
         """
-        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        source_collection = self._data.get_collection_by_name(collection_name)
         if not source_collection:
             raise SourceCollectionNotFoundError(f"Collection '{collection_name}' not found")
 
@@ -202,38 +179,91 @@ class IndexingService:
         source: DocumentSource | None,
         force: bool,
     ) -> IndexResult:
-        """Index collection using the IngestionPipeline workflow.
+        """Index collection by loading and persisting documents.
 
-        This method delegates to IngestionPipeline for document loading,
-        persistence, and cleanup. The pipeline uses LoadingService internally.
+        This method orchestrates the full ingestion flow:
+        - Stream documents from LoadingService
+        - Persist each document (content + FTS + metadata)
+        - Cleanup stale documents not present in source
 
         Args:
             collection_name: Name of the collection to index.
-            source: Optional source override (currently not passed to pipeline).
+            source: Optional source override (currently not used).
             force: If True, reload all documents.
 
         Returns:
             IndexResult with counts.
         """
-        from pmd.workflows import IngestionPipeline, IngestionRequest
+        from pmd.store.repositories.source_metadata import SourceMetadataRepository
 
-        # Create pipeline with required dependencies
-        pipeline = IngestionPipeline(
-            source_collection_repo=self._source_collection_repo,
-            document_repo=self._document_repo,
-            fts_repo=self._fts_repo,
-            loader=self._loader,  # type: ignore
-            db=self._db,
-            cacher=self._cacher,
-        )
+        # Verify collection exists
+        source_collection = self._data.get_collection_by_name(collection_name)
+        if not source_collection:
+            raise SourceCollectionNotFoundError(
+                f"Collection '{collection_name}' not found"
+            )
 
-        # Execute the ingestion workflow
-        request = IngestionRequest(
-            collection_name=collection_name,
+        # Create metadata repositories
+        source_metadata_repo = SourceMetadataRepository(self._data.db)  # type: ignore
+        document_metadata_repo = DocumentMetadataRepository(self._data.db)  # type: ignore
+
+        # Stream documents from loader
+        load_result = await self._loader.load_collection_stream(
+            collection_name,
+            source=None,  # Let loader resolve source
             force=force,
         )
 
-        return await pipeline.execute(request)
+        # Track progress
+        indexed_count = 0
+        skipped_count = 0
+        persist_errors: list[tuple[str, str]] = []
+        total_enumerated = len(load_result.enumerated_paths)
+
+        # Process each loaded document
+        processed = 0
+        async for doc in load_result.documents:
+            processed += 1
+            try:
+                # Cache the document content if cacher is enabled
+                if self._cacher and self._cacher.enabled:
+                    doc = self._cache_document(collection_name, doc)
+
+                result = await self._persist_document(
+                    doc,
+                    source_metadata_repo,
+                    document_metadata_repo,
+                )
+                if result == "indexed":
+                    indexed_count += 1
+                else:
+                    skipped_count += 1
+
+            except Exception as e:
+                persist_errors.append((doc.path, str(e)))
+                logger.warning(f"Failed to persist document: {doc.path}: {e}")
+
+        # Cleanup stale documents
+        stale_count = await self._cleanup_stale_documents(
+            collection_name,
+            load_result.enumerated_paths,
+        )
+        if stale_count > 0:
+            logger.info(f"Marked {stale_count} stale documents as inactive")
+
+        # Combine errors from loader and persistence
+        all_errors = load_result.errors + persist_errors
+
+        # Documents that were enumerated but not loaded (unchanged) are skipped
+        # Plus documents that were loaded but not persisted (content hash unchanged)
+        loader_skipped = total_enumerated - processed - len(load_result.errors)
+        total_skipped = skipped_count + loader_skipped
+
+        return IndexResult(
+            indexed=indexed_count,
+            skipped=total_skipped,
+            errors=all_errors,
+        )
 
     async def _cleanup_stale_documents(
         self,
@@ -249,24 +279,133 @@ class IndexingService:
         Returns:
             Number of documents marked inactive.
         """
-        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        source_collection = self._data.get_collection_by_name(collection_name)
         if not source_collection:
             return 0
 
-        all_docs = self._document_repo.list_by_collection(source_collection.id, active_only=True)
+        all_docs = self._data.list_documents_by_collection(source_collection.id, active_only=True)
 
         stale_count = 0
         for doc in all_docs:
             if doc.filepath not in seen_paths:
                 # Mark document as inactive (soft delete)
-                self._document_repo.delete(source_collection.id, doc.filepath)
+                self._data.delete_document(source_collection.id, doc.filepath)
                 # Remove from FTS
-                doc_id = self._get_document_id(source_collection.id, doc.filepath)
+                doc_id = self._data.get_document_id(source_collection.id, doc.filepath)
                 if doc_id is not None:
-                    self._fts_repo.remove_from_index(doc_id)
+                    self._data.remove_from_search_index(doc_id)
+                # Remove from cache
+                if self._cacher and self._cacher.enabled:
+                    self._cacher.remove_document(collection_name, doc.filepath)
                 stale_count += 1
 
         return stale_count
+
+    async def _persist_document(
+        self,
+        doc: "LoadedDocument",
+        source_metadata_repo: "SourceMetadataRepository",
+        document_metadata_repo: DocumentMetadataRepository,
+    ) -> str:
+        """Persist a loaded document to storage.
+
+        This handles:
+        - Content storage (document table + content table)
+        - FTS5 indexing (if content is indexable)
+        - Source metadata (fetch info, etags, etc.)
+        - Document metadata (tags, attributes)
+
+        Args:
+            doc: Document that has been loaded and prepared.
+            source_metadata_repo: Repository for source metadata.
+            document_metadata_repo: Repository for document metadata.
+
+        Returns:
+            "indexed" if persisted, "skipped" if content unchanged.
+        """
+        from pmd.store.repositories.source_metadata import SourceMetadata
+        from pmd.metadata import StoredDocumentMetadata
+
+        # Store document content
+        doc_result, is_new = self._data.add_or_update_document(
+            doc.source_collection_id,
+            doc.path,
+            doc.title,
+            doc.content,
+        )
+
+        # Get document ID for FTS and metadata
+        doc_id = self._data.get_document_id(doc.source_collection_id, doc.path)
+
+        if doc_id is not None:
+            # FTS5 indexing (only if content is indexable)
+            if is_indexable(doc.content):
+                self._data.fts_repo.index_document(doc_id, doc.path, doc.content)
+            else:
+                self._data.fts_repo.remove_from_index(doc_id)
+
+            # Store source metadata
+            metadata = SourceMetadata(
+                document_id=doc_id,
+                source_uri=doc.ref.uri,
+                last_fetched_at=datetime.utcnow().isoformat(),
+                etag=doc.fetch_result.metadata.get("etag"),
+                last_modified=doc.fetch_result.metadata.get("last_modified"),
+                fetch_duration_ms=doc.fetch_duration_ms,
+                http_status=doc.fetch_result.metadata.get("http_status"),
+                content_type=doc.content_type,
+                extra=doc.fetch_result.metadata,
+            )
+            source_metadata_repo.upsert(metadata)
+
+            # Store document metadata (tags, attributes)
+            if doc.extracted_metadata:
+                stored = StoredDocumentMetadata(
+                    document_id=doc_id,
+                    profile_name=doc.extracted_metadata.extraction_source or "unknown",
+                    tags=doc.extracted_metadata.tags,
+                    source_tags=doc.extracted_metadata.source_tags,
+                    attributes=doc.extracted_metadata.attributes,
+                    extracted_at=datetime.utcnow().isoformat(),
+                )
+                document_metadata_repo.upsert(stored)
+
+        logger.debug(f"Persisted: {doc.path} ({len(doc.content)} chars)")
+        return "indexed"
+
+    def _cache_document(
+        self,
+        collection_name: str,
+        doc: "LoadedDocument",
+    ) -> "LoadedDocument":
+        """Cache document content and return updated document with cached URI.
+
+        Args:
+            collection_name: Name of the collection.
+            doc: Document to cache.
+
+        Returns:
+            LoadedDocument with updated ref.uri pointing to cached file.
+        """
+        from dataclasses import replace
+
+        from pmd.sources.content.base import DocumentReference
+
+        if not self._cacher:
+            return doc
+
+        # Cache the content and get the new URI
+        cached_uri = self._cacher.cache_document(
+            collection_name,
+            doc.path,
+            doc.content,
+        )
+
+        # Create new DocumentReference with cached URI
+        new_ref = replace(doc.ref, uri=cached_uri)
+
+        # Return new LoadedDocument with updated reference
+        return replace(doc, ref=new_ref)
 
     async def embed_collection(
         self,
@@ -275,7 +414,10 @@ class IndexingService:
     ) -> EmbedResult:
         """Generate embeddings for all documents in a collection.
 
-        This method delegates to EmbeddingPipeline for the actual embedding work.
+        This method orchestrates the embedding flow:
+        - Verify prerequisites (vector storage, LLM availability)
+        - Query documents needing embeddings
+        - For each document: chunk, embed, store
 
         Args:
             collection_name: Name of the collection to embed.
@@ -288,28 +430,98 @@ class IndexingService:
             SourceCollectionNotFoundError: If collection does not exist.
             RuntimeError: If vector storage or LLM provider is not available.
         """
-        from pmd.workflows import EmbeddingPipeline, EmbedRequest
-
-        # Validate prerequisites before creating pipeline
+        # Validate prerequisites
         if not self._embedding_generator_factory:
             raise RuntimeError("Embedding generator not configured")
 
-        # Create pipeline with required dependencies
-        pipeline = EmbeddingPipeline(
-            source_collection_repo=self._source_collection_repo,
-            embedding_generator_factory=self._embedding_generator_factory,
-            embedding_repo=self._embedding_repo,
-            db=self._db,
-            llm_available_check=self._llm_available_check,
+        if not self._data.db.vec_available:
+            raise RuntimeError(
+                "Vector storage not available (sqlite-vec extension not loaded)"
+            )
+
+        if self._llm_available_check and not await self._llm_available_check():
+            raise RuntimeError("LLM provider not available (is it running?)")
+
+        # Verify collection exists
+        source_collection = self._data.get_collection_by_name(collection_name)
+        if not source_collection:
+            raise SourceCollectionNotFoundError(
+                f"Collection '{collection_name}' not found"
+            )
+
+        logger.info(
+            f"Embedding collection: name={collection_name!r}, force={force}"
+        )
+        start_time = time.perf_counter()
+
+        # Get embedding generator
+        embedding_generator = await self._embedding_generator_factory()
+
+        # Query documents needing embeddings
+        embed_targets = self._list_embed_targets(source_collection.id, force)
+        total_docs = len(embed_targets)
+
+        logger.debug(f"Found {total_docs} documents to process for embedding")
+
+        # Process each document
+        embedded_count = 0
+        skipped_count = 0
+        chunks_total = 0
+
+        for idx, (path, doc_hash, content) in enumerate(embed_targets):
+            # Check if already embedded (unless force)
+            if not force and self._data.embedding_repo.has_embeddings(doc_hash):
+                skipped_count += 1
+                continue
+
+            try:
+                # Generate and store embeddings
+                # The generator handles chunking, embedding, and storage internally
+                chunks_embedded = await embedding_generator.embed_document(
+                    doc_hash,
+                    content,
+                    force=force,
+                )
+
+                if chunks_embedded > 0:
+                    embedded_count += 1
+                    chunks_total += chunks_embedded
+                    logger.debug(f"Embedded: {path} ({chunks_embedded} chunks)")
+
+            except Exception as e:
+                # Log error but continue with other documents
+                logger.warning(f"Failed to embed document: {path}: {e}")
+
+        elapsed = (time.perf_counter() - start_time) * 1000
+        logger.info(
+            f"Embedding complete: name={collection_name!r}, "
+            f"embedded={embedded_count}, skipped={skipped_count}, "
+            f"chunks={chunks_total}, {elapsed:.1f}ms"
         )
 
-        # Execute the embedding workflow
-        request = EmbedRequest(
-            collection_name=collection_name,
-            force=force,
+        return EmbedResult(
+            embedded=embedded_count,
+            skipped=skipped_count,
+            chunks_total=chunks_total,
         )
 
-        return await pipeline.execute(request)
+    def _list_embed_targets(
+        self,
+        source_collection_id: int,
+        force: bool,
+    ) -> list[tuple[str, str, str]]:
+        """Query documents needing embeddings.
+
+        Args:
+            source_collection_id: Collection to query.
+            force: If True, include all documents (not just those missing embeddings).
+
+        Returns:
+            List of (path, hash, content) tuples.
+        """
+        # Query all active documents in collection with their content
+        rows = self._data.document_repo.list_active_with_content(source_collection_id)
+        return list(rows)
 
     async def update_all_collections(self, embed: bool = False) -> dict[str, IndexResult]:
         """Update all collections by reindexing modified documents.
@@ -323,7 +535,7 @@ class IndexingService:
         logger.info("Updating all collections")
         start_time = time.perf_counter()
 
-        source_collections = self._source_collection_repo.list_all()
+        source_collections = self._data.list_all_collections()
         results: dict[str, IndexResult] = {}
 
         for source_collection in source_collections:
@@ -362,14 +574,10 @@ class IndexingService:
         start_time = time.perf_counter()
 
         # Find and remove orphaned content
-        orphaned_content = 0
-        if self._content_repo:
-            orphaned_content = self._content_repo.delete_orphaned()
+        orphaned_content = self._data.delete_orphaned_content()
 
         # Find and remove orphaned embeddings
-        orphaned_embeddings = 0
-        if self._embedding_repo:
-            orphaned_embeddings = self._embedding_repo.delete_orphaned()
+        orphaned_embeddings = self._data.delete_orphaned_embeddings()
 
         elapsed = (time.perf_counter() - start_time) * 1000
         logger.info(
@@ -392,7 +600,7 @@ class IndexingService:
         Returns:
             Document ID or None if not found.
         """
-        return self._document_repo.get_id(source_collection_id, path)
+        return self._data.get_document_id(source_collection_id, path)
 
     def _extract_metadata_via_profiles(
         self,
@@ -509,14 +717,14 @@ class IndexingService:
         }
 
         # Ensure document_metadata table exists
-        metadata_repo = DocumentMetadataRepository(self._db) # type: ignore
+        metadata_repo = DocumentMetadataRepository(self._data.db) # type: ignore
 
         # Build query for documents needing metadata extraction
         # Note: Content is stored separately in the content table, joined via hash
         if force:
             # Re-extract all
             if collection_name:
-                cursor = self._db.execute(
+                cursor = self._data.db.execute(
                     """
                     SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d
@@ -527,7 +735,7 @@ class IndexingService:
                     (collection_name,),
                 )
             else:
-                cursor = self._db.execute(
+                cursor = self._data.db.execute(
                     """
                     SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d
@@ -539,7 +747,7 @@ class IndexingService:
         else:
             # Only documents without metadata
             if collection_name:
-                cursor = self._db.execute(
+                cursor = self._data.db.execute(
                     """
                     SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d
@@ -551,7 +759,7 @@ class IndexingService:
                     (collection_name,),
                 )
             else:
-                cursor = self._db.execute(
+                cursor = self._data.db.execute(
                     """
                     SELECT d.id, d.path, ct.doc as body, c.name as collection_name, c.source_config
                     FROM documents d

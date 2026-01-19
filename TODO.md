@@ -4,7 +4,7 @@ An obsidian resource would have the obsidian:// uri etc
 - I can have scripts for raindrop, heptabase, obsidian etc, rather than build a comprehensive CLI.
 - obsidian et al can be in a Substrate integrations library, or sub module of pmd, “from pmd.integrations.obsidian import VaultCollector;”. Decision lies in if integrations like obsidian are needed outside of indexing.
 - rename pmd to catalog
-- Singlefile source, or chatgpt/claude/perplexity convo source
+- rename Source Collection to Dataset
 
 ## Tasks
 - review the other substrates components
@@ -16,8 +16,9 @@ An obsidian resource would have the obsidian:// uri etc
 - add a resources “host” for filtering by local stuff
 - skip indexing LLM slop: pipeline get it, what is it, what should I do with it
 - have a separate index for community detection, where the index is not ontology-aligned; instead it goes ham on entity extraction etc. Maybe this is a separate graph, using standard graphrag library
-- Define my `models` layer - what are the abstractions that I want substrate to use for memory aug?
-
+- -is_llm_availabel should rais a runtimeerror if false
+- fix "re-deifned exports" across the codebase.  Example: workflows.contracts
+- remove the metadata module, its just a workaround atm
 ———
  
 ## Decisions
@@ -45,6 +46,12 @@ Need to be able to iterate on data stores, without rewriting codebase. And so th
 
 ### Pipelines
 Need to introduce a more robust pipeline which can be assembled in code, graphed/visualized, and monitored during runtime.
+
+### Experiments
+Want to experiment with different RAG frameworks, databases (graph and relational) and vector stores.
+1. Duckdb-vss over sqlite-vec
+2. SurrealDB
+3. DAGSter or Llamaindex workflows
 
 ———
 

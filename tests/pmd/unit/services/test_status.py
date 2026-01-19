@@ -6,6 +6,7 @@ from pathlib import Path
 from pmd.app import create_application
 from pmd.core.config import Config
 from pmd.core.types import IndexStatus
+from pmd.data import StatusData
 from pmd.services.status import StatusService
 from pmd.store.repositories.collections import SourceCollectionRepository
 from pmd.store.database import Database
@@ -15,32 +16,19 @@ from pmd.store.repositories.fts import FTS5SearchRepository
 from pmd.store.schema import EMBEDDING_DIMENSION
 
 
-def make_status_service(
-    db: Database,
-    config: Config,
-    source_collection_repo: SourceCollectionRepository | None = None,
-    document_repo: DocumentRepository | None = None,
-    embedding_repo: EmbeddingRepository | None = None,
-    fts_repo: FTS5SearchRepository | None = None,
-) -> StatusService:
-    """Create a StatusService with default repositories.
+def make_status_service(db: Database, config: Config) -> StatusService:
+    """Create a StatusService with data access layer.
 
     Args:
         db: Database instance.
         config: Application config.
-        source_collection_repo: Optional custom source collection repo.
-        document_repo: Optional custom document repo.
-        embedding_repo: Optional custom embedding repo.
-        fts_repo: Optional custom FTS repo.
 
     Returns:
         Configured StatusService.
     """
+    status_data = StatusData(db)
     return StatusService(
-        document_repo=document_repo or DocumentRepository(db),
-        embedding_repo=embedding_repo or EmbeddingRepository(db),
-        fts_repo=fts_repo or FTS5SearchRepository(db),
-        source_collection_repo=source_collection_repo or SourceCollectionRepository(db),
+        data=status_data,
         db_path=config.db_path,
         vec_available=db.vec_available,
     )
@@ -73,9 +61,7 @@ class TestStatusServiceGetIndexStatus:
     ):
         """get_index_status should include collections."""
         source_collection_repo = SourceCollectionRepository(db)
-        service = make_status_service(
-            db, config, source_collection_repo=source_collection_repo
-        )
+        service = make_status_service(db, config)
 
         source_collection_repo.create("test", str(tmp_path), "**/*.md")
 
@@ -90,12 +76,7 @@ class TestStatusServiceGetIndexStatus:
         """get_index_status should count documents."""
         source_collection_repo = SourceCollectionRepository(db)
         document_repo = DocumentRepository(db)
-        service = make_status_service(
-            db,
-            config,
-            source_collection_repo=source_collection_repo,
-            document_repo=document_repo,
-        )
+        service = make_status_service(db, config)
 
         collection = source_collection_repo.create(
             "test", str(tmp_path), "**/*.md"
@@ -172,9 +153,7 @@ class TestStatusServiceGetCollectionStats:
     ):
         """get_collection_stats should return stats for existing collection."""
         source_collection_repo = SourceCollectionRepository(db)
-        service = make_status_service(
-            db, config, source_collection_repo=source_collection_repo
-        )
+        service = make_status_service(db, config)
 
         source_collection_repo.create("test", str(tmp_path), "**/*.md")
 
@@ -193,12 +172,7 @@ class TestStatusServiceGetCollectionStats:
         """get_collection_stats should count documents."""
         source_collection_repo = SourceCollectionRepository(db)
         document_repo = DocumentRepository(db)
-        service = make_status_service(
-            db,
-            config,
-            source_collection_repo=source_collection_repo,
-            document_repo=document_repo,
-        )
+        service = make_status_service(db, config)
 
         collection = source_collection_repo.create(
             "test", str(tmp_path), "**/*.md"
@@ -221,12 +195,7 @@ class TestStatusServiceGetIndexSyncReport:
         """Report should flag documents missing FTS and vectors."""
         source_collection_repo = SourceCollectionRepository(db)
         document_repo = DocumentRepository(db)
-        service = make_status_service(
-            db,
-            config,
-            source_collection_repo=source_collection_repo,
-            document_repo=document_repo,
-        )
+        service = make_status_service(db, config)
 
         collection = source_collection_repo.create(
             "test", str(tmp_path), "**/*.md"
@@ -248,14 +217,7 @@ class TestStatusServiceGetIndexSyncReport:
         document_repo = DocumentRepository(db)
         fts_repo = FTS5SearchRepository(db)
         embedding_repo = EmbeddingRepository(db)
-        service = make_status_service(
-            db,
-            config,
-            source_collection_repo=source_collection_repo,
-            document_repo=document_repo,
-            fts_repo=fts_repo,
-            embedding_repo=embedding_repo,
-        )
+        service = make_status_service(db, config)
 
         collection = source_collection_repo.create(
             "test", str(tmp_path), "**/*.md"

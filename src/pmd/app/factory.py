@@ -130,12 +130,8 @@ async def create_application(config: "Config") -> Application:
     """
     # Lazy imports to avoid circular dependencies
     from pmd.store.database import Database
-    from pmd.store.repositories.collections import SourceCollectionRepository
-    from pmd.store.repositories.documents import DocumentRepository
-    from pmd.store.repositories.content import ContentRepository
-    from pmd.store.repositories.fts import FTS5SearchRepository
     from pmd.store.repositories.embeddings import EmbeddingRepository
-    from pmd.store.repositories.source_metadata import SourceMetadataRepository
+    from pmd.data import IndexingData, LoadingData, SearchData, StatusData
     from pmd.services.indexing import IndexingService
     from pmd.services.loading import LoadingService
     from pmd.services.search import SearchService
@@ -148,12 +144,14 @@ async def create_application(config: "Config") -> Application:
     db = Database(config.db_path)
     db.connect()
 
-    # Create repositories
-    source_collection_repo = SourceCollectionRepository(db)
-    document_repo = DocumentRepository(db)
-    content_repo = ContentRepository(db)
-    fts_repo = FTS5SearchRepository(db)
-    embedding_repo = EmbeddingRepository(db)
+    # Create data access layer instances
+    indexing_data = IndexingData(db)
+    loading_data = LoadingData(db)
+    search_data = SearchData(db)
+    status_data = StatusData(db)
+
+    # Keep embedding_repo reference for search adapters (temporary)
+    embedding_repo = indexing_data.embedding_repo
 
     # Create LLM provider (may be None if provider unavailable)
     try:
@@ -164,7 +162,7 @@ async def create_application(config: "Config") -> Application:
     # Create search adapters (pre-assembled for SearchService)
     search_adapters = _create_search_adapters(
         llm_provider=llm_provider,
-        fts_repo=fts_repo,
+        fts_repo=indexing_data.fts_repo,
         embedding_repo=embedding_repo,
         db=db,
         config=config,
@@ -183,44 +181,31 @@ async def create_application(config: "Config") -> Application:
             return await llm_provider.is_available()
         return False
 
-    # Create source metadata repository
-    source_metadata_repo = SourceMetadataRepository(db)
-
     # Create source registry
     source_registry = get_default_registry()
 
     # Create document cacher (if enabled in config)
     cacher = DocumentCacher(config.cache) if config.cache.enabled else None
 
-    # Create loading service
+    # Create loading service with data access layer
     loading = LoadingService(
-        db=db,
-        source_collection_repo=source_collection_repo,
-        document_repo=document_repo,
-        source_metadata_repo=source_metadata_repo,
+        data=loading_data,
         source_registry=source_registry,
     )
 
-    # Create services with explicit dependencies
+    # Create services with data access layer
     indexing = IndexingService(
-        db=db,
-        source_collection_repo=source_collection_repo,
-        document_repo=document_repo,
-        fts_repo=fts_repo,
+        data=indexing_data,
         loader=loading,
-        content_repo=content_repo,
-        embedding_repo=embedding_repo,
         embedding_generator_factory=get_embedding_generator,  # type: ignore
         llm_available_check=is_llm_available,
         source_registry=source_registry,
         cacher=cacher,
     )
 
-    # Create search service with pre-assembled adapters
+    # Create search service with data access layer and pre-assembled adapters
     search = SearchService(
-        db=db,
-        source_collection_repo=source_collection_repo,
-        fts_repo=fts_repo,
+        data=search_data,
         # Pre-created adapters
         text_searcher=search_adapters["text_searcher"],
         vector_searcher=search_adapters["vector_searcher"],
@@ -238,10 +223,7 @@ async def create_application(config: "Config") -> Application:
     )
 
     status = StatusService(
-        document_repo=document_repo,
-        embedding_repo=embedding_repo,
-        fts_repo=fts_repo,
-        source_collection_repo=source_collection_repo,
+        data=status_data,
         db_path=config.db_path,
         llm_provider=config.llm_provider,
         llm_available_check=is_llm_available,
@@ -256,7 +238,4 @@ async def create_application(config: "Config") -> Application:
         search=search,
         status=status,
         config=config,
-        source_collection_repo=source_collection_repo,
-        document_repo=document_repo,
-        embedding_repo=embedding_repo,
     )

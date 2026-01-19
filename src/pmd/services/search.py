@@ -8,10 +8,7 @@ from loguru import logger
 
 from ..core.types import RankedResult, SearchResult
 from ..search.pipeline import HybridSearchPipeline, SearchPipelineConfig
-from ..app.protocols import (
-    SourceCollectionRepositoryProtocol,
-    DatabaseProtocol,
-)
+from pmd.data import SearchData
 
 if TYPE_CHECKING:
     from ..app.protocols import (
@@ -22,7 +19,6 @@ if TYPE_CHECKING:
         Reranker,
         MetadataBooster,
         TagInferencer,
-        FTSRepositoryProtocol,
         EmbeddingGeneratorProtocol,
     )
 
@@ -40,8 +36,7 @@ class SearchService:
 
     Example:
         search = SearchService(
-            db=db,
-            source_collection_repo=source_collection_repo,
+            data=search_data,
             text_searcher=fts_text_searcher,
             fts_weight=1.0,
             vec_weight=1.0,
@@ -51,9 +46,7 @@ class SearchService:
 
     def __init__(
         self,
-        db: DatabaseProtocol,
-        source_collection_repo: SourceCollectionRepositoryProtocol,
-        fts_repo: "FTSRepositoryProtocol",
+        data: SearchData,
         # Pre-created adapters
         text_searcher: "TextSearcher",
         vector_searcher: "VectorSearcher | None" = None,
@@ -72,9 +65,7 @@ class SearchService:
         """Initialize SearchService with pre-created adapters.
 
         Args:
-            db: Database for direct SQL operations.
-            source_collection_repo: Repository for source collection lookup.
-            fts_repo: Repository for FTS search.
+            data: Data access layer for search operations.
             text_searcher: Pre-created text searcher adapter.
             vector_searcher: Pre-created vector searcher adapter (optional).
             query_expander: Pre-created query expander adapter (optional).
@@ -88,9 +79,7 @@ class SearchService:
             rrf_k: RRF parameter k.
             rerank_candidates: Number of candidates for reranking.
         """
-        self._db = db
-        self._source_collection_repo = source_collection_repo
-        self._fts_repo = fts_repo
+        self._data = data
 
         # Store adapters
         self._text_searcher = text_searcher
@@ -111,7 +100,7 @@ class SearchService:
     @property
     def vec_available(self) -> bool:
         """Check if vector storage is available."""
-        return self._db.vec_available
+        return self._data.vec_available
 
     def fts_search(
         self,
@@ -140,7 +129,7 @@ class SearchService:
             f"collection={collection_name}, min_score={min_score}"
         )
 
-        results = self._fts_repo.search(
+        results = self._data.search(
             query,
             limit=limit,
             source_collection_id=collection_id,
@@ -295,7 +284,7 @@ class SearchService:
         if not collection_name:
             return None
 
-        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        source_collection = self._data.get_collection_by_name(collection_name)
         if source_collection:
             return source_collection.id
 

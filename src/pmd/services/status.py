@@ -3,39 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, Awaitable, Protocol
+from typing import Callable, Awaitable
 
 from loguru import logger
 
+from pmd.data import StatusData
 from ..core.types import IndexStatus
-from ..app.protocols import (
-    SourceCollectionRepositoryProtocol,
-)
-
-
-class DocumentRepositoryProtocol(Protocol):
-    """Protocol for document repository operations needed by StatusService."""
-
-    def count_active(self, source_collection_id: int | None = None) -> int: ...
-    def count_with_embeddings(self, source_collection_id: int | None = None) -> int: ...
-
-
-class EmbeddingRepositoryProtocol(Protocol):
-    """Protocol for embedding repository operations needed by StatusService."""
-
-    def count_embeddings(self, model: str | None = None) -> int: ...
-    def count_distinct_hashes(self) -> int: ...
-    def count_documents_missing_embeddings(self, source_collection_id: int | None = None) -> int: ...
-    def list_paths_missing_embeddings(self, source_collection_id: int | None = None, limit: int = 20) -> list[str]: ...
-    def count_orphaned(self) -> int: ...
-
-
-class FTSRepositoryProtocol(Protocol):
-    """Protocol for FTS repository operations needed by StatusService."""
-
-    def count_documents_missing_fts(self, source_collection_id: int | None = None) -> int: ...
-    def list_paths_missing_fts(self, source_collection_id: int | None = None, limit: int = 20) -> list[str]: ...
-    def count_orphaned(self) -> int: ...
 
 
 class StatusService:
@@ -49,10 +22,7 @@ class StatusService:
     Example:
 
         status_service = StatusService(
-            document_repo=document_repo,
-            embedding_repo=embedding_repo,
-            fts_repo=fts_repo,
-            source_collection_repo=source_collection_repo,
+            data=status_data,
             db_path=config.db_path,
         )
         status = status_service.get_index_status()
@@ -60,10 +30,7 @@ class StatusService:
 
     def __init__(
         self,
-        document_repo: DocumentRepositoryProtocol,
-        embedding_repo: EmbeddingRepositoryProtocol,
-        fts_repo: FTSRepositoryProtocol,
-        source_collection_repo: SourceCollectionRepositoryProtocol,
+        data: StatusData,
         db_path: Path | None = None,
         llm_provider: str = "unknown",
         llm_available_check: Callable[[], Awaitable[bool]] | None = None,
@@ -72,19 +39,13 @@ class StatusService:
         """Initialize StatusService.
 
         Args:
-            document_repo: Repository for document operations.
-            embedding_repo: Repository for embedding operations.
-            fts_repo: Repository for FTS operations.
-            source_collection_repo: Repository for source collection operations.
+            data: Data access layer for status operations.
             db_path: Path to the database file.
             llm_provider: Name of the LLM provider.
             llm_available_check: Async function to check if LLM is available.
             vec_available: Whether vector storage is available.
         """
-        self._document_repo = document_repo
-        self._embedding_repo = embedding_repo
-        self._fts_repo = fts_repo
-        self._source_collection_repo = source_collection_repo
+        self._data = data
         self._db_path = db_path
         self._llm_provider = llm_provider
         self._llm_available_check = llm_available_check
@@ -103,15 +64,15 @@ class StatusService:
         """
         logger.debug("Getting index status")
 
-        source_collections = self._source_collection_repo.list_all()
+        source_collections = self._data.list_all_collections()
 
         # Count total documents
-        total_documents = self._document_repo.count_active()
+        total_documents = self._data.count_active_documents()
 
         # Count embedded documents (documents with at least one embedding)
         embedded_documents = 0
         if self.vec_available:
-            embedded_documents = self._embedding_repo.count_distinct_hashes()
+            embedded_documents = self._data.count_distinct_embedding_hashes()
 
         # Get database file size
         try:
@@ -122,7 +83,7 @@ class StatusService:
         # Count embeddings (for cache entries metric)
         cache_entries = 0
         if self.vec_available:
-            cache_entries = self._embedding_repo.count_embeddings()
+            cache_entries = self._data.count_embeddings()
 
         logger.debug(
             f"Index status: source_collections={len(source_collections)}, "
@@ -181,17 +142,17 @@ class StatusService:
         Returns:
             Dictionary with collection statistics, or None if not found.
         """
-        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        source_collection = self._data.get_collection_by_name(collection_name)
         if not source_collection:
             return None
 
         # Count documents in source collection
-        doc_count = self._document_repo.count_active(source_collection.id)
+        doc_count = self._data.count_active_documents(source_collection.id)
 
         # Count embedded documents in source collection
         embedded_count = 0
         if self.vec_available:
-            embedded_count = self._document_repo.count_with_embeddings(source_collection.id)
+            embedded_count = self._data.count_documents_with_embeddings(source_collection.id)
 
         return {
             "name": source_collection.name,
@@ -219,24 +180,24 @@ class StatusService:
         """
         source_collection_id = None
         if collection_name:
-            source_collection = self._source_collection_repo.get_by_name(collection_name)
+            source_collection = self._data.get_collection_by_name(collection_name)
             if not source_collection:
                 return {"error": f"Source collection '{collection_name}' not found"}
             source_collection_id = source_collection.id
 
         # Documents missing FTS entries
-        missing_fts_count = self._fts_repo.count_documents_missing_fts(source_collection_id)
-        missing_fts_paths = self._fts_repo.list_paths_missing_fts(source_collection_id, limit)
+        missing_fts_count = self._data.count_documents_missing_fts(source_collection_id)
+        missing_fts_paths = self._data.list_paths_missing_fts(source_collection_id, limit)
 
         # Documents missing embeddings
-        missing_vec_count = self._embedding_repo.count_documents_missing_embeddings(source_collection_id)
-        missing_vec_paths = self._embedding_repo.list_paths_missing_embeddings(source_collection_id, limit)
+        missing_vec_count = self._data.count_documents_missing_embeddings(source_collection_id)
+        missing_vec_paths = self._data.list_paths_missing_embeddings(source_collection_id, limit)
 
         # Orphaned embeddings (no active documents)
-        orphan_vec_count = self._embedding_repo.count_orphaned()
+        orphan_vec_count = self._data.count_orphaned_embeddings()
 
         # Orphaned FTS entries (no active documents)
-        orphan_fts_count = self._fts_repo.count_orphaned()
+        orphan_fts_count = self._data.count_orphaned_fts()
 
         return {
             "collection": collection_name,

@@ -47,9 +47,6 @@ class Application:
         search: "SearchService",
         status: "StatusService",
         config: "Config",
-        source_collection_repo=None,
-        document_repo=None,
-        embedding_repo=None,
     ):
         """Initialize Application with wired services.
 
@@ -63,16 +60,20 @@ class Application:
             search: SearchService instance.
             status: StatusService instance.
             config: Application configuration.
-            source_collection_repo: Repository for source collections.
-            document_repo: Repository for documents.
-            embedding_repo: Repository for embeddings.
         """
         self._db = db
         self._llm_provider = llm_provider
         self._config = config
-        self._source_collection_repo = source_collection_repo
-        self._document_repo = document_repo
-        self._embedding_repo = embedding_repo
+
+        # Create repositories internally (for test compatibility)
+        # These are lazily imported to avoid circular dependencies
+        from ..store.repositories.collections import SourceCollectionRepository
+        from ..store.repositories.documents import DocumentRepository
+        from ..store.repositories.embeddings import EmbeddingRepository
+
+        self._source_collection_repo = SourceCollectionRepository(db)
+        self._document_repo = DocumentRepository(db)
+        self._embedding_repo = EmbeddingRepository(db)
 
         # Public service accessors
         self.loading = loading

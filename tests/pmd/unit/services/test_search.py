@@ -6,6 +6,7 @@ from pathlib import Path
 from pmd.app import create_application
 from pmd.core.config import Config
 from pmd.core.types import SearchResult, SearchSource
+from pmd.data import SearchData
 from pmd.services.search import SearchService
 from pmd.search.adapters import FTS5TextSearcher
 from pmd.store.repositories.collections import SourceCollectionRepository
@@ -15,41 +16,30 @@ from pmd.store.repositories.fts import FTS5SearchRepository
 from pmd.store.database import Database
 
 
+def _create_search_service(db: Database) -> SearchService:
+    """Create a SearchService with data access layer from a Database."""
+    search_data = SearchData(db)
+    fts_repo = FTS5SearchRepository(db)
+    text_searcher = FTS5TextSearcher(fts_repo)
+    return SearchService(
+        data=search_data,
+        text_searcher=text_searcher,
+    )
+
+
 class TestSearchServiceFtsSearch:
     """Tests for SearchService.fts_search method."""
 
     def test_fts_search_empty_database(self, db: Database):
         """fts_search should return empty list for empty database."""
-        source_collection_repo = SourceCollectionRepository(db)
-        fts_repo = FTS5SearchRepository(db)
-        text_searcher = FTS5TextSearcher(fts_repo)
-
-        service = SearchService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            fts_repo=fts_repo,
-            text_searcher=text_searcher,
-        )
-
+        service = _create_search_service(db)
         results = service.fts_search("test query")
-
         assert results == []
 
     def test_fts_search_returns_list(self, db: Database):
         """fts_search should return a list."""
-        source_collection_repo = SourceCollectionRepository(db)
-        fts_repo = FTS5SearchRepository(db)
-        text_searcher = FTS5TextSearcher(fts_repo)
-
-        service = SearchService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            fts_repo=fts_repo,
-            text_searcher=text_searcher,
-        )
-
+        service = _create_search_service(db)
         results = service.fts_search("test", limit=5)
-
         assert isinstance(results, list)
 
     def test_fts_search_with_documents(self, db: Database, tmp_path: Path):
@@ -57,14 +47,7 @@ class TestSearchServiceFtsSearch:
         source_collection_repo = SourceCollectionRepository(db)
         document_repo = DocumentRepository(db)
         fts_repo = FTS5SearchRepository(db)
-        text_searcher = FTS5TextSearcher(fts_repo)
-
-        service = SearchService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            fts_repo=fts_repo,
-            text_searcher=text_searcher,
-        )
+        service = _create_search_service(db)
 
         # Create collection and document
         collection = source_collection_repo.create(
@@ -102,14 +85,7 @@ class TestSearchServiceFtsSearch:
         source_collection_repo = SourceCollectionRepository(db)
         document_repo = DocumentRepository(db)
         fts_repo = FTS5SearchRepository(db)
-        text_searcher = FTS5TextSearcher(fts_repo)
-
-        service = SearchService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            fts_repo=fts_repo,
-            text_searcher=text_searcher,
-        )
+        service = _create_search_service(db)
 
         # Create collection and multiple documents
         collection = source_collection_repo.create(
@@ -141,14 +117,7 @@ class TestSearchServiceFtsSearch:
         source_collection_repo = SourceCollectionRepository(db)
         document_repo = DocumentRepository(db)
         fts_repo = FTS5SearchRepository(db)
-        text_searcher = FTS5TextSearcher(fts_repo)
-
-        service = SearchService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            fts_repo=fts_repo,
-            text_searcher=text_searcher,
-        )
+        service = _create_search_service(db)
 
         # Create two collections
         (tmp_path / "coll1").mkdir()
@@ -187,57 +156,26 @@ class TestSearchServiceResolveCollectionId:
 
     def test_resolve_collection_id_none(self, db: Database):
         """_resolve_collection_id should return None for None input."""
-        source_collection_repo = SourceCollectionRepository(db)
-        fts_repo = FTS5SearchRepository(db)
-        text_searcher = FTS5TextSearcher(fts_repo)
-
-        service = SearchService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            fts_repo=fts_repo,
-            text_searcher=text_searcher,
-        )
-
+        service = _create_search_service(db)
         result = service._resolve_collection_id(None)
-
         assert result is None
 
     def test_resolve_collection_id_found(self, db: Database, tmp_path: Path):
         """_resolve_collection_id should return ID for existing collection."""
         source_collection_repo = SourceCollectionRepository(db)
-        fts_repo = FTS5SearchRepository(db)
-        text_searcher = FTS5TextSearcher(fts_repo)
-
-        service = SearchService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            fts_repo=fts_repo,
-            text_searcher=text_searcher,
-        )
+        service = _create_search_service(db)
 
         collection = source_collection_repo.create(
             "test", str(tmp_path), "**/*.md"
         )
 
         result = service._resolve_collection_id("test")
-
         assert result == collection.id
 
     def test_resolve_collection_id_not_found(self, db: Database):
         """_resolve_collection_id should return None for unknown collection."""
-        source_collection_repo = SourceCollectionRepository(db)
-        fts_repo = FTS5SearchRepository(db)
-        text_searcher = FTS5TextSearcher(fts_repo)
-
-        service = SearchService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            fts_repo=fts_repo,
-            text_searcher=text_searcher,
-        )
-
+        service = _create_search_service(db)
         result = service._resolve_collection_id("nonexistent")
-
         assert result is None
 
 

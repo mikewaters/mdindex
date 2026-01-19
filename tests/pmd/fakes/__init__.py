@@ -40,7 +40,6 @@ from .repos import (
     InMemoryDocumentRepository,
     InMemoryFTSRepository,
     InMemoryEmbeddingRepository,
-    InMemoryLoadingService,
 )
 
 # Use search module's make_search_result
@@ -64,5 +63,4 @@ __all__ = [
     "InMemoryDocumentRepository",
     "InMemoryFTSRepository",
     "InMemoryEmbeddingRepository",
-    "InMemoryLoadingService",
 ]

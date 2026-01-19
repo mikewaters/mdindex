@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator
 from loguru import logger
 
 from pmd.core.exceptions import SourceCollectionNotFoundError
+from pmd.data import LoadingData
 from pmd.metadata import ExtractedMetadata, get_default_profile_registry
 from pmd.sources.content.base import (
     DocumentReference,
@@ -22,14 +23,8 @@ from pmd.sources.content.base import (
 )
 
 if TYPE_CHECKING:
-    from pmd.app.protocols import (
-        SourceCollectionRepositoryProtocol,
-        DatabaseProtocol,
-        DocumentRepositoryProtocol,
-    )
     from pmd.core.types import SourceCollection
     from pmd.sources import SourceRegistry
-    from pmd.store.repositories.source_metadata import SourceMetadataRepository
     from .loading_llamaindex import LlamaIndexLoaderAdapter
 
 
@@ -116,9 +111,9 @@ class LoadingService:
     """Service for loading documents from sources.
 
     Responsibilities:
-    - Resolve source collection and source (via SourceCollectionRepository + SourceRegistry).
+    - Resolve source collection and source (via LoadingData + SourceRegistry).
     - Enumerate DocumentReference values from a DocumentSource.
-    - Perform change detection using SourceMetadataRepository and DocumentSource.check_modified.
+    - Perform change detection using LoadingData and DocumentSource.check_modified.
     - Fetch document content (DocumentSource.fetch_content).
     - Extract title if missing.
     - Extract metadata via profile registry, honoring source_collection.source_config["metadata_profile"].
@@ -131,10 +126,7 @@ class LoadingService:
 
     Example:
         loader = LoadingService(
-            db=db,
-            source_collection_repo=source_collection_repo,
-            document_repo=document_repo,
-            source_metadata_repo=source_metadata_repo,
+            data=LoadingData(db),
             source_registry=source_registry,
         )
         result = await loader.load_collection_eager("my-docs")
@@ -144,25 +136,16 @@ class LoadingService:
 
     def __init__(
         self,
-        db: "DatabaseProtocol",
-        source_collection_repo: "SourceCollectionRepositoryProtocol",
-        document_repo: "DocumentRepositoryProtocol",
-        source_metadata_repo: "SourceMetadataRepository",
+        data: LoadingData,
         source_registry: "SourceRegistry",
     ):
         """Initialize LoadingService.
 
         Args:
-            db: Database for direct SQL operations.
-            source_collection_repo: Repository for source collection operations.
-            document_repo: Repository for document operations.
-            source_metadata_repo: Repository for source metadata (change detection).
+            data: Data access layer for loading operations (collections, documents, metadata).
             source_registry: Registry for creating document sources.
         """
-        self._db = db
-        self._source_collection_repo = source_collection_repo
-        self._document_repo = document_repo
-        self._source_metadata_repo = source_metadata_repo
+        self._data = data
         self._source_registry = source_registry
 
     async def load_collection_eager(
@@ -185,7 +168,7 @@ class LoadingService:
             SourceCollectionNotFoundError: If source collection does not exist.
             SourceListError: If the source cannot enumerate documents.
         """
-        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        source_collection = self._data.get_collection_by_name(collection_name)
         if not source_collection:
             raise SourceCollectionNotFoundError(f"Source collection '{collection_name}' not found")
 
@@ -259,7 +242,7 @@ class LoadingService:
             SourceCollectionNotFoundError: If source collection does not exist.
             SourceListError: If the source cannot enumerate documents.
         """
-        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        source_collection = self._data.get_collection_by_name(collection_name)
         if not source_collection:
             raise SourceCollectionNotFoundError(f"Source collection '{collection_name}' not found")
 
@@ -356,12 +339,12 @@ class LoadingService:
         from pmd.utils.hashing import sha256_hash
 
         # Get existing document and metadata for change detection
-        existing_doc = self._document_repo.get(source_collection.id, ref.path)
-        doc_id = self._get_document_id(source_collection.id, ref.path) if existing_doc else None
+        existing_doc = self._data.get_document(source_collection.id, ref.path)
+        doc_id = self._data.get_document_id(source_collection.id, ref.path) if existing_doc else None
         stored_metadata: dict[str, Any] = {}
 
         if doc_id and not force:
-            meta = self._source_metadata_repo.get_by_document(doc_id)
+            meta = self._data.get_source_metadata_by_document(doc_id)
             if meta:
                 stored_metadata = meta.extra.copy()
                 stored_metadata["etag"] = meta.etag
@@ -405,18 +388,6 @@ class LoadingService:
             source_collection_id=source_collection.id,
             extracted_metadata=extracted_metadata,
         )
-
-    def _get_document_id(self, source_collection_id: int, path: str) -> int | None:
-        """Get document ID for a path.
-
-        Args:
-            source_collection_id: Source collection ID.
-            path: Document path.
-
-        Returns:
-            Document ID or None if not found.
-        """
-        return self._document_repo.get_id(source_collection_id, path)
 
     def _extract_metadata_via_profiles(
         self,
@@ -512,7 +483,7 @@ class LoadingService:
 
             result = await loading_service.load_from_llamaindex("web-docs", adapter)
         """
-        source_collection = self._source_collection_repo.get_by_name(collection_name)
+        source_collection = self._data.get_collection_by_name(collection_name)
         if not source_collection:
             raise SourceCollectionNotFoundError(f"Source collection '{collection_name}' not found")
 
