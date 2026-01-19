@@ -19,7 +19,7 @@ from pathlib import Path
 
 from pmd.core.config import Config, MLXConfig
 from pmd.store.database import Database
-from pmd.store.repositories.collections import CollectionRepository
+from pmd.store.repositories.collections import SourceCollectionRepository
 from pmd.store.repositories.documents import DocumentRepository
 from pmd.store.repositories.embeddings import EmbeddingRepository
 from pmd.store.repositories.fts import FTS5SearchRepository
@@ -83,7 +83,7 @@ def indexed_corpus(mlx_provider, mlx_config, tmp_path_factory):
         pytest.skip("sqlite-vec extension not available")
 
     # Create repositories
-    collection_repo = CollectionRepository(db)
+    collection_repo = SourceCollectionRepository(db)
     document_repo = DocumentRepository(db)
     embedding_repo = EmbeddingRepository(db)
     fts_repo = FTS5SearchRepository(db)

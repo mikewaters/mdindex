@@ -29,16 +29,18 @@ Example:
     collection = facade.get_collection_by_name("docs")
 """
 
-from .caching import DocumentCacher
+import warnings
+
+from .caching import ResourceCacher
 from .database import Database
-from .facade import IndexFacade, LoadFacade, SearchFacade, StatusFacade
+from .facade import DatasetFacade, IndexFacade, LoadFacade, SearchFacade, StatusFacade
 from .repositories import (
-    CollectionRepository,
     ContentRepository,
     DocumentMetadataRepository,
     DocumentRepository,
     EmbeddingRepository,
     FTS5SearchRepository,
+    ResourceRepository,
     SearchRepository,
     SourceCollectionRepository,
     SourceMetadata,
@@ -51,15 +53,17 @@ __all__ = [
     # Database
     "Database",
     # Caching
-    "DocumentCacher",
+    "ResourceCacher",
+    "DocumentCacher",  # Deprecated alias for ResourceCacher
     # Facades
+    "DatasetFacade",
     "IndexFacade",
     "LoadFacade",
     "SearchFacade",
     "StatusFacade",
     # Repositories
+    "ResourceRepository",
     "SourceCollectionRepository",
-    "CollectionRepository",  # Deprecated alias
     "DocumentRepository",
     "ContentRepository",
     "EmbeddingRepository",
@@ -72,3 +76,15 @@ __all__ = [
     # Adapters
     "VectorSearchRepository",
 ]
+
+
+# Deprecated aliases - module-level __getattr__ for lazy deprecation warning
+def __getattr__(name: str):
+    if name == "DocumentCacher":
+        warnings.warn(
+            "DocumentCacher is deprecated, use ResourceCacher instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return ResourceCacher
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -250,6 +250,264 @@ class TestMigrationClass:
         assert "Test migration" in repr(migration)
 
 
+class TestResourceBackfillMigration:
+    """Tests for v0003 resource backfill migration."""
+
+    def test_backfill_creates_resources_for_filesystem_documents(self, tmp_path: Path):
+        """Backfill should create Resource rows for filesystem documents."""
+        db_path = tmp_path / "test.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+
+        runner = MigrationRunner(conn)
+
+        # Apply only v0001 and v0002 to set up schema without resources
+        for migration in runner.get_migrations():
+            if migration.version <= 2:
+                migration.up(conn)
+                runner.set_version(migration.version)
+                conn.commit()
+
+        # Insert test data: a filesystem collection with documents
+        conn.execute(
+            """
+            INSERT INTO source_collections (id, name, pwd, glob_pattern, source_type, created_at, updated_at)
+            VALUES (1, 'test-fs', '/home/user/notes', '**/*.md', 'filesystem', '2024-01-01T00:00:00', '2024-01-01T00:00:00')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO content (hash, doc, created_at)
+            VALUES ('abc123', '# Test Doc', '2024-01-01T00:00:00')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO documents (id, source_collection_id, path, title, hash, active, modified_at)
+            VALUES (1, 1, 'folder/doc.md', 'Test Doc', 'abc123', 1, '2024-01-15T10:30:00')
+            """
+        )
+        conn.commit()
+
+        # Now apply v0003 which includes backfill
+        for migration in runner.get_migrations():
+            if migration.version == 3:
+                migration.up(conn)
+                runner.set_version(migration.version)
+                conn.commit()
+
+        # Verify Resource was created
+        cursor = conn.execute("SELECT * FROM resources")
+        resources = cursor.fetchall()
+        assert len(resources) == 1
+
+        resource = dict(resources[0])
+        assert resource["source_collection_id"] == 1
+        assert resource["uri"] == "file:///home/user/notes/folder/doc.md"
+        assert resource["hash"] == "abc123"
+        assert resource["load_status"] == "loaded"
+        assert resource["index_state"] == "indexed"
+        assert resource["load_method"] == "backfill"
+        assert resource["index_method"] == "backfill"
+        assert resource["loaded_at"] == "2024-01-15T10:30:00"
+        assert resource["indexed_at"] == "2024-01-15T10:30:00"
+
+        # Verify document was updated with resource_id
+        cursor = conn.execute("SELECT resource_id FROM documents WHERE id = 1")
+        doc = cursor.fetchone()
+        assert doc["resource_id"] == resource["id"]
+
+        conn.close()
+
+    def test_backfill_handles_remote_documents_with_source_metadata(self, tmp_path: Path):
+        """Backfill should use source_metadata.source_uri for non-filesystem docs."""
+        db_path = tmp_path / "test.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+
+        runner = MigrationRunner(conn)
+
+        # Apply v0001 and v0002
+        for migration in runner.get_migrations():
+            if migration.version <= 2:
+                migration.up(conn)
+                runner.set_version(migration.version)
+                conn.commit()
+
+        # Insert test data: an HTTP collection with a document that has source_metadata
+        conn.execute(
+            """
+            INSERT INTO source_collections (id, name, pwd, glob_pattern, source_type, created_at, updated_at)
+            VALUES (1, 'test-http', '/cache', '*', 'http', '2024-01-01T00:00:00', '2024-01-01T00:00:00')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO content (hash, doc, created_at)
+            VALUES ('def456', '# Remote Doc', '2024-01-01T00:00:00')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO documents (id, source_collection_id, path, title, hash, active, modified_at)
+            VALUES (1, 1, 'cached_doc.md', 'Remote Doc', 'def456', 1, '2024-01-20T14:00:00')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO source_metadata (document_id, source_uri, last_fetched_at)
+            VALUES (1, 'https://example.com/api/doc.md', '2024-01-20T14:00:00')
+            """
+        )
+        conn.commit()
+
+        # Apply v0003 (includes backfill)
+        for migration in runner.get_migrations():
+            if migration.version == 3:
+                migration.up(conn)
+                runner.set_version(migration.version)
+                conn.commit()
+
+        # Verify Resource was created with the source_uri
+        cursor = conn.execute("SELECT * FROM resources")
+        resources = cursor.fetchall()
+        assert len(resources) == 1
+
+        resource = dict(resources[0])
+        assert resource["uri"] == "https://example.com/api/doc.md"
+        assert resource["hash"] == "def456"
+        assert resource["load_status"] == "loaded"
+        assert resource["index_state"] == "indexed"
+
+        # Verify document was linked
+        cursor = conn.execute("SELECT resource_id FROM documents WHERE id = 1")
+        doc = cursor.fetchone()
+        assert doc["resource_id"] == resource["id"]
+
+        conn.close()
+
+    def test_backfill_skips_inactive_documents(self, tmp_path: Path):
+        """Backfill should not create Resources for inactive documents."""
+        db_path = tmp_path / "test.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+
+        runner = MigrationRunner(conn)
+
+        # Apply v0001 and v0002
+        for migration in runner.get_migrations():
+            if migration.version <= 2:
+                migration.up(conn)
+                runner.set_version(migration.version)
+                conn.commit()
+
+        # Insert an inactive document
+        conn.execute(
+            """
+            INSERT INTO source_collections (id, name, pwd, glob_pattern, source_type, created_at, updated_at)
+            VALUES (1, 'test-fs', '/home/user/notes', '**/*.md', 'filesystem', '2024-01-01T00:00:00', '2024-01-01T00:00:00')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO content (hash, doc, created_at)
+            VALUES ('inactive123', '# Inactive', '2024-01-01T00:00:00')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO documents (id, source_collection_id, path, title, hash, active, modified_at)
+            VALUES (1, 1, 'deleted.md', 'Deleted Doc', 'inactive123', 0, '2024-01-15T10:30:00')
+            """
+        )
+        conn.commit()
+
+        # Apply v0003
+        for migration in runner.get_migrations():
+            if migration.version == 3:
+                migration.up(conn)
+                runner.set_version(migration.version)
+                conn.commit()
+
+        # No Resource should be created for inactive document
+        cursor = conn.execute("SELECT COUNT(*) FROM resources")
+        count = cursor.fetchone()[0]
+        assert count == 0
+
+        # Document should still have null resource_id
+        cursor = conn.execute("SELECT resource_id FROM documents WHERE id = 1")
+        doc = cursor.fetchone()
+        assert doc["resource_id"] is None
+
+        conn.close()
+
+    def test_backfill_handles_duplicate_uris_gracefully(self, tmp_path: Path):
+        """Backfill should handle multiple docs with same source_uri."""
+        db_path = tmp_path / "test.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+
+        runner = MigrationRunner(conn)
+
+        # Apply v0001 and v0002
+        for migration in runner.get_migrations():
+            if migration.version <= 2:
+                migration.up(conn)
+                runner.set_version(migration.version)
+                conn.commit()
+
+        # Insert two documents pointing to the same source_uri (edge case)
+        conn.execute(
+            """
+            INSERT INTO source_collections (id, name, pwd, glob_pattern, source_type, created_at, updated_at)
+            VALUES (1, 'test-http', '/cache', '*', 'http', '2024-01-01T00:00:00', '2024-01-01T00:00:00')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO content (hash, doc, created_at)
+            VALUES ('hash1', '# Doc 1', '2024-01-01T00:00:00'),
+                   ('hash2', '# Doc 2', '2024-01-02T00:00:00')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO documents (id, source_collection_id, path, title, hash, active, modified_at)
+            VALUES (1, 1, 'doc1.md', 'Doc 1', 'hash1', 1, '2024-01-20T14:00:00'),
+                   (2, 1, 'doc2.md', 'Doc 2', 'hash2', 1, '2024-01-21T14:00:00')
+            """
+        )
+        # Both docs point to the same source_uri (unusual but possible)
+        conn.execute(
+            """
+            INSERT INTO source_metadata (document_id, source_uri, last_fetched_at)
+            VALUES (1, 'https://example.com/shared.md', '2024-01-20T14:00:00'),
+                   (2, 'https://example.com/shared.md', '2024-01-21T14:00:00')
+            """
+        )
+        conn.commit()
+
+        # Apply v0003 - should not fail due to unique constraint
+        for migration in runner.get_migrations():
+            if migration.version == 3:
+                migration.up(conn)
+                runner.set_version(migration.version)
+                conn.commit()
+
+        # Should have exactly one Resource (due to UNIQUE constraint and INSERT OR IGNORE)
+        cursor = conn.execute("SELECT * FROM resources")
+        resources = cursor.fetchall()
+        assert len(resources) == 1
+
+        # Both documents should be linked to the same resource
+        cursor = conn.execute("SELECT resource_id FROM documents ORDER BY id")
+        docs = cursor.fetchall()
+        assert docs[0]["resource_id"] == docs[1]["resource_id"]
+        assert docs[0]["resource_id"] == resources[0]["id"]
+
+        conn.close()
+
+
 class TestUpgradeFromPriorVersion:
     """Tests simulating upgrade from older database versions."""
 

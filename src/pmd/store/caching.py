@@ -1,11 +1,12 @@
-"""Document caching service using fsspec.
+"""Resource caching service using fsspec.
 
-This module provides caching functionality to store ingested documents
+This module provides caching functionality to store fetched resources
 locally, converting remote or ephemeral content into concrete local files.
 """
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import quote
@@ -17,20 +18,20 @@ if TYPE_CHECKING:
     from pmd.core.config import CacheConfig
 
 
-class DocumentCacher:
-    """Service for caching document content to a local filesystem.
+class ResourceCacher:
+    """Service for caching resource content to a local filesystem.
 
-    Caches ingested documents by collection, providing uniform file:// URIs
+    Caches fetched resources by collection, providing uniform file:// URIs
     for all content regardless of original source.
 
     Example:
-        cacher = DocumentCacher(cache_config)
-        uri = cacher.cache_document("my-collection", "path/to/doc.md", content)
+        cacher = ResourceCacher(cache_config)
+        uri = cacher.cache_resource("my-collection", "path/to/doc.md", content)
         # Returns: file:///home/user/.cache/pmd/files/my-collection/path/to/doc.md
     """
 
     def __init__(self, config: "CacheConfig"):
-        """Initialize DocumentCacher.
+        """Initialize ResourceCacher.
 
         Args:
             config: Cache configuration with base_path and enabled flag.
@@ -49,18 +50,18 @@ class DocumentCacher:
         """Base path for cached files."""
         return self._base_path
 
-    def cache_document(
+    def cache_resource(
         self,
         collection_name: str,
-        doc_path: str,
+        resource_path: str,
         content: str,
     ) -> str:
-        """Cache document content and return the cached file URI.
+        """Cache resource content and return the cached file URI.
 
         Args:
             collection_name: Name of the collection (used as subdirectory).
-            doc_path: Document path within the collection.
-            content: Document content to cache.
+            resource_path: Resource path within the collection.
+            content: Resource content to cache.
 
         Returns:
             file:// URI pointing to the cached file.
@@ -68,8 +69,8 @@ class DocumentCacher:
         Raises:
             OSError: If the file cannot be written.
         """
-        # Build target path: <base>/<collection>/<doc_path>
-        target_path = self._base_path / collection_name / doc_path
+        # Build target path: <base>/<collection>/<resource_path>
+        target_path = self._base_path / collection_name / resource_path
 
         # Ensure parent directory exists
         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,23 +83,23 @@ class DocumentCacher:
         uri = target_path.as_uri()
 
         logger.debug(
-            f"Cached document: collection={collection_name!r}, "
-            f"path={doc_path!r}, size={len(content)}"
+            f"Cached resource: collection={collection_name!r}, "
+            f"path={resource_path!r}, size={len(content)}"
         )
 
         return uri
 
-    def remove_document(self, collection_name: str, doc_path: str) -> bool:
-        """Remove a cached document.
+    def remove_resource(self, collection_name: str, resource_path: str) -> bool:
+        """Remove a cached resource.
 
         Args:
             collection_name: Name of the collection.
-            doc_path: Document path within the collection.
+            resource_path: Resource path within the collection.
 
         Returns:
             True if file was removed, False if it didn't exist.
         """
-        target_path = self._base_path / collection_name / doc_path
+        target_path = self._base_path / collection_name / resource_path
 
         if not target_path.exists():
             return False
@@ -106,8 +107,8 @@ class DocumentCacher:
         try:
             self._fs.rm(str(target_path))
             logger.debug(
-                f"Removed cached document: collection={collection_name!r}, "
-                f"path={doc_path!r}"
+                f"Removed cached resource: collection={collection_name!r}, "
+                f"path={resource_path!r}"
             )
 
             # Clean up empty parent directories
@@ -145,17 +146,17 @@ class DocumentCacher:
             logger.warning(f"Failed to remove collection cache {collection_path}: {e}")
             return 0
 
-    def get_cached_path(self, collection_name: str, doc_path: str) -> Path | None:
+    def get_cached_path(self, collection_name: str, resource_path: str) -> Path | None:
         """Get the cached file path if it exists.
 
         Args:
             collection_name: Name of the collection.
-            doc_path: Document path within the collection.
+            resource_path: Resource path within the collection.
 
         Returns:
             Path to cached file if it exists, None otherwise.
         """
-        target_path = self._base_path / collection_name / doc_path
+        target_path = self._base_path / collection_name / resource_path
         return target_path if target_path.exists() else None
 
     def _cleanup_empty_dirs(self, dir_path: Path, collection_name: str) -> None:
@@ -177,3 +178,15 @@ class DocumentCacher:
                     break
             except OSError:
                 break
+
+
+# Deprecated aliases - module-level __getattr__ for lazy deprecation warning
+def __getattr__(name: str):
+    if name == "DocumentCacher":
+        warnings.warn(
+            "DocumentCacher is deprecated, use ResourceCacher instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return ResourceCacher
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -17,7 +17,7 @@ from pathlib import Path
 from pmd.core.config import Config, MLXConfig
 from pmd.core.types import EmbeddingResult, SearchSource
 from pmd.store.database import Database
-from pmd.store.repositories.collections import CollectionRepository
+from pmd.store.repositories.collections import SourceCollectionRepository
 from pmd.store.repositories.documents import DocumentRepository
 from pmd.store.repositories.embeddings import EmbeddingRepository
 from pmd.store.repositories.fts import FTS5SearchRepository
@@ -100,9 +100,9 @@ class TestVectorSearchBasics:
         return FTS5SearchRepository(vector_db)
 
     @pytest.fixture
-    def collection_repo(self, vector_db: Database) -> CollectionRepository:
-        """Provide a CollectionRepository instance."""
-        return CollectionRepository(vector_db)
+    def collection_repo(self, vector_db: Database) -> SourceCollectionRepository:
+        """Provide a SourceCollectionRepository instance."""
+        return SourceCollectionRepository(vector_db)
 
     @pytest.fixture
     def document_repo(self, vector_db: Database) -> DocumentRepository:
@@ -115,7 +115,7 @@ class TestVectorSearchBasics:
         mlx_provider,
         vector_db: Database,
         embedding_repo: EmbeddingRepository,
-        collection_repo: CollectionRepository,
+        collection_repo: SourceCollectionRepository,
         document_repo: DocumentRepository,
         tmp_path: Path,
     ):
@@ -174,7 +174,7 @@ class TestVectorSearchBasics:
         mlx_provider,
         vector_db: Database,
         embedding_repo: EmbeddingRepository,
-        collection_repo: CollectionRepository,
+        collection_repo: SourceCollectionRepository,
         document_repo: DocumentRepository,
         tmp_path: Path,
     ):
@@ -234,7 +234,7 @@ class TestVectorSearchBasics:
         mlx_provider,
         vector_db: Database,
         embedding_repo: EmbeddingRepository,
-        collection_repo: CollectionRepository,
+        collection_repo: SourceCollectionRepository,
         document_repo: DocumentRepository,
         tmp_path: Path,
     ):
@@ -281,7 +281,7 @@ class TestVectorSearchBasics:
         mlx_provider,
         vector_db: Database,
         embedding_repo: EmbeddingRepository,
-        collection_repo: CollectionRepository,
+        collection_repo: SourceCollectionRepository,
         document_repo: DocumentRepository,
         tmp_path: Path,
     ):
@@ -503,9 +503,9 @@ class TestHybridSearchPipeline:
         return FTS5SearchRepository(vector_db)
 
     @pytest.fixture
-    def collection_repo(self, vector_db: Database) -> CollectionRepository:
-        """Provide a CollectionRepository instance."""
-        return CollectionRepository(vector_db)
+    def collection_repo(self, vector_db: Database) -> SourceCollectionRepository:
+        """Provide a SourceCollectionRepository instance."""
+        return SourceCollectionRepository(vector_db)
 
     @pytest.fixture
     def document_repo(self, vector_db: Database) -> DocumentRepository:
@@ -520,7 +520,7 @@ class TestHybridSearchPipeline:
         config: Config,
         embedding_repo: EmbeddingRepository,
         fts_repo: FTS5SearchRepository,
-        collection_repo: CollectionRepository,
+        collection_repo: SourceCollectionRepository,
         document_repo: DocumentRepository,
         tmp_path: Path,
     ):
@@ -704,10 +704,10 @@ class TestVectorSearchWithChunking:
             pytest.skip("sqlite-vec extension not available")
 
         from pmd.llm.embeddings import EmbeddingGenerator
-        from pmd.store.repositories.collections import CollectionRepository
+        from pmd.store.repositories.collections import SourceCollectionRepository
         from pmd.store.repositories.documents import DocumentRepository
 
-        collection_repo = CollectionRepository(vector_db)
+        collection_repo = SourceCollectionRepository(vector_db)
         document_repo = DocumentRepository(vector_db)
 
         collection = collection_repo.create("chunking", str(tmp_path), "**/*.md")

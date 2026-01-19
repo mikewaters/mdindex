@@ -30,18 +30,18 @@ Example:
     search = FTS5SearchRepository(db)
 """
 
-from .collections import CollectionRepository, SourceCollectionRepository
+from .collections import SourceCollectionRepository
 from .content import ContentRepository
 from .documents import DocumentRepository
 from .embeddings import EmbeddingRepository, _serialize_embedding
 from .fts import FTS5SearchRepository, SearchRepository
 from .metadata import DocumentMetadataRepository
+from .resource import ResourceRepository
 from .source_metadata import SourceMetadata, SourceMetadataRepository
 
 __all__ = [
     # Collections
     "SourceCollectionRepository",
-    "CollectionRepository",  # Deprecated alias
     # Documents
     "DocumentRepository",
     # Content
@@ -57,4 +57,6 @@ __all__ = [
     "SourceMetadata",
     # Document Metadata
     "DocumentMetadataRepository",
+    # Resources
+    "ResourceRepository",
 ]

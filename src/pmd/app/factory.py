@@ -132,7 +132,7 @@ async def create_application(config: "Config") -> Application:
     from pmd.search.service import SearchService
     from pmd.services.status import StatusService
     from pmd.llm import create_llm_provider, EmbeddingGenerator
-    from pmd.store.caching import DocumentCacher
+    from pmd.store.caching import ResourceCacher
 
     # Create and connect database
     db = Database(config.db_path)
@@ -165,8 +165,8 @@ async def create_application(config: "Config") -> Application:
     async def get_embedding_generator():
         return EmbeddingGenerator(llm_provider, embedding_repo, config)
 
-    # Create document cacher (if enabled in config)
-    cacher = DocumentCacher(config.cache) if config.cache.enabled else None
+    # Create resource cacher (if enabled in config)
+    cacher = ResourceCacher(config.cache) if config.cache.enabled else None
 
     # Create loading service
     loading = LoadingService(facade=load_facade)

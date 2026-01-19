@@ -11,7 +11,7 @@ from pathlib import Path
 from pmd.core.config import MLXConfig
 from pmd.core.types import EmbeddingResult
 from pmd.store.database import Database
-from pmd.store.repositories.collections import CollectionRepository
+from pmd.store.repositories.collections import SourceCollectionRepository
 from pmd.store.repositories.documents import DocumentRepository
 from pmd.store.repositories.embeddings import EmbeddingRepository
 
@@ -161,9 +161,9 @@ class TestEmbeddingStorage:
         return DocumentRepository(integration_db)
 
     @pytest.fixture
-    def collection_repo(self, integration_db: Database) -> CollectionRepository:
-        """Provide a CollectionRepository instance."""
-        return CollectionRepository(integration_db)
+    def collection_repo(self, integration_db: Database) -> SourceCollectionRepository:
+        """Provide a SourceCollectionRepository instance."""
+        return SourceCollectionRepository(integration_db)
 
     @pytest.mark.asyncio
     async def test_store_and_check_embedding(
@@ -171,7 +171,7 @@ class TestEmbeddingStorage:
         mlx_provider,
         embedding_repo: EmbeddingRepository,
         document_repo: DocumentRepository,
-        collection_repo: CollectionRepository,
+        collection_repo: SourceCollectionRepository,
         tmp_path: Path,
     ):
         """Should store embeddings and verify they exist."""
@@ -206,7 +206,7 @@ class TestEmbeddingStorage:
         mlx_provider,
         embedding_repo: EmbeddingRepository,
         document_repo: DocumentRepository,
-        collection_repo: CollectionRepository,
+        collection_repo: SourceCollectionRepository,
         tmp_path: Path,
     ):
         """Should store multiple embedding chunks for a document."""
@@ -243,7 +243,7 @@ class TestEmbeddingStorage:
         mlx_provider,
         embedding_repo: EmbeddingRepository,
         document_repo: DocumentRepository,
-        collection_repo: CollectionRepository,
+        collection_repo: SourceCollectionRepository,
         tmp_path: Path,
     ):
         """Should correctly count embeddings."""
@@ -280,7 +280,7 @@ class TestEmbeddingStorage:
         mlx_provider,
         embedding_repo: EmbeddingRepository,
         document_repo: DocumentRepository,
-        collection_repo: CollectionRepository,
+        collection_repo: SourceCollectionRepository,
         tmp_path: Path,
     ):
         """Should delete embeddings for a document."""

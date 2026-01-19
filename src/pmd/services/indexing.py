@@ -27,7 +27,7 @@ from pmd.search.text import is_indexable
 
 if TYPE_CHECKING:
     from pmd.services.loading import LoadedDocument
-    from pmd.store.caching import DocumentCacher
+    from pmd.store.caching import ResourceCacher
     from pmd.store.repositories.source_metadata import SourceMetadataRepository
 
 
@@ -92,7 +92,7 @@ class IndexingService:
         facade: IndexFacade,
         loader: LoadingServiceProtocol,
         embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]] | None = None,
-        cacher: "DocumentCacher | None" = None,
+        cacher: "ResourceCacher | None" = None,
     ):
         """Initialize IndexingService.
 
@@ -105,7 +105,6 @@ class IndexingService:
         self._data = facade
         self._loader = loader
         self._embedding_generator_factory = embedding_generator_factory
-        self._source_registry = get_default_registry()
         self._cacher = cacher
 
     @property
@@ -288,7 +287,7 @@ class IndexingService:
                     self._data.remove_from_search_index(doc_id)
                 # Remove from cache
                 if self._cacher and self._cacher.enabled:
-                    self._cacher.remove_document(collection_name, doc.filepath)
+                    self._cacher.remove_resource(collection_name, doc.filepath)
                 stale_count += 1
 
         return stale_count
@@ -386,7 +385,7 @@ class IndexingService:
             return doc
 
         # Cache the content and get the new URI
-        cached_uri = self._cacher.cache_document(
+        cached_uri = self._cacher.cache_resource(
             collection_name,
             doc.path,
             doc.content,
@@ -525,7 +524,7 @@ class IndexingService:
 
         for source_collection in source_collections:
             try:
-                source = self._source_registry.create_source(source_collection)
+                source = get_default_registry().create_source(source_collection)
                 result = await self.index_collection(
                     source_collection.name,
                     force=False,

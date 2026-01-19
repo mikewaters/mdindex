@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pmd.store.database import Database
 from pmd.store.repositories.documents import DocumentRepository
-from pmd.store.repositories.collections import CollectionRepository
+from pmd.store.repositories.collections import SourceCollectionRepository
 from pmd.core.types import DocumentResult
 from pmd.utils.hashing import sha256_hash
 

@@ -29,7 +29,9 @@ from pmd.store.repositories.content import ContentRepository
 from pmd.store.repositories.documents import DocumentRepository
 from pmd.store.repositories.embeddings import EmbeddingRepository
 from pmd.store.repositories.fts import FTS5SearchRepository
+from pmd.store.repositories.resource import ResourceRepository
 from pmd.store.repositories.source_metadata import SourceMetadata, SourceMetadataRepository
+from pmd.store.models import ResourceModel
 
 
 # =============================================================================
@@ -376,3 +378,211 @@ class StatusFacade:
     def count_orphaned_embeddings(self) -> int:
         """Count embedding records not referenced by any active document."""
         return self._embeddings.count_orphaned()
+
+
+# =============================================================================
+# DatasetFacade
+# =============================================================================
+
+
+class DatasetFacade:
+    """Facade for dataset orchestration operations.
+
+    Wraps repositories needed for resource lifecycle management: collections,
+    resources, documents, and content. This facade supports the Dataset class
+    for sync → materialize → index workflows.
+
+    Example:
+        facade = DatasetFacade(db)
+        resource = facade.upsert_resource(collection_id, uri, hash=content_hash)
+        facade.mark_loaded(resource.id, hash=content_hash, content_ref=cache_path)
+    """
+
+    def __init__(self, db: Database) -> None:
+        """Initialize with database connection."""
+        self._db = db
+        self._collections = SourceCollectionRepository(db)
+        self._resources = ResourceRepository(db)
+        self._documents = DocumentRepository(db)
+        self._content = ContentRepository(db)
+
+    @property
+    def db(self) -> Database:
+        """Direct database access for raw SQL operations."""
+        return self._db
+
+    # -------------------------------------------------------------------------
+    # Collection operations
+    # -------------------------------------------------------------------------
+
+    def get_collection_by_name(self, name: str) -> SourceCollection | None:
+        """Get a source collection by name."""
+        return self._collections.get_by_name(name)
+
+    def get_collection_by_id(self, collection_id: int) -> SourceCollection | None:
+        """Get a source collection by ID."""
+        return self._collections.get_by_id(collection_id)
+
+    def list_all_collections(self) -> list[SourceCollection]:
+        """Get all source collections ordered by name."""
+        return self._collections.list_all()
+
+    # -------------------------------------------------------------------------
+    # Resource CRUD operations
+    # -------------------------------------------------------------------------
+
+    def upsert_resource(
+        self, collection_id: int, uri: str, **attrs
+    ) -> ResourceModel:
+        """Insert or update a resource by (collection_id, uri).
+
+        Args:
+            collection_id: Source collection ID.
+            uri: Canonical URI for the resource.
+            **attrs: Additional resource attributes (hash, content_ref, etc.)
+
+        Returns:
+            The created or updated ResourceModel.
+        """
+        return self._resources.upsert(collection_id, uri, **attrs)
+
+    def get_resource_by_uri(
+        self, collection_id: int, uri: str
+    ) -> ResourceModel | None:
+        """Find a resource by collection and URI."""
+        return self._resources.get_by_uri(collection_id, uri)
+
+    def get_resource_by_id(self, resource_id: int) -> ResourceModel | None:
+        """Find a resource by ID."""
+        return self._resources.get_by_id(resource_id)
+
+    def list_resources_by_collection(
+        self,
+        collection_id: int,
+        *,
+        status: str | None = None,
+        state: str | None = None,
+    ) -> list[ResourceModel]:
+        """List resources for a collection with optional filters.
+
+        Args:
+            collection_id: Source collection ID.
+            status: Optional load_status filter.
+            state: Optional index_state filter.
+
+        Returns:
+            List of matching ResourceModel objects.
+        """
+        return self._resources.list_by_collection(
+            collection_id, status=status, state=state
+        )
+
+    def list_resources_needing_index(self, collection_id: int) -> list[ResourceModel]:
+        """List resources ready for indexing.
+
+        Returns resources where load_status='loaded' and
+        index_state in ('pending', 'stale').
+        """
+        return self._resources.list_needing_index(collection_id)
+
+    def delete_orphaned_resources(
+        self, collection_id: int, valid_uris: set[str]
+    ) -> int:
+        """Delete resources not in the valid URIs set.
+
+        Args:
+            collection_id: Source collection ID.
+            valid_uris: Set of URIs that should be kept.
+
+        Returns:
+            Number of resources deleted.
+        """
+        return self._resources.delete_orphaned(collection_id, valid_uris)
+
+    # -------------------------------------------------------------------------
+    # Resource state transitions
+    # -------------------------------------------------------------------------
+
+    def mark_loading(self, resource_id: int) -> None:
+        """Mark resource as currently loading."""
+        self._resources.mark_loading(resource_id)
+
+    def mark_loaded(
+        self,
+        resource_id: int,
+        hash: str,
+        content_ref: str | None,
+        metadata: dict | None = None,
+    ) -> None:
+        """Mark resource as successfully loaded.
+
+        Args:
+            resource_id: Resource ID.
+            hash: Content hash.
+            content_ref: Path to cached content (optional).
+            metadata: Additional metadata to merge (optional).
+        """
+        self._resources.mark_loaded(resource_id, hash, content_ref, metadata)
+
+    def mark_load_failed(self, resource_id: int, error: str) -> None:
+        """Mark resource as failed to load."""
+        self._resources.mark_load_failed(resource_id, error)
+
+    def mark_indexing(self, resource_id: int) -> None:
+        """Mark resource as currently indexing."""
+        self._resources.mark_indexing(resource_id)
+
+    def mark_indexed(self, resource_id: int, method: str | None = None) -> None:
+        """Mark resource as successfully indexed."""
+        self._resources.mark_indexed(resource_id, method)
+
+    def mark_index_failed(self, resource_id: int, error: str) -> None:
+        """Mark resource as failed to index."""
+        self._resources.mark_index_failed(resource_id, error)
+
+    def mark_stale(self, resource_id: int, reason: str) -> None:
+        """Mark resource as stale.
+
+        Args:
+            resource_id: Resource ID.
+            reason: Either 'load' or 'index' to indicate what's stale.
+        """
+        self._resources.mark_stale(resource_id, reason)
+
+    # -------------------------------------------------------------------------
+    # Document operations
+    # -------------------------------------------------------------------------
+
+    def add_or_update_document(
+        self,
+        source_collection_id: int,
+        path: str,
+        title: str,
+        content: str,
+    ) -> tuple[DocumentResult, bool]:
+        """Add or update a document in the index.
+
+        Returns:
+            Tuple of (DocumentResult, is_new).
+        """
+        return self._documents.add_or_update(source_collection_id, path, title, content)
+
+    def get_document(
+        self, source_collection_id: int, path: str
+    ) -> DocumentResult | None:
+        """Retrieve a document by collection and path."""
+        return self._documents.get(source_collection_id, path)
+
+    def list_documents_by_collection(
+        self, source_collection_id: int, active_only: bool = True
+    ) -> list[DocumentResult]:
+        """List all documents in a collection."""
+        return self._documents.list_by_collection(source_collection_id, active_only)
+
+    # -------------------------------------------------------------------------
+    # Content operations
+    # -------------------------------------------------------------------------
+
+    def delete_orphaned_content(self) -> int:
+        """Delete content entries not referenced by any active document."""
+        return self._content.delete_orphaned()

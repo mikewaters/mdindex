@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pmd.store.database import Database
 from pmd.store.repositories.documents import DocumentRepository
-from pmd.store.repositories.collections import CollectionRepository
+from pmd.store.repositories.collections import SourceCollectionRepository
 from pmd.store.repositories.metadata import DocumentMetadataRepository
 from pmd.extraction.types import StoredDocumentMetadata
 

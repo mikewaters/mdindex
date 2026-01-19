@@ -12,7 +12,7 @@ from pmd.core.types import SearchSource
 from pmd.app import Application, create_application
 from pmd.services import IndexResult
 from pmd.sources import FileSystemSource, SourceConfig, SourceListError
-from pmd.store.repositories.collections import CollectionRepository
+from pmd.store.repositories.collections import SourceCollectionRepository
 from pmd.store.database import Database
 from pmd.store.repositories.documents import DocumentRepository
 from pmd.store.repositories.embeddings import EmbeddingRepository
@@ -58,7 +58,7 @@ class TestCollectionCreation:
 
     def test_create_collection_from_test_corpus(
         self,
-        collection_repo: CollectionRepository,
+        collection_repo: SourceCollectionRepository,
         test_corpus_path: Path,
     ):
         """Should create a collection pointing to the test corpus."""
@@ -100,7 +100,7 @@ class TestCollectionCreation:
 
     def test_collection_can_be_retrieved_by_name(
         self,
-        collection_repo: CollectionRepository,
+        collection_repo: SourceCollectionRepository,
         test_corpus_path: Path,
     ):
         """Created collection should be retrievable by name."""
@@ -113,7 +113,7 @@ class TestCollectionCreation:
 
     def test_collection_appears_in_list(
         self,
-        collection_repo: CollectionRepository,
+        collection_repo: SourceCollectionRepository,
         test_corpus_path: Path,
     ):
         """Created collection should appear in list of all collections."""
@@ -389,7 +389,7 @@ class TestFullTextSearch:
 
     def test_fts_search_filters_by_collection(
         self,
-        collection_repo: CollectionRepository,
+        collection_repo: SourceCollectionRepository,
         document_repo: DocumentRepository,
         search_repo: FTS5SearchRepository,
         test_corpus_path: Path,

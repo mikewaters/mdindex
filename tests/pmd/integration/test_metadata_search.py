@@ -28,7 +28,7 @@ from pmd.search.adapters import (
     OntologyMetadataBooster,
 )
 from pmd.store.database import Database
-from pmd.store.repositories.collections import CollectionRepository
+from pmd.store.repositories.collections import SourceCollectionRepository
 from pmd.store.repositories.documents import DocumentRepository
 from pmd.store.repositories.fts import FTS5SearchRepository
 
@@ -76,7 +76,7 @@ def metadata_db(tmp_path):
     db.connect()
 
     # Create repositories
-    collection_repo = CollectionRepository(db)
+    collection_repo = SourceCollectionRepository(db)
     document_repo = DocumentRepository(db)
     metadata_repo = DocumentMetadataRepository(db)
     fts_repo = FTS5SearchRepository(db)

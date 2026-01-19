@@ -197,6 +197,9 @@ class Config:
     tracing: TracingConfig = field(default_factory=TracingConfig)
     metadata: MetadataConfig = field(default_factory=MetadataConfig)
     cache: CacheConfig = field(default_factory=CacheConfig)
+    # Feature flag for experimental resource tracking via Dataset API
+    # When enabled, services will update Resource state during load/index
+    use_resource_tracking: bool = False
 
     @property
     def db_url_sync(self) -> str:
@@ -337,3 +340,7 @@ def _apply_env(config: Config) -> None:
         config.cache.enabled = True
     if cache_path := os.environ.get("PMD_CACHE_PATH"):
         config.cache.base_path = Path(cache_path).expanduser()
+
+    # Resource tracking feature flag
+    if os.environ.get("PMD_RESOURCE_TRACKING", "").lower() in ("1", "true", "yes"):
+        config.use_resource_tracking = True

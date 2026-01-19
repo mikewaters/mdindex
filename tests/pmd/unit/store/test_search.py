@@ -7,7 +7,7 @@ from pmd.store.database import Database
 from pmd.store.repositories.fts import FTS5SearchRepository, SearchRepository
 from pmd.store.repositories.embeddings import EmbeddingRepository
 from pmd.store.repositories.documents import DocumentRepository
-from pmd.store.repositories.collections import CollectionRepository
+from pmd.store.repositories.collections import SourceCollectionRepository
 from pmd.core.types import SearchResult, SearchSource
 
 
@@ -190,7 +190,7 @@ class TestFTS5Search:
         self,
         fts_repo: FTS5SearchRepository,
         document_repo: DocumentRepository,
-        collection_repo: CollectionRepository,
+        collection_repo: SourceCollectionRepository,
         tmp_path: Path,
     ):
         """search should filter by collection_id."""

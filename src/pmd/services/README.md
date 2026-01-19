@@ -39,7 +39,7 @@ Key methods:
 
 ```mermaid
 graph TD
-    IndexingService -- manages collections --> CollectionRepository
+    IndexingService -- manages collections --> SourceCollectionRepository
     IndexingService -- stores content --> DocumentRepository
     IndexingService -- stores vectors --> EmbeddingRepository
     IndexingService -- updates FTS index --> FTS5SearchRepository
@@ -85,7 +85,7 @@ Key methods:
 graph TD
     SearchService -- lexical search --> FTS5SearchRepository
     SearchService -- semantic search --> EmbeddingRepository
-    SearchService -- resolves names --> CollectionRepository
+    SearchService -- resolves names --> SourceCollectionRepository
     SearchService -- embeds queries --> EmbeddingGenerator
     SearchService -- orchestrates search --> HybridSearchPipeline
     SearchService -- expands queries --> QueryExpander
@@ -111,7 +111,7 @@ Key methods:
 
 ```mermaid
 graph TD
-    StatusService -- lists collections --> CollectionRepository
+    StatusService -- lists collections --> SourceCollectionRepository
     StatusService -- accesses db path --> Config
 ```
 

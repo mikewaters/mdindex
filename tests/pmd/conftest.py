@@ -16,6 +16,7 @@ from pmd.store.repositories.collections import SourceCollectionRepository
 from pmd.store.repositories.documents import DocumentRepository
 from pmd.store.repositories.embeddings import EmbeddingRepository
 from pmd.store.repositories.fts import FTS5SearchRepository
+from pmd.store.repositories.resource import ResourceRepository
 
 
 @pytest.fixture
@@ -68,6 +69,12 @@ def embedding_repo(db: Database) -> EmbeddingRepository:
 def fts_repo(db: Database) -> FTS5SearchRepository:
     """Provide a FTS5SearchRepository instance."""
     return FTS5SearchRepository(db)
+
+
+@pytest.fixture
+def resource_repo(db: Database) -> ResourceRepository:
+    """Provide a ResourceRepository instance."""
+    return ResourceRepository(db)
 
 
 # Legacy alias for backwards compatibility with existing tests
