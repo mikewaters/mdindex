@@ -1,17 +1,17 @@
 """Tests for query-time tag inference in search.metadata module.
 
-Note: The pmd.search.metadata module has been moved to pmd.metadata.query.
-These tests import from pmd.metadata which re-exports the inference module.
+Tests the LexicalTagMatcher and related inference functionality
+from pmd.ontology.inference.
 """
 
 import pytest
 
-from pmd.metadata import (
+from pmd.ontology.aliases import load_default_aliases
+from pmd.ontology.inference import (
     LexicalTagMatcher,
     TagMatch,
     create_default_matcher,
 )
-from pmd.ontology.inference import load_default_aliases
 
 
 class TestTagMatchDataclass:
@@ -732,25 +732,28 @@ class TestLexicalTagMatcherEdgeCases:
 class TestLoadDefaultAliases:
     """Tests for load_default_aliases function."""
 
-    def test_load_default_aliases_returns_dict(self):
-        """Should return a dictionary of aliases."""
+    def test_load_default_aliases_returns_tag_aliases(self):
+        """Should return a TagAliases instance."""
+        from pmd.ontology.aliases import TagAliases
+
         aliases = load_default_aliases()
 
-        assert isinstance(aliases, dict)
+        assert isinstance(aliases, TagAliases)
 
     def test_load_default_aliases_has_common_aliases(self):
         """Should include common programming language aliases."""
         aliases = load_default_aliases()
+        aliases_dict = aliases.all_aliases()
 
         # Check for some common aliases
-        assert "py" in aliases or "js" in aliases or len(aliases) > 0
+        assert "py" in aliases_dict or "js" in aliases_dict or len(aliases_dict) > 0
 
     def test_load_default_aliases_integration(self):
         """Should work when used with matcher."""
         aliases = load_default_aliases()
 
         matcher = LexicalTagMatcher()
-        matcher.register_aliases(aliases)
+        matcher.register_aliases(aliases.all_aliases())
 
         # Should work with common aliases
         # Note: We can't assert specific aliases without knowing the data file

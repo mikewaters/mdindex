@@ -7,10 +7,8 @@ wikilinks, and Obsidian-specific frontmatter fields.
 
 import pytest
 
-from pmd.metadata import (
-    ObsidianProfile,
-    ExtractedMetadata,
-)
+from pmd.extraction.types import ExtractedMetadata
+from pmd.extraction.profiles import ObsidianProfile
 from pmd.extraction.profiles.obsidian import detect_obsidian_content
 
 

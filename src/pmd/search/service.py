@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from ..core.types import RankedResult, SearchResult
-from ..search.pipeline import HybridSearchPipeline, SearchPipelineConfig
+from core.types import RankedResult, SearchResult
+from search.pipeline import HybridSearchPipeline, SearchPipelineConfig
 from pmd.store import SearchFacade
 
 if TYPE_CHECKING:
-    from ..app.protocols import (
+    from app.protocols import (
         TextSearcher,
         VectorSearcher,
         TagSearcher,

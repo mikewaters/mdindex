@@ -3,8 +3,9 @@
 This subpackage provides the ScoredResult protocol and metadata boost functions
 for search result scoring.
 
-Other metadata functionality has moved to pmd.metadata:
-    from pmd.metadata import LexicalTagMatcher, TagRetriever
+Other metadata functionality is available in pmd.ontology:
+    from pmd.ontology.inference import LexicalTagMatcher
+    from pmd.ontology.retrieval import TagRetriever
 """
 
 # Re-export from new location (pmd.ontology)

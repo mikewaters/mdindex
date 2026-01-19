@@ -2,11 +2,11 @@
 
 import pytest
 
-from pmd.metadata import (
+from pmd.extraction.profiles.parsing import (
     FrontmatterResult,
-    parse_frontmatter,
     extract_inline_tags,
     extract_tags_from_field,
+    parse_frontmatter,
 )
 
 

@@ -7,11 +7,7 @@ retrieving documents based on tag matches with weighted scoring.
 import pytest
 from unittest.mock import MagicMock, call
 
-from pmd.metadata import (
-    TagRetriever,
-    TagSearchConfig,
-    create_tag_retriever,
-)
+from pmd.ontology.retrieval import TagRetriever, TagSearchConfig, create_tag_retriever
 from pmd.core.types import SearchResult, SearchSource
 
 

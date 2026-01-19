@@ -8,7 +8,7 @@ from pmd.core.config import Config
 from pmd.app import Application, create_application
 from pmd.services.indexing import IndexingService
 from pmd.services.loading import LoadingService
-from pmd.services.search import SearchService
+from pmd.search.service import SearchService
 from pmd.services.status import StatusService
 
 

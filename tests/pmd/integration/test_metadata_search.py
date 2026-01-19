@@ -15,13 +15,11 @@ from pathlib import Path
 from datetime import datetime
 
 from pmd.core.types import SearchSource
-from pmd.metadata import (
-    Ontology,
-    LexicalTagMatcher,
-    TagRetriever,
-    DocumentMetadataRepository,
-    StoredDocumentMetadata,
-)
+from pmd.extraction.types import StoredDocumentMetadata
+from pmd.ontology.inference import LexicalTagMatcher
+from pmd.ontology.model import Ontology
+from pmd.ontology.retrieval import TagRetriever
+from pmd.store.repositories.metadata import DocumentMetadataRepository
 from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
 from pmd.search.adapters import (
     FTS5TextSearcher,

@@ -1,10 +1,8 @@
 ## Migrate from substrate
-- Add a Resources table, even URLs and stuff.  It will contain the URI, and generate a Document which could be the actual document content, or in the case of a url the cached web page, or the highlights etc. The Resource will be cached, not the document, so we can iterate on things like “collect resource type X”.
-An obsidian resource would have the obsidian:// uri etc 
+
 - I can have scripts for raindrop, heptabase, obsidian etc, rather than build a comprehensive CLI.
 - obsidian et al can be in a Substrate integrations library, or sub module of pmd, “from pmd.integrations.obsidian import VaultCollector;”. Decision lies in if integrations like obsidian are needed outside of indexing.
 - rename pmd to catalog
-- rename Source Collection to Dataset
 
 ## Tasks
 - review the other substrates components

@@ -129,7 +129,7 @@ async def create_application(config: "Config") -> Application:
     from pmd.store import IndexFacade, LoadFacade, SearchFacade, StatusFacade
     from pmd.services.indexing import IndexingService
     from pmd.services.loading import LoadingService
-    from pmd.services.search import SearchService
+    from pmd.search.service import SearchService
     from pmd.services.status import StatusService
     from pmd.llm import create_llm_provider, EmbeddingGenerator
     from pmd.store.caching import DocumentCacher

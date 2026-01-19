@@ -23,7 +23,7 @@ Example usage:
 from .indexing import CleanupResult, EmbedResult, IndexingService, IndexResult
 from .loading import EagerLoadResult, LoadedDocument, LoadingService, LoadResult
 from .loading_llamaindex import LlamaIndexLoaderAdapter
-from .search import SearchService
+from pmd.search.service import SearchService
 from .status import StatusService
 
 __all__ = [

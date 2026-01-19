@@ -7,9 +7,9 @@ and tag retrieval features through the port interfaces.
 import pytest
 from unittest.mock import MagicMock
 
-from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
-from pmd.metadata import Ontology
 from pmd.core.types import SearchSource
+from pmd.ontology.model import Ontology
+from pmd.search.pipeline import HybridSearchPipeline, SearchPipelineConfig
 from tests.pmd.fakes.search import (
     InMemoryTextSearcher,
     InMemoryTagSearcher,

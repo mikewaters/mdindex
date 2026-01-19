@@ -10,7 +10,8 @@ from pmd.extraction.registry import (
     get_default_profile_registry,
     _register_builtin_profiles,
 )
-from pmd.metadata import GenericProfile, ExtractedMetadata
+from pmd.extraction.types import ExtractedMetadata
+from pmd.extraction.profiles import GenericProfile
 
 
 @pytest.fixture

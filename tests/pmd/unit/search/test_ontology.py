@@ -5,11 +5,11 @@ import pytest
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from pmd.metadata import (
+from pmd.ontology.model import (
     Ontology,
     OntologyNode,
-    load_ontology,
     load_default_ontology,
+    load_ontology,
 )
 
 

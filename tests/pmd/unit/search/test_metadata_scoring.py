@@ -3,14 +3,14 @@
 import pytest
 from dataclasses import dataclass
 
-from pmd.metadata import (
-    MetadataBoostConfig,
+from pmd.ontology.scoring import (
     BoostResult,
+    MetadataBoostConfig,
     WeightedBoostResult,
+    _calculate_boost,
     apply_metadata_boost,
     apply_metadata_boost_v2,
 )
-from pmd.ontology.scoring import _calculate_boost
 
 
 @dataclass

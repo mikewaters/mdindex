@@ -7,7 +7,7 @@ from pmd.store.database import Database
 from pmd.store.repositories.documents import DocumentRepository
 from pmd.store.repositories.collections import CollectionRepository
 from pmd.store.repositories.metadata import DocumentMetadataRepository
-from pmd.metadata import StoredDocumentMetadata
+from pmd.extraction.types import StoredDocumentMetadata
 
 
 @pytest.fixture

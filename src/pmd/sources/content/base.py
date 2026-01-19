@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Iterator, Protocol, runtime_checkable
 
 from pmd.core.exceptions import PMDError
-from pmd.metadata import ExtractedMetadata
+from pmd.extraction.types import ExtractedMetadata
 
 if TYPE_CHECKING:
     pass

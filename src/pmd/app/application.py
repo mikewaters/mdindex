@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ..core.config import Config
     from ..services.indexing import IndexingService
     from ..services.loading import LoadingService
-    from ..services.search import SearchService
+    from search.service import SearchService
     from ..services.status import StatusService
     from ..store.database import Database
     from ..llm.base import LLMProvider

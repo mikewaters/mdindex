@@ -3,7 +3,8 @@
 import pytest
 from datetime import datetime
 
-from pmd.metadata import GenericProfile, ExtractedMetadata
+from pmd.extraction.types import ExtractedMetadata
+from pmd.extraction.profiles import GenericProfile
 
 
 class TestGenericProfileExtractMetadataFrontmatter:

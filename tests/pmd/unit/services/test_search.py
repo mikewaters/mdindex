@@ -8,7 +8,7 @@ from pmd.app import create_application
 from pmd.core.config import Config
 from pmd.core.types import SearchResult, SearchSource
 from pmd.store import SearchFacade
-from pmd.services.search import SearchService
+from pmd.search.service import SearchService
 from pmd.search.adapters import FTS5TextSearcher
 from pmd.store.repositories.collections import SourceCollectionRepository
 from pmd.store.repositories.documents import DocumentRepository

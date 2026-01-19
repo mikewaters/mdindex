@@ -23,11 +23,8 @@ from .base import (
     SourceListError,
 )
 from .glob_matcher import MultiGlobMatcher, parse_glob_patterns
-from pmd.metadata import (
-    ExtractedMetadata,
-    MetadataProfileRegistry,
-    get_default_profile_registry,
-)
+from pmd.extraction.registry import MetadataProfileRegistry, get_default_profile_registry
+from pmd.extraction.types import ExtractedMetadata
 
 
 # =============================================================================

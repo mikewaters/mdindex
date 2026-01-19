@@ -57,22 +57,29 @@ def chunk_document(content: str, config: ChunkConfig) -> ChunkingResult:
             current_bytes > 0
             and current_bytes + len(line_with_newline_bytes) > config.max_bytes
         ):
+            # If the current chunk is too small, merge it with this line even
+            # if it slightly exceeds max_bytes to avoid tiny fragments.
+            if current_bytes < config.min_chunk_size:
+                current_chunk += line_with_newline
+                current_bytes += len(line_with_newline_bytes)
+                chunks.append(
+                    Chunk(
+                        text=current_chunk.rstrip(),
+                        pos=current_pos,
+                    )
+                )
+                current_pos += current_bytes
+                current_chunk = ""
+                current_bytes = 0
+                continue
+
             # Finalize current chunk if it meets minimum size
-            if current_bytes >= config.min_chunk_size:
-                chunks.append(
-                    Chunk(
-                        text=current_chunk.rstrip(),
-                        pos=current_pos,
-                    )
+            chunks.append(
+                Chunk(
+                    text=current_chunk.rstrip(),
+                    pos=current_pos,
                 )
-            else:
-                # If chunk too small, still add it but mark for merge (Phase 2 enhancement)
-                chunks.append(
-                    Chunk(
-                        text=current_chunk.rstrip(),
-                        pos=current_pos,
-                    )
-                )
+            )
 
             # Start new chunk with this line
             current_chunk = line_with_newline

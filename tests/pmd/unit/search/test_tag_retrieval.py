@@ -3,12 +3,12 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from pmd.metadata import (
+from pmd.core.types import SearchSource
+from pmd.ontology.retrieval import (
     TagRetriever,
     TagSearchConfig,
     create_tag_retriever,
 )
-from pmd.core.types import SearchSource
 
 
 class TestTagRetrieverBasics:

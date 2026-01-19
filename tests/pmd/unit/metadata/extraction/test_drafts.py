@@ -2,7 +2,8 @@
 
 import pytest
 
-from pmd.metadata import DraftsProfile, ExtractedMetadata
+from pmd.extraction.types import ExtractedMetadata
+from pmd.extraction.profiles import DraftsProfile
 from pmd.extraction.profiles.drafts import detect_drafts_content
 
 

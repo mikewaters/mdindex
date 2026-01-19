@@ -2,12 +2,8 @@
 
 import pytest
 
-from pmd.metadata import (
-    ExtractedMetadata,
-    GenericProfile,
-    ObsidianProfile,
-    DraftsProfile,
-)
+from pmd.extraction.profiles import DraftsProfile, GenericProfile, ObsidianProfile
+from pmd.extraction.types import ExtractedMetadata
 
 
 class TestGenericProfile:

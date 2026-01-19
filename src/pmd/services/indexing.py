@@ -15,9 +15,8 @@ from pmd.sources import (
     DocumentSource,
     get_default_registry,
 )
-from pmd.metadata import (
-    ExtractedMetadata, get_default_profile_registry
-)
+from pmd.extraction.types import ExtractedMetadata, StoredDocumentMetadata
+from pmd.extraction.registry import get_default_profile_registry
 from pmd.store.repositories.metadata import DocumentMetadataRepository
 from pmd.app.protocols import (
     EmbeddingGeneratorProtocol,
@@ -317,7 +316,6 @@ class IndexingService:
             "indexed" if persisted, "skipped" if content unchanged.
         """
         from pmd.store.repositories.source_metadata import SourceMetadata
-        from pmd.metadata import StoredDocumentMetadata
 
         # Store document content
         doc_result, is_new = self._data.add_or_update_document(
@@ -638,7 +636,6 @@ class IndexingService:
     ) -> None:
         """Persist extracted metadata to the repository."""
         from datetime import datetime
-        from pmd.metadata import StoredDocumentMetadata
 
         stored = StoredDocumentMetadata(
             document_id=doc_id,

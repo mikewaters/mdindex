@@ -11,7 +11,7 @@ from pmd.store import IndexFacade, LoadFacade, SearchFacade, StatusFacade
 from pmd.search.adapters import FTS5TextSearcher
 from pmd.services.indexing import IndexingService
 from pmd.services.loading import LoadingService
-from pmd.services.search import SearchService
+from pmd.search.service import SearchService
 from pmd.services.status import StatusService
 from pmd.store.database import Database
 from pmd.store.repositories.fts import FTS5SearchRepository

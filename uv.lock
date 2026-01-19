@@ -2177,7 +2177,6 @@ version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "pmd" },
-    { name = "pytest-testmon" },
 ]
 
 [package.optional-dependencies]
@@ -2186,6 +2185,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "pytest-testmon" },
     { name = "respx" },
     { name = "ruff" },
     { name = "tach" },
@@ -2208,7 +2208,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "pytest-testmon", specifier = ">=2.2.0" },
+    { name = "pytest-testmon", marker = "extra == 'dev'", specifier = ">=2.2.0" },
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.22.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.2.0" },
     { name = "tach", marker = "extra == 'dev'", specifier = ">=0.33.0" },

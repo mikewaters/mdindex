@@ -26,7 +26,8 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from pmd.metadata import ExtractedMetadata, get_default_profile_registry
+from pmd.extraction.types import ExtractedMetadata
+from pmd.extraction.registry import get_default_profile_registry
 from pmd.sources.content.base import DocumentReference, FetchResult
 from pmd.sources.content.llamaindex import SupportsLoadData
 

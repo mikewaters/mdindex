@@ -37,13 +37,8 @@ from .content import (
     get_default_registry,
     reset_default_registry,
 )
-from pmd.metadata import (
-    GenericProfile,
-    MetadataProfileRegistry,
-    get_default_profile_registry,
-    ObsidianProfile,
-    DraftsProfile
-)
+from pmd.extraction.profiles import DraftsProfile, GenericProfile, ObsidianProfile
+from pmd.extraction.registry import MetadataProfileRegistry, get_default_profile_registry
 
 __all__ = [
     # Base types

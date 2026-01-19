@@ -16,8 +16,7 @@ Resources will be cached in their original form with the addition of metadata if
 - Dataset creates collection, documents, all that stuff. it calls the repos.
 - 
 
-Move caching from services to store
-Move lader svc to extraction
+Move loader svc to extraction
 
 Things that are static:
 - database

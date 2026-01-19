@@ -14,7 +14,8 @@ from loguru import logger
 
 from pmd.core.exceptions import SourceCollectionNotFoundError
 from pmd.store import LoadFacade
-from pmd.metadata import ExtractedMetadata, get_default_profile_registry
+from pmd.extraction.types import ExtractedMetadata
+from pmd.extraction.registry import get_default_profile_registry
 from pmd.sources.content.base import (
     DocumentReference,
     DocumentSource,

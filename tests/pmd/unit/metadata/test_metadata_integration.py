@@ -7,13 +7,34 @@ Tests verify:
 
 import pytest
 
+from pmd.extraction.types import ExtractedMetadata, MetadataProfile, StoredDocumentMetadata
+from pmd.extraction.profiles import GenericProfile, DraftsProfile, ObsidianProfile
+from pmd.extraction.registry import MetadataProfileRegistry, get_default_profile_registry
+from pmd.extraction.profiles.parsing import (
+    FrontmatterResult,
+    parse_frontmatter,
+    extract_inline_tags,
+    extract_tags_from_field,
+)
+from pmd.ontology.model import Ontology, OntologyNode, load_default_ontology, load_ontology
+from pmd.ontology.aliases import TagAliases, load_aliases, load_default_aliases
+from pmd.ontology.inference import LexicalTagMatcher, TagMatch, create_default_matcher
+from pmd.ontology.retrieval import TagRetriever, TagSearchConfig, create_tag_retriever
+from pmd.ontology.scoring import (
+    MetadataBoostConfig,
+    BoostResult,
+    WeightedBoostResult,
+    apply_metadata_boost,
+    apply_metadata_boost_v2,
+)
+from pmd.store.repositories.metadata import DocumentMetadataRepository
+
 
 class TestCrossModuleInteractions:
     """Test that types flow correctly between submodules."""
 
     def test_extraction_produces_expected_metadata_type(self):
         """Extraction profiles return ExtractedMetadata compatible with model."""
-        from pmd.metadata import GenericProfile, ExtractedMetadata
 
         profile = GenericProfile()
         content = """---
@@ -32,8 +53,6 @@ Content with #inline tag.
 
     def test_query_inference_with_model_aliases(self):
         """Query inference can use aliases from model."""
-        from pmd.metadata import create_default_matcher, load_default_aliases
-
         # Get aliases from model
         aliases = load_default_aliases()
         assert aliases.resolve("py") == "python"
@@ -45,8 +64,6 @@ Content with #inline tag.
 
     def test_stored_metadata_compatible_with_extracted(self):
         """StoredDocumentMetadata can be created from ExtractedMetadata fields."""
-        from pmd.metadata import ExtractedMetadata, StoredDocumentMetadata
-
         extracted = ExtractedMetadata(
             tags={"python", "web"},
             source_tags=["#python", "#web"],
@@ -70,11 +87,6 @@ Content with #inline tag.
 
     def test_ontology_expansion_with_query_scoring(self):
         """Ontology expansion produces tags compatible with query scoring."""
-        from pmd.metadata import (
-            Ontology,
-            MetadataBoostConfig,
-        )
-
         ontology = Ontology({
             "ml": {"children": ["ml/supervised", "ml/unsupervised"]},
             "ml/supervised": {"children": ["ml/supervised/regression"]},
@@ -93,12 +105,6 @@ Content with #inline tag.
 
     def test_registry_provides_correct_profile_types(self):
         """Profile registry returns profiles compatible with extraction protocol."""
-        from pmd.metadata import (
-            get_default_profile_registry,
-            ExtractedMetadata,
-            MetadataProfile,
-        )
-
         registry = get_default_profile_registry()
 
         # Generic profile
@@ -117,66 +123,60 @@ class TestPublicAPIConsistency:
     """Test that public API exports are consistent."""
 
     def test_all_model_types_exported(self):
-        """Model types are exported from main metadata module."""
-        from pmd.metadata import (
-            ExtractedMetadata,
-            MetadataProfile,
-            StoredDocumentMetadata,
-            Ontology,
-            OntologyNode,
-            TagAliases,
-        )
+        """Model types are exported from their new locations."""
+        # These are imported at the top of the file
         # If we get here without ImportError, types are exported
-        assert True
+        assert ExtractedMetadata is not None
+        assert MetadataProfile is not None
+        assert StoredDocumentMetadata is not None
+        assert Ontology is not None
+        assert OntologyNode is not None
+        assert TagAliases is not None
 
     def test_all_extraction_types_exported(self):
-        """Extraction types are exported from main metadata module."""
-        from pmd.metadata import (
-            GenericProfile,
-            DraftsProfile,
-            ObsidianProfile,
-            MetadataProfileRegistry,
-            get_default_profile_registry,
-            FrontmatterResult,
-            parse_frontmatter,
-            extract_inline_tags,
-            extract_tags_from_field,
-        )
-        assert True
+        """Extraction types are exported from their new locations."""
+        # These are imported at the top of the file
+        assert GenericProfile is not None
+        assert DraftsProfile is not None
+        assert ObsidianProfile is not None
+        assert MetadataProfileRegistry is not None
+        assert get_default_profile_registry is not None
+        assert FrontmatterResult is not None
+        assert parse_frontmatter is not None
+        assert extract_inline_tags is not None
+        assert extract_tags_from_field is not None
 
     def test_all_query_types_exported(self):
-        """Query types are exported from main metadata module."""
-        from pmd.metadata import (
-            LexicalTagMatcher,
-            TagMatch,
-            create_default_matcher,
-            TagRetriever,
-            TagSearchConfig,
-            create_tag_retriever,
-            MetadataBoostConfig,
-            BoostResult,
-            WeightedBoostResult,
-            apply_metadata_boost,
-            apply_metadata_boost_v2,
-        )
-        assert True
+        """Query types are exported from their new locations."""
+        # These are imported at the top of the file
+        assert LexicalTagMatcher is not None
+        assert TagMatch is not None
+        assert create_default_matcher is not None
+        assert TagRetriever is not None
+        assert TagSearchConfig is not None
+        assert create_tag_retriever is not None
+        assert MetadataBoostConfig is not None
+        assert BoostResult is not None
+        assert WeightedBoostResult is not None
+        assert apply_metadata_boost is not None
+        assert apply_metadata_boost_v2 is not None
 
     def test_store_types_exported(self):
         """Store types are exported from pmd.store.repositories."""
-        from pmd.store.repositories.metadata import DocumentMetadataRepository
-        assert True
+        # Imported at the top of the file
+        assert DocumentMetadataRepository is not None
 
     def test_subpackage_imports_work(self):
         """Direct imports from new module structure work correctly."""
+        # All these are imported at the top of the file
         # Extraction module
-        from pmd.extraction.types import ExtractedMetadata
-        from pmd.extraction.profiles import GenericProfile
-        from pmd.extraction.registry import MetadataProfileRegistry
+        assert ExtractedMetadata is not None
+        assert GenericProfile is not None
+        assert MetadataProfileRegistry is not None
         # Ontology module
-        from pmd.ontology.model import Ontology
-        from pmd.ontology.inference import LexicalTagMatcher
-        from pmd.ontology.retrieval import TagRetriever
-        from pmd.ontology.scoring import apply_metadata_boost
+        assert Ontology is not None
+        assert LexicalTagMatcher is not None
+        assert TagRetriever is not None
+        assert apply_metadata_boost is not None
         # Store repositories
-        from pmd.store.repositories.metadata import DocumentMetadataRepository
-        assert True
+        assert DocumentMetadataRepository is not None
