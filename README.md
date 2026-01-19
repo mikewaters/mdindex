@@ -1,5 +1,10 @@
 # PMD - Python Markdown Search
 
+# test only whats changed
+Using `pytest-testmon`, run 
+# Concurrent tests
+Using `pytest-xdist`, run `pytest -n auto`
+
 # Per-library coverage can be run with:
 pytest tests/pmd/ --cov=src/pmd --cov-report=html:coverage/pmd
 

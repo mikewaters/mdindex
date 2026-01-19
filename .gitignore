@@ -45,3 +45,5 @@ htmlcov/
 # Keep documentation
 !README.md
 !CLAUDE.md
+
+.testmondata

@@ -118,6 +118,11 @@ from pmd.ontology.scoring import (
     get_document_tags_batch,
 )
 
+# =============================================================================
+# Storage - from pmd.store.repositories
+# =============================================================================
+from pmd.store.repositories.metadata import DocumentMetadataRepository
+
 __all__ = [
     # === Extraction Types ===
     "ExtractedMetadata",
@@ -161,4 +166,6 @@ __all__ = [
     "apply_metadata_boost_v2",
     "build_path_to_id_map",
     "get_document_tags_batch",
+    # Storage
+    "DocumentMetadataRepository",
 ]

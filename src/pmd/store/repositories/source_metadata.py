@@ -4,9 +4,8 @@ This module provides storage for source-specific metadata like ETags,
 Last-Modified timestamps, and other information needed for efficient
 incremental updates of remote documents.
 
-Note: Source metadata columns have been merged into the documents table.
-This repository acts as a compatibility wrapper that reads/writes the
-merged columns on documents directly.
+Note: Source metadata is stored in the source_metadata table.
+This repository reads/writes that table directly.
 """
 
 from __future__ import annotations
@@ -49,9 +48,7 @@ class SourceMetadata:
 class SourceMetadataRepository:
     """Repository for source metadata operations.
 
-    Source metadata columns are stored directly on the documents table.
-    This repository provides a compatibility API that reads/writes
-    those merged columns.
+    Source metadata is stored in the source_metadata table.
     """
 
     def __init__(self, db: Database):
@@ -65,8 +62,6 @@ class SourceMetadataRepository:
     def upsert(self, metadata: SourceMetadata) -> None:
         """Insert or update source metadata.
 
-        Updates the source metadata columns on the documents row.
-
         Args:
             metadata: SourceMetadata to store.
         """
@@ -75,18 +70,23 @@ class SourceMetadataRepository:
         with self.db.transaction() as cursor:
             cursor.execute(
                 """
-                UPDATE documents SET
-                    source_uri = ?,
-                    etag = ?,
-                    last_modified = ?,
-                    last_fetched_at = ?,
-                    fetch_duration_ms = ?,
-                    http_status = ?,
-                    content_type = ?,
-                    extra_metadata = ?
-                WHERE id = ?
+                INSERT INTO source_metadata (
+                    document_id, source_uri, etag, last_modified,
+                    last_fetched_at, fetch_duration_ms, http_status,
+                    content_type, extra_metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(document_id) DO UPDATE SET
+                    source_uri = excluded.source_uri,
+                    etag = excluded.etag,
+                    last_modified = excluded.last_modified,
+                    last_fetched_at = excluded.last_fetched_at,
+                    fetch_duration_ms = excluded.fetch_duration_ms,
+                    http_status = excluded.http_status,
+                    content_type = excluded.content_type,
+                    extra_metadata = excluded.extra_metadata
                 """,
                 (
+                    metadata.document_id,
                     metadata.source_uri,
                     metadata.etag,
                     metadata.last_modified,
@@ -95,7 +95,6 @@ class SourceMetadataRepository:
                     metadata.http_status,
                     metadata.content_type,
                     extra_json,
-                    metadata.document_id,
                 ),
             )
 
@@ -110,10 +109,10 @@ class SourceMetadataRepository:
         """
         cursor = self.db.execute(
             """
-            SELECT id as document_id, source_uri, etag, last_modified,
+            SELECT document_id, source_uri, etag, last_modified,
                    last_fetched_at, fetch_duration_ms, http_status,
                    content_type, extra_metadata
-            FROM documents WHERE id = ? AND source_uri IS NOT NULL
+            FROM source_metadata WHERE document_id = ?
             """,
             (document_id,),
         )
@@ -131,10 +130,10 @@ class SourceMetadataRepository:
         """
         cursor = self.db.execute(
             """
-            SELECT id as document_id, source_uri, etag, last_modified,
+            SELECT document_id, source_uri, etag, last_modified,
                    last_fetched_at, fetch_duration_ms, http_status,
                    content_type, extra_metadata
-            FROM documents WHERE source_uri = ? AND active = 1
+            FROM source_metadata WHERE source_uri = ?
             """,
             (source_uri,),
         )
@@ -153,26 +152,17 @@ class SourceMetadataRepository:
         """
         # Check if document exists and has source metadata
         cursor = self.db.execute(
-            "SELECT source_uri FROM documents WHERE id = ?",
+            "SELECT document_id FROM source_metadata WHERE document_id = ?",
             (document_id,),
         )
         row = cursor.fetchone()
-        if not row or row["source_uri"] is None:
+        if not row:
             return False
 
         with self.db.transaction() as cursor:
             cursor.execute(
                 """
-                UPDATE documents SET
-                    source_uri = NULL,
-                    etag = NULL,
-                    last_modified = NULL,
-                    last_fetched_at = NULL,
-                    fetch_duration_ms = NULL,
-                    http_status = NULL,
-                    content_type = NULL,
-                    extra_metadata = NULL
-                WHERE id = ?
+                DELETE FROM source_metadata WHERE document_id = ?
                 """,
                 (document_id,),
             )
@@ -227,9 +217,11 @@ class SourceMetadataRepository:
 
         cursor = self.db.execute(
             """
-            SELECT id FROM documents
-            WHERE source_collection_id = ? AND active = 1
-            AND (last_fetched_at IS NULL OR last_fetched_at < ?)
+            SELECT d.id
+            FROM documents d
+            LEFT JOIN source_metadata sm ON sm.document_id = d.id
+            WHERE d.source_collection_id = ? AND d.active = 1
+            AND (sm.last_fetched_at IS NULL OR sm.last_fetched_at < ?)
             """,
             (source_collection_id, cutoff),
         )
@@ -238,21 +230,24 @@ class SourceMetadataRepository:
     def cleanup_orphans(self) -> int:
         """Remove metadata for deleted documents.
 
-        Since source metadata is now stored in the documents table,
-        orphan cleanup is handled by document deletion. This method
-        is kept for API compatibility but always returns 0.
-
         Returns:
-            Always 0 (no separate table to clean).
+            Number of orphaned metadata rows removed.
         """
-        return 0
+        with self.db.transaction() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM source_metadata
+                WHERE document_id NOT IN (SELECT id FROM documents)
+                """
+            )
+            return cursor.rowcount
 
     @staticmethod
     def _row_to_metadata(row) -> SourceMetadata:
         """Convert database row to SourceMetadata.
 
         Args:
-            row: Database row from documents table query.
+            row: Database row from source_metadata table query.
 
         Returns:
             SourceMetadata object.
