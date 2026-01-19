@@ -43,7 +43,7 @@ def _create_search_adapters(
     passed to SearchService. Creates adapters once for reuse across searches.
 
     Args:
-        llm_provider: LLM provider instance (may be None).
+        llm_provider: LLM provider instance.
         fts_repo: FTS repository.
         embedding_repo: Embedding repository.
         db: Database instance.
@@ -67,26 +67,20 @@ def _create_search_adapters(
     from pmd.ontology.retrieval import TagRetriever
     from pmd.store.repositories.metadata import DocumentMetadataRepository
 
-    # Text searcher (always available)
+    # Text searcher
     text_searcher = FTS5TextSearcher(fts_repo)
 
     # LLM-dependent components
-    embedding_generator = None
-    vector_searcher = None
-    query_expander = None
-    reranker = None
+    embedding_generator = EmbeddingGenerator(llm_provider, embedding_repo, config)
+    vector_searcher = EmbeddingVectorSearcher(embedding_generator)
 
-    if llm_provider:
-        embedding_generator = EmbeddingGenerator(llm_provider, embedding_repo, config)
-        vector_searcher = EmbeddingVectorSearcher(embedding_generator)
+    llm_query_expander = QueryExpander(llm_provider)
+    query_expander = LLMQueryExpanderAdapter(llm_query_expander)
 
-        llm_query_expander = QueryExpander(llm_provider)
-        query_expander = LLMQueryExpanderAdapter(llm_query_expander)
+    llm_reranker = DocumentReranker(llm_provider)
+    reranker = LLMRerankerAdapter(llm_reranker)
 
-        llm_reranker = DocumentReranker(llm_provider)
-        reranker = LLMRerankerAdapter(llm_reranker)
-
-    # Tag-related components (always create, may be None if config disabled)
+    # Tag-related components
     tag_matcher = LexicalTagMatcher()
     ontology = load_default_ontology()
     tag_inferencer = LexicalTagInferencer(tag_matcher, ontology)
@@ -131,6 +125,7 @@ async def create_application(config: "Config") -> Application:
     # Lazy imports to avoid circular dependencies
     from pmd.store.database import Database
     from pmd.store.repositories.embeddings import EmbeddingRepository
+    from pmd.store.repositories.fts import FTS5SearchRepository
     from pmd.data import IndexingData, LoadingData, SearchData, StatusData
     from pmd.services.indexing import IndexingService
     from pmd.services.loading import LoadingService
@@ -150,19 +145,17 @@ async def create_application(config: "Config") -> Application:
     search_data = SearchData(db)
     status_data = StatusData(db)
 
-    # Keep embedding_repo reference for search adapters (temporary)
-    embedding_repo = indexing_data.embedding_repo
+    # Create repositories needed for search adapters
+    embedding_repo = EmbeddingRepository(db)
+    fts_repo = FTS5SearchRepository(db)
 
-    # Create LLM provider (may be None if provider unavailable)
-    try:
-        llm_provider = create_llm_provider(config)
-    except (ValueError, RuntimeError):
-        llm_provider = None
+    # Create LLM provider (required - will raise if unavailable)
+    llm_provider = create_llm_provider(config)
 
     # Create search adapters (pre-assembled for SearchService)
     search_adapters = _create_search_adapters(
         llm_provider=llm_provider,
-        fts_repo=indexing_data.fts_repo,
+        fts_repo=fts_repo,
         embedding_repo=embedding_repo,
         db=db,
         config=config,
@@ -171,15 +164,7 @@ async def create_application(config: "Config") -> Application:
     # Create embedding generator factory for IndexingService
     # (IndexingService still uses factories for now)
     async def get_embedding_generator():
-        if llm_provider:
-            return EmbeddingGenerator(llm_provider, embedding_repo, config)
-        return None
-
-    # Check LLM availability
-    async def is_llm_available():
-        if llm_provider:
-            return await llm_provider.is_available()
-        return False
+        return EmbeddingGenerator(llm_provider, embedding_repo, config)
 
     # Create source registry
     source_registry = get_default_registry()
@@ -198,7 +183,6 @@ async def create_application(config: "Config") -> Application:
         data=indexing_data,
         loader=loading,
         embedding_generator_factory=get_embedding_generator,  # type: ignore
-        llm_available_check=is_llm_available,
         source_registry=source_registry,
         cacher=cacher,
     )
@@ -206,15 +190,16 @@ async def create_application(config: "Config") -> Application:
     # Create search service with data access layer and pre-assembled adapters
     search = SearchService(
         data=search_data,
-        # Pre-created adapters
+        # Pre-created adapters (LLM-dependent)
         text_searcher=search_adapters["text_searcher"],
         vector_searcher=search_adapters["vector_searcher"],
         query_expander=search_adapters["query_expander"],
         reranker=search_adapters["reranker"],
+        embedding_generator=search_adapters["embedding_generator"],
+        # Optional adapters (not LLM-dependent)
         tag_inferencer=search_adapters["tag_inferencer"],
         tag_searcher=search_adapters["tag_searcher"],
         metadata_booster=search_adapters["metadata_booster"],
-        embedding_generator=search_adapters["embedding_generator"],
         # Config
         fts_weight=config.search.fts_weight,
         vec_weight=config.search.vec_weight,
@@ -225,8 +210,8 @@ async def create_application(config: "Config") -> Application:
     status = StatusService(
         data=status_data,
         db_path=config.db_path,
-        llm_provider=config.llm_provider,
-        llm_available_check=is_llm_available,
+        llm_provider_name=config.llm_provider,
+        llm_provider_instance=llm_provider,
         vec_available=db.vec_available,
     )
 

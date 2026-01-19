@@ -41,7 +41,7 @@ class Application:
     def __init__(
         self,
         db: "Database",
-        llm_provider: "LLMProvider | None",
+        llm_provider: "LLMProvider",
         loading: "LoadingService",
         indexing: "IndexingService",
         search: "SearchService",
@@ -54,7 +54,7 @@ class Application:
 
         Args:
             db: Database instance.
-            llm_provider: LLM provider instance (may be None).
+            llm_provider: LLM provider instance.
             loading: LoadingService instance.
             indexing: IndexingService instance.
             search: SearchService instance.
@@ -111,20 +111,9 @@ class Application:
         """Check if vector storage is available."""
         return self._db.vec_available
 
-    async def is_llm_available(self) -> bool:
-        """Check if LLM provider is available.
-
-        Returns:
-            True if LLM provider can be reached.
-        """
-        if self._llm_provider:
-            return await self._llm_provider.is_available()
-        return False
-
     async def close(self) -> None:
         """Clean shutdown of all resources."""
-        if self._llm_provider:
-            await self._llm_provider.close()
+        await self._llm_provider.close()
         self._db.close()
 
     async def __aenter__(self) -> "Application":

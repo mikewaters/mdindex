@@ -2,6 +2,7 @@
 
 import pytest
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from pmd.app import create_application
 from pmd.core.config import Config
@@ -17,13 +18,21 @@ from pmd.store.database import Database
 
 
 def _create_search_service(db: Database) -> SearchService:
-    """Create a SearchService with data access layer from a Database."""
+    """Create a SearchService with data access layer from a Database.
+
+    Provides mock implementations for LLM-dependent components since
+    these tests focus on FTS-only functionality.
+    """
     search_data = SearchData(db)
     fts_repo = FTS5SearchRepository(db)
     text_searcher = FTS5TextSearcher(fts_repo)
     return SearchService(
         data=search_data,
         text_searcher=text_searcher,
+        vector_searcher=MagicMock(),
+        query_expander=MagicMock(),
+        reranker=MagicMock(),
+        embedding_generator=MagicMock(),
     )
 
 

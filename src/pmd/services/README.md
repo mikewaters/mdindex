@@ -24,7 +24,6 @@ Key methods:
 - `get_llm_provider()` - Async factory for LLM
 - `get_embedding_generator()` - Async factory for embeddings
 - `vec_available` - Check sqlite-vec availability
-- `is_llm_available()` - Async LLM health check
 
 ### `indexing.py`
 
@@ -118,6 +117,7 @@ graph TD
 
 Key methods:
 - `get_index_status()` - Quick status summary
-- `get_full_status()` - Comprehensive async status
+- `get_full_status()` - Comprehensive async status with LLM availability
 - `get_collection_stats()` - Per-collection statistics
 - `get_index_sync_report()` - FTS/vector sync status
+- `check_llm_available()` - Async LLM health check (for diagnostics)

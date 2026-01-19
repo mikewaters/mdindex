@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, Awaitable
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from pmd.data import StatusData
 from ..core.types import IndexStatus
+
+if TYPE_CHECKING:
+    from ..llm.base import LLMProvider
 
 
 class StatusService:
@@ -17,7 +20,7 @@ class StatusService:
     This service provides information about:
     - Index statistics (document counts, sizes)
     - Collection information
-    - LLM provider availability
+    - LLM provider availability (for diagnostics)
 
     Example:
 
@@ -32,8 +35,8 @@ class StatusService:
         self,
         data: StatusData,
         db_path: Path | None = None,
-        llm_provider: str = "unknown",
-        llm_available_check: Callable[[], Awaitable[bool]] | None = None,
+        llm_provider_name: str = "unknown",
+        llm_provider_instance: "LLMProvider | None" = None,
         vec_available: bool = False,
     ):
         """Initialize StatusService.
@@ -41,14 +44,14 @@ class StatusService:
         Args:
             data: Data access layer for status operations.
             db_path: Path to the database file.
-            llm_provider: Name of the LLM provider.
-            llm_available_check: Async function to check if LLM is available.
+            llm_provider_name: Name of the LLM provider (for display).
+            llm_provider_instance: LLM provider for availability checks.
             vec_available: Whether vector storage is available.
         """
         self._data = data
         self._db_path = db_path
-        self._llm_provider = llm_provider
-        self._llm_available_check = llm_available_check
+        self._llm_provider_name = llm_provider_name
+        self._llm_provider_instance = llm_provider_instance
         self._vec_available = vec_available
 
     @property
@@ -100,6 +103,25 @@ class StatusService:
             models_available={},
         )
 
+    async def check_llm_available(self) -> bool:
+        """Check if LLM provider is available and reachable.
+
+        This is a diagnostic method for callers who want to verify
+        LLM connectivity before operations. Note that operations should
+        generally just attempt to use the LLM and handle errors naturally
+        rather than pre-checking availability.
+
+        Returns:
+            True if LLM provider can be reached, False otherwise.
+        """
+        if not self._llm_provider_instance:
+            return False
+        try:
+            return await self._llm_provider_instance.is_available()
+        except Exception as e:
+            logger.warning(f"LLM availability check failed: {e}")
+            return False
+
     async def get_full_status(self) -> dict:
         """Get comprehensive status including LLM availability.
 
@@ -108,10 +130,8 @@ class StatusService:
         """
         index_status = self.get_index_status()
 
-        # Check LLM availability
-        llm_available = False
-        if self._llm_available_check:
-            llm_available = await self._llm_available_check()
+        # Check LLM availability (for status reporting)
+        llm_available = await self.check_llm_available()
 
         return {
             "source_collections_count": len(index_status.source_collections),
@@ -128,7 +148,7 @@ class StatusService:
             "index_size_bytes": index_status.index_size_bytes,
             "embeddings_count": index_status.cache_entries,
             "database_path": str(self._db_path) if self._db_path else "",
-            "llm_provider": self._llm_provider,
+            "llm_provider": self._llm_provider_name,
             "llm_available": llm_available,
             "vec_available": self.vec_available,
         }

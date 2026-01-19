@@ -90,14 +90,9 @@ async def _handle_vsearch_async(args, config: Config) -> None:
         config: Application configuration.
     """
     async with await create_application(config) as app:
-        # Check if vector search is available
+        # Check if vector search is available (sqlite-vec is optional)
         if not app.vec_available:
             print("Vector search not available (sqlite-vec extension not loaded)")
-            return
-
-        # Check if LLM is available
-        if not await app.is_llm_available():
-            print("LLM provider not available (is it running?)")
             return
 
         results = await app.search.vector_search(
@@ -130,16 +125,13 @@ async def _handle_query_async(args, config: Config) -> None:
         config: Application configuration.
     """
     async with await create_application(config) as app:
-        # Check if LLM is available for query expansion/reranking
-        llm_available = await app.is_llm_available()
-
         results = await app.search.hybrid_search(
             args.query,
             limit=args.limit,
             collection_name=args.collection,
             min_score=args.score,
-            enable_query_expansion=llm_available,
-            enable_reranking=llm_available,
+            enable_query_expansion=True,
+            enable_reranking=True,
         )
 
         _print_search_results(results, "Hybrid Search")

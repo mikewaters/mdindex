@@ -25,7 +25,6 @@ from pmd.app.protocols import (
     LoadingServiceProtocol,
 )
 from pmd.data import IndexingData
-from pmd.store import Database
 from pmd.search.text import is_indexable
 
 if TYPE_CHECKING:
@@ -94,8 +93,7 @@ class IndexingService:
         self,
         data: IndexingData,
         loader: LoadingServiceProtocol,
-        embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]] | None = None,
-        llm_available_check: Callable[[], Awaitable[bool]] | None = None,
+        embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]],
         source_registry: SourceRegistry | None = None,
         cacher: "DocumentCacher | None" = None,
     ):
@@ -105,14 +103,12 @@ class IndexingService:
             data: Data access layer for indexing operations.
             loader: Loading service for document retrieval.
             embedding_generator_factory: Async factory for embedding generator.
-            llm_available_check: Async function to check if LLM is available.
             source_registry: Optional source registry for creating sources.
             cacher: Optional document cacher for local file caching.
         """
         self._data = data
         self._loader = loader
         self._embedding_generator_factory = embedding_generator_factory
-        self._llm_available_check = llm_available_check
         self._source_registry = source_registry or get_default_registry()
         self._cacher = cacher
 
@@ -340,9 +336,9 @@ class IndexingService:
         if doc_id is not None:
             # FTS5 indexing (only if content is indexable)
             if is_indexable(doc.content):
-                self._data.fts_repo.index_document(doc_id, doc.path, doc.content)
+                self._data.index_document_for_search(doc_id, doc.path, doc.content)
             else:
-                self._data.fts_repo.remove_from_index(doc_id)
+                self._data.remove_from_search_index(doc_id)
 
             # Store source metadata
             metadata = SourceMetadata(
@@ -428,19 +424,13 @@ class IndexingService:
 
         Raises:
             SourceCollectionNotFoundError: If collection does not exist.
-            RuntimeError: If vector storage or LLM provider is not available.
+            RuntimeError: If vector storage is not available.
         """
         # Validate prerequisites
-        if not self._embedding_generator_factory:
-            raise RuntimeError("Embedding generator not configured")
-
         if not self._data.db.vec_available:
             raise RuntimeError(
                 "Vector storage not available (sqlite-vec extension not loaded)"
             )
-
-        if self._llm_available_check and not await self._llm_available_check():
-            raise RuntimeError("LLM provider not available (is it running?)")
 
         # Verify collection exists
         source_collection = self._data.get_collection_by_name(collection_name)
@@ -470,7 +460,7 @@ class IndexingService:
 
         for idx, (path, doc_hash, content) in enumerate(embed_targets):
             # Check if already embedded (unless force)
-            if not force and self._data.embedding_repo.has_embeddings(doc_hash):
+            if not force and self._data.has_embeddings(doc_hash):
                 skipped_count += 1
                 continue
 
@@ -520,7 +510,7 @@ class IndexingService:
             List of (path, hash, content) tuples.
         """
         # Query all active documents in collection with their content
-        rows = self._data.document_repo.list_active_with_content(source_collection_id)
+        rows = self._data.list_active_with_content(source_collection_id)
         return list(rows)
 
     async def update_all_collections(self, embed: bool = False) -> dict[str, IndexResult]:

@@ -370,8 +370,8 @@ class TestIndexingServiceEmbedCollection:
             if not app.vec_available:
                 pytest.skip("sqlite-vec not available")
 
-            # Skip if LLM not available
-            if not await app.is_llm_available():
+            # Skip if LLM not available (use status service for diagnostic check)
+            if not await app.status.check_llm_available():
                 pytest.skip("LLM provider not available")
 
             app.source_collection_repo.create("test", str(tmp_path), "**/*.md")

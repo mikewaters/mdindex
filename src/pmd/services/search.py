@@ -49,13 +49,14 @@ class SearchService:
         data: SearchData,
         # Pre-created adapters
         text_searcher: "TextSearcher",
-        vector_searcher: "VectorSearcher | None" = None,
-        query_expander: "QueryExpander | None" = None,
-        reranker: "Reranker | None" = None,
+        vector_searcher: "VectorSearcher",
+        query_expander: "QueryExpander",
+        reranker: "Reranker",
+        embedding_generator: "EmbeddingGeneratorProtocol",
+        # Optional adapters (not LLM-dependent)
         tag_inferencer: "TagInferencer | None" = None,
         tag_searcher: "TagSearcher | None" = None,
         metadata_booster: "MetadataBooster | None" = None,
-        embedding_generator: "EmbeddingGeneratorProtocol | None" = None,
         # Config
         fts_weight: float = 1.0,
         vec_weight: float = 1.0,
@@ -67,13 +68,13 @@ class SearchService:
         Args:
             data: Data access layer for search operations.
             text_searcher: Pre-created text searcher adapter.
-            vector_searcher: Pre-created vector searcher adapter (optional).
-            query_expander: Pre-created query expander adapter (optional).
-            reranker: Pre-created reranker adapter (optional).
+            vector_searcher: Pre-created vector searcher adapter.
+            query_expander: Pre-created query expander adapter.
+            reranker: Pre-created reranker adapter.
+            embedding_generator: Embedding generator for vector search.
             tag_inferencer: Pre-created tag inferencer adapter (optional).
             tag_searcher: Pre-created tag searcher adapter (optional).
             metadata_booster: Pre-created metadata booster adapter (optional).
-            embedding_generator: Embedding generator for vector search (optional).
             fts_weight: Weight for FTS results in hybrid search.
             vec_weight: Weight for vector results in hybrid search.
             rrf_k: RRF parameter k.
@@ -167,9 +168,6 @@ class SearchService:
                 "Vector search not available (sqlite-vec extension not loaded)"
             )
 
-        if not self._embedding_generator:
-            raise RuntimeError("Embedding generator not configured")
-
         collection_id = self._resolve_collection_id(collection_name)
 
         logger.debug(
@@ -182,11 +180,6 @@ class SearchService:
 
         if not query_embedding:
             logger.warning("Failed to generate query embedding")
-            return []
-
-        # Execute vector search via the vector searcher adapter
-        if not self._vector_searcher:
-            logger.warning("Vector searcher not available")
             return []
 
         results = await self._vector_searcher.search(

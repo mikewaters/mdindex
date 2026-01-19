@@ -48,7 +48,7 @@ class TestApplication:
 
         app = Application(
             db=db,
-            llm_provider=None,
+            llm_provider=MagicMock(),
             loading=MagicMock(),
             indexing=MagicMock(),
             search=MagicMock(),
@@ -62,7 +62,7 @@ class TestApplication:
         """config property should return configuration."""
         app = Application(
             db=MagicMock(),
-            llm_provider=None,
+            llm_provider=MagicMock(),
             loading=MagicMock(),
             indexing=MagicMock(),
             search=MagicMock(),
@@ -79,7 +79,7 @@ class TestApplication:
 
         app = Application(
             db=db,
-            llm_provider=None,
+            llm_provider=MagicMock(),
             loading=MagicMock(),
             indexing=MagicMock(),
             search=MagicMock(),
@@ -93,7 +93,7 @@ class TestApplication:
         assert app.vec_available is False
 
     @pytest.mark.asyncio
-    async def test_application_close_with_llm(self, config: Config):
+    async def test_application_close(self, config: Config):
         """close() should close both LLM provider and database."""
         db = MagicMock()
         llm_provider = AsyncMock()
@@ -114,32 +114,14 @@ class TestApplication:
         db.close.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_application_close_without_llm(self, config: Config):
-        """close() should work when LLM provider is None."""
-        db = MagicMock()
-
-        app = Application(
-            db=db,
-            llm_provider=None,
-            loading=MagicMock(),
-            indexing=MagicMock(),
-            search=MagicMock(),
-            status=MagicMock(),
-            config=config,
-        )
-
-        await app.close()
-
-        db.close.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_application_context_manager(self, config: Config):
         """Application should work as async context manager."""
         db = MagicMock()
+        llm_provider = AsyncMock()
 
         app = Application(
             db=db,
-            llm_provider=None,
+            llm_provider=llm_provider,
             loading=MagicMock(),
             indexing=MagicMock(),
             search=MagicMock(),
@@ -150,6 +132,7 @@ class TestApplication:
         async with app as entered_app:
             assert entered_app is app
 
+        llm_provider.close.assert_awaited_once()
         db.close.assert_called_once()
 
 
@@ -178,16 +161,15 @@ class TestCreateApplication:
             assert app.status is not None
 
     @pytest.mark.asyncio
-    async def test_create_application_handles_llm_provider_error(
+    async def test_create_application_raises_on_invalid_llm_provider(
         self, config: Config
     ):
-        """create_application should handle LLM provider creation errors."""
+        """create_application should raise on invalid LLM provider."""
         # Use a provider name that will raise ValueError
         config.llm_provider = "nonexistent-provider"
 
-        async with await create_application(config) as app:
-            # LLM provider should be None due to ValueError
-            assert app._llm_provider is None
+        with pytest.raises(ValueError):
+            await create_application(config)
 
     @pytest.mark.asyncio
     async def test_create_application_cleans_up_on_context_exit(
