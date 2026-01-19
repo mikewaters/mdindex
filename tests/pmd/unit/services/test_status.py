@@ -6,7 +6,7 @@ from pathlib import Path
 from pmd.app import create_application
 from pmd.core.config import Config
 from pmd.core.types import IndexStatus
-from pmd.data import StatusData
+from pmd.store import StatusFacade
 from pmd.services.status import StatusService
 from pmd.store.repositories.collections import SourceCollectionRepository
 from pmd.store.database import Database
@@ -17,7 +17,7 @@ from pmd.store.schema import EMBEDDING_DIMENSION
 
 
 def make_status_service(db: Database, config: Config) -> StatusService:
-    """Create a StatusService with data access layer.
+    """Create a StatusService with facade.
 
     Args:
         db: Database instance.
@@ -26,9 +26,9 @@ def make_status_service(db: Database, config: Config) -> StatusService:
     Returns:
         Configured StatusService.
     """
-    status_data = StatusData(db)
+    facade = StatusFacade(db)
     return StatusService(
-        data=status_data,
+        facade=facade,
         db_path=config.db_path,
         vec_available=db.vec_available,
     )

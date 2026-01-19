@@ -8,7 +8,7 @@ from loguru import logger
 
 from ..core.types import RankedResult, SearchResult
 from ..search.pipeline import HybridSearchPipeline, SearchPipelineConfig
-from pmd.data import SearchData
+from pmd.store import SearchFacade
 
 if TYPE_CHECKING:
     from ..app.protocols import (
@@ -36,7 +36,7 @@ class SearchService:
 
     Example:
         search = SearchService(
-            data=search_data,
+            facade=search_facade,
             text_searcher=fts_text_searcher,
             fts_weight=1.0,
             vec_weight=1.0,
@@ -46,7 +46,7 @@ class SearchService:
 
     def __init__(
         self,
-        data: SearchData,
+        facade: SearchFacade,
         # Pre-created adapters
         text_searcher: "TextSearcher",
         vector_searcher: "VectorSearcher",
@@ -66,7 +66,7 @@ class SearchService:
         """Initialize SearchService with pre-created adapters.
 
         Args:
-            data: Data access layer for search operations.
+            facade: Facade for search data operations.
             text_searcher: Pre-created text searcher adapter.
             vector_searcher: Pre-created vector searcher adapter.
             query_expander: Pre-created query expander adapter.
@@ -80,7 +80,7 @@ class SearchService:
             rrf_k: RRF parameter k.
             rerank_candidates: Number of candidates for reranking.
         """
-        self._data = data
+        self._data = facade
 
         # Store adapters
         self._text_searcher = text_searcher

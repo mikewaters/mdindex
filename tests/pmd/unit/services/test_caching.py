@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 
 from pmd.core.config import CacheConfig
-from pmd.services.caching import DocumentCacher
+from pmd.store.caching import DocumentCacher
 
 
 class TestDocumentCacher:

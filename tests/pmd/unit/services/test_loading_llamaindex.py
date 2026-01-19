@@ -9,15 +9,15 @@ from unittest.mock import MagicMock
 from pmd.core.config import Config
 from pmd.core.exceptions import SourceCollectionNotFoundError
 from pmd.app import create_application
-from pmd.data import LoadingData
+from pmd.store import LoadFacade
 from pmd.services.loading import LoadingService
 from pmd.services.loading_llamaindex import LlamaIndexLoaderAdapter
 
 
 def _create_loading_service(app) -> LoadingService:
-    """Create a LoadingService with data access layer from an Application."""
-    loading_data = LoadingData(app.db)
-    return LoadingService(data=loading_data)
+    """Create a LoadingService with facade from an Application."""
+    facade = LoadFacade(app.db)
+    return LoadingService(facade=facade)
 
 
 @dataclass

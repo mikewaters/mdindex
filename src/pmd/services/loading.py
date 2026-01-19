@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator
 from loguru import logger
 
 from pmd.core.exceptions import SourceCollectionNotFoundError
-from pmd.data import LoadingData
+from pmd.store import LoadFacade
 from pmd.metadata import ExtractedMetadata, get_default_profile_registry
 from pmd.sources.content.base import (
     DocumentReference,
@@ -111,9 +111,9 @@ class LoadingService:
     """Service for loading documents from sources.
 
     Responsibilities:
-    - Resolve source collection and source (via LoadingData + SourceRegistry).
+    - Resolve source collection and source (via LoadFacade + SourceRegistry).
     - Enumerate DocumentReference values from a DocumentSource.
-    - Perform change detection using LoadingData and DocumentSource.check_modified.
+    - Perform change detection using LoadFacade and DocumentSource.check_modified.
     - Fetch document content (DocumentSource.fetch_content).
     - Extract title if missing.
     - Extract metadata via profile registry, honoring source_collection.source_config["metadata_profile"].
@@ -125,7 +125,7 @@ class LoadingService:
     - No embeddings.
 
     Example:
-        loader = LoadingService(data=LoadingData(db))
+        loader = LoadingService(facade=LoadFacade(db))
         result = await loader.load_collection_eager("my-docs")
         for doc in result.documents:
             print(doc.path, doc.title)
@@ -133,14 +133,14 @@ class LoadingService:
 
     def __init__(
         self,
-        data: LoadingData,
+        facade: LoadFacade,
     ):
         """Initialize LoadingService.
 
         Args:
-            data: Data access layer for loading operations (collections, documents, metadata).
+            facade: Facade for loading data operations.
         """
-        self._data = data
+        self._data = facade
         self._source_registry = get_default_registry()
 
     async def load_collection_eager(

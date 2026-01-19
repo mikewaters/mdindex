@@ -23,12 +23,12 @@ from pmd.app.protocols import (
     EmbeddingGeneratorProtocol,
     LoadingServiceProtocol,
 )
-from pmd.data import IndexingData
+from pmd.store import IndexFacade
 from pmd.search.text import is_indexable
 
 if TYPE_CHECKING:
     from pmd.services.loading import LoadedDocument
-    from pmd.services.caching import DocumentCacher
+    from pmd.store.caching import DocumentCacher
     from pmd.store.repositories.source_metadata import SourceMetadataRepository
 
 
@@ -82,7 +82,7 @@ class IndexingService:
     Example:
 
         indexing = IndexingService(
-            data=IndexingData(db),
+            facade=IndexFacade(db),
             loader=loading_service,
         )
         result = await indexing.index_collection("my-docs", source=source)
@@ -90,7 +90,7 @@ class IndexingService:
 
     def __init__(
         self,
-        data: IndexingData,
+        facade: IndexFacade,
         loader: LoadingServiceProtocol,
         embedding_generator_factory: Callable[[], Awaitable[EmbeddingGeneratorProtocol]] | None = None,
         cacher: "DocumentCacher | None" = None,
@@ -98,12 +98,12 @@ class IndexingService:
         """Initialize IndexingService.
 
         Args:
-            data: Data access layer for indexing operations.
+            facade: Facade for indexing data operations.
             loader: Loading service for document retrieval.
             embedding_generator_factory: Async factory for embedding generator.
             cacher: Optional document cacher for local file caching.
         """
-        self._data = data
+        self._data = facade
         self._loader = loader
         self._embedding_generator_factory = embedding_generator_factory
         self._source_registry = get_default_registry()

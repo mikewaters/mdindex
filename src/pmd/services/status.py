@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from pmd.data import StatusData
+from pmd.store import StatusFacade
 from ..core.types import IndexStatus
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ class StatusService:
     Example:
 
         status_service = StatusService(
-            data=status_data,
+            facade=status_facade,
             db_path=config.db_path,
         )
         status = status_service.get_index_status()
@@ -33,7 +33,7 @@ class StatusService:
 
     def __init__(
         self,
-        data: StatusData,
+        facade: StatusFacade,
         db_path: Path | None = None,
         llm_provider_name: str = "unknown",
         llm_provider_instance: "LLMProvider | None" = None,
@@ -42,13 +42,13 @@ class StatusService:
         """Initialize StatusService.
 
         Args:
-            data: Data access layer for status operations.
+            facade: Facade for status data operations.
             db_path: Path to the database file.
             llm_provider_name: Name of the LLM provider (for display).
             llm_provider_instance: LLM provider for availability checks.
             vec_available: Whether vector storage is available.
         """
-        self._data = data
+        self._data = facade
         self._db_path = db_path
         self._llm_provider_name = llm_provider_name
         self._llm_provider_instance = llm_provider_instance

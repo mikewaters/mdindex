@@ -126,23 +126,23 @@ async def create_application(config: "Config") -> Application:
     from pmd.store.database import Database
     from pmd.store.repositories.embeddings import EmbeddingRepository
     from pmd.store.repositories.fts import FTS5SearchRepository
-    from pmd.data import IndexingData, LoadingData, SearchData, StatusData
+    from pmd.store import IndexFacade, LoadFacade, SearchFacade, StatusFacade
     from pmd.services.indexing import IndexingService
     from pmd.services.loading import LoadingService
     from pmd.services.search import SearchService
     from pmd.services.status import StatusService
     from pmd.llm import create_llm_provider, EmbeddingGenerator
-    from pmd.services.caching import DocumentCacher
+    from pmd.store.caching import DocumentCacher
 
     # Create and connect database
     db = Database(config.db_path)
     db.connect()
 
-    # Create data access layer instances
-    indexing_data = IndexingData(db)
-    loading_data = LoadingData(db)
-    search_data = SearchData(db)
-    status_data = StatusData(db)
+    # Create facade instances
+    index_facade = IndexFacade(db)
+    load_facade = LoadFacade(db)
+    search_facade = SearchFacade(db)
+    status_facade = StatusFacade(db)
 
     # Create repositories needed for search adapters
     embedding_repo = EmbeddingRepository(db)
@@ -168,20 +168,20 @@ async def create_application(config: "Config") -> Application:
     # Create document cacher (if enabled in config)
     cacher = DocumentCacher(config.cache) if config.cache.enabled else None
 
-    # Create loading service with data access layer
-    loading = LoadingService(data=loading_data)
+    # Create loading service
+    loading = LoadingService(facade=load_facade)
 
-    # Create services with data access layer
+    # Create services
     indexing = IndexingService(
-        data=indexing_data,
+        facade=index_facade,
         loader=loading,
         embedding_generator_factory=get_embedding_generator,  # type: ignore
         cacher=cacher,
     )
 
-    # Create search service with data access layer and pre-assembled adapters
+    # Create search service with pre-assembled adapters
     search = SearchService(
-        data=search_data,
+        facade=search_facade,
         # Pre-created adapters (LLM-dependent)
         text_searcher=search_adapters["text_searcher"],
         vector_searcher=search_adapters["vector_searcher"],
@@ -200,7 +200,7 @@ async def create_application(config: "Config") -> Application:
     )
 
     status = StatusService(
-        data=status_data,
+        facade=status_facade,
         db_path=config.db_path,
         llm_provider_name=config.llm_provider,
         llm_provider_instance=llm_provider,
