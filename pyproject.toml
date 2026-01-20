@@ -36,10 +36,11 @@ build-backend = "hatchling.build"
 # TODO: allow libraries to be independently testable.
 
 [tool.uv.workspace]
-members = ["src/pmd"]
+members = ["src/pmd", "src/idx"]
 
 [tool.uv.sources]
 pmd = { workspace = true }
+idx = { workspace = true }
 
 # Include app/ directory as part of root package (non-distributable)
 [tool.hatch.build.targets.wheel]
@@ -57,7 +58,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["src/pmd", "app"]
+source = ["src/pmd", "src/idx", "app"]
 branch = true
 omit = ["*/tests/*", "*/__pycache__/*"]
 
