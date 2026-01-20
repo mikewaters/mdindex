@@ -1,24 +1,21 @@
 """idx.transform.llama - LlamaIndex TransformComponent wrappers.
 
 Provides LlamaIndex-compatible transform components that wrap idx functionality
-for use in ingestion pipelines.
+for use in ingestion pipelines. Uses ambient session via contextvars.
 
 Example usage:
     from llama_index.core.ingestion import IngestionPipeline
     from idx.transform.llama import TextNormalizerTransform, PersistenceTransform
+    from idx.store import get_session, use_session
 
-    persist = PersistenceTransform(
-        session_factory=get_session,
-        dataset_id=1,
-    )
-    pipeline = IngestionPipeline(
-        transformations=[
-            TextNormalizerTransform(),
-            persist,
-        ]
-    )
-    nodes = pipeline.run(documents=documents)
-    print(f"Created: {persist.stats['created']}")
+    with get_session() as session:
+        with use_session(session):
+            persist = PersistenceTransform(dataset_id=1)
+            pipeline = IngestionPipeline(
+                transformations=[TextNormalizerTransform(), persist]
+            )
+            nodes = pipeline.run(documents=documents)
+            print(f"Created: {persist.stats.created}")
 """
 
 from collections.abc import Callable
@@ -34,6 +31,7 @@ from idx.core.logging import get_logger
 from idx.store.fts import FTSManager
 from idx.store.models import Document
 from idx.store.repositories import DocumentRepository
+from idx.store.session_context import current_session
 from idx.transform.normalize import TextNormalizer
 
 __all__ = [
@@ -330,29 +328,25 @@ class PersistenceTransform(TransformComponent):
     4. Update FTS index
     5. Track statistics
 
-    The transform requires a session factory and dataset_id. Statistics are
-    available via the `stats` property after the transform runs.
+    The transform uses the ambient session from the current context (set via
+    `use_session()`). Statistics are available via the `stats` property.
 
     Example:
-        persist = PersistenceTransform(
-            session_factory=get_session,
-            dataset_id=dataset_id,
-        )
-        pipeline = IngestionPipeline(
-            transformations=[
-                TextNormalizerTransform(),
-                persist,
-            ]
-        )
-        nodes = pipeline.run(documents=documents)
-        print(f"Created {persist.stats.created} documents")
+        # With ambient session (preferred)
+        with get_session() as session:
+            with use_session(session):
+                persist = PersistenceTransform(dataset_id=dataset_id)
+                pipeline = IngestionPipeline(
+                    transformations=[TextNormalizerTransform(), persist]
+                )
+                pipeline.run(documents=documents)
+                print(f"Created {persist.stats.created} documents")
 
     Attributes:
         stats: PersistenceStats with counts of created/updated/skipped/failed.
     """
 
     # Private attributes (not Pydantic fields)
-    _session_factory: Callable[[], Any] | None = None
     _dataset_id: int = 0
     _force: bool = False
     _path_key: str = "relative_path"
@@ -360,7 +354,6 @@ class PersistenceTransform(TransformComponent):
 
     def __init__(
         self,
-        session_factory: Callable[[], Any],
         dataset_id: int,
         *,
         force: bool = False,
@@ -370,15 +363,12 @@ class PersistenceTransform(TransformComponent):
         """Initialize the persistence transform.
 
         Args:
-            session_factory: Callable that returns a context manager yielding
-                a SQLAlchemy session.
             dataset_id: ID of the dataset to persist documents to.
             force: If True, update all documents even if unchanged.
             path_key: Metadata key for the document path (default: "relative_path").
             **kwargs: Additional arguments passed to TransformComponent.
         """
         super().__init__(**kwargs)
-        self._session_factory = session_factory
         self._dataset_id = dataset_id
         self._force = force
         self._path_key = path_key
@@ -405,45 +395,53 @@ class PersistenceTransform(TransformComponent):
         - Updates FTS index
         - Tracks statistics
 
+        Requires an ambient session to be set via `use_session()`.
+
         Args:
             nodes: List of nodes to persist.
             **kwargs: Additional arguments (unused).
 
         Returns:
             The same nodes with doc_id added to metadata.
+
+        Raises:
+            SessionNotSetError: If no ambient session is set.
         """
         # Reset stats for this run
         self.stats.reset()
 
-        with self._session_factory() as session:
-            doc_repo = DocumentRepository(session)
-            fts = FTSManager(session)
+        # Get ambient session - raises SessionNotSetError if not set
+        session = current_session()
 
-            # Pre-fetch existing documents for efficiency
-            existing_paths = doc_repo.list_paths_by_dataset(
-                self._dataset_id, active_only=False
-            )
-            existing_docs: dict[str, Document | None] = {
-                path: doc_repo.get_by_path(self._dataset_id, path)
-                for path in existing_paths
-            }
+        # Use ambient session for repositories
+        doc_repo = DocumentRepository()
+        fts = FTSManager()
 
-            for node in nodes:
-                try:
-                    self._process_node(
-                        session=session,
-                        doc_repo=doc_repo,
-                        fts=fts,
-                        node=node,
-                        existing_docs=existing_docs,
-                    )
-                except Exception as e:
-                    path = self._get_path(node)
-                    logger.error(f"Failed to persist {path}: {e}")
-                    self.stats.failed += 1
-                    self.stats.errors.append(f"{path}: {e}")
+        # Pre-fetch existing documents for efficiency
+        existing_paths = doc_repo.list_paths_by_dataset(
+            self._dataset_id, active_only=False
+        )
+        existing_docs: dict[str, Document | None] = {
+            path: doc_repo.get_by_path(self._dataset_id, path)
+            for path in existing_paths
+        }
 
-            session.flush()
+        for node in nodes:
+            try:
+                self._process_node(
+                    session=session,
+                    doc_repo=doc_repo,
+                    fts=fts,
+                    node=node,
+                    existing_docs=existing_docs,
+                )
+            except Exception as e:
+                path = self._get_path(node)
+                logger.error(f"Failed to persist {path}: {e}")
+                self.stats.failed += 1
+                self.stats.errors.append(f"{path}: {e}")
+
+        session.flush()
 
         return nodes
 

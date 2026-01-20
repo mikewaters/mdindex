@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 from loguru import logger
 from pydantic import Field
+from llama_index.core import Document as LlamaDocument
 
 from idx.source.directory import DirectorySource, SourceDocument
 
@@ -153,35 +154,36 @@ class ObsidianVaultSource:
         >>> for doc in source:
         ...     print(doc.path, doc.tags)
     """
+    type_name = 'obsidian'
 
-    def __init__(self, vault_path: str | Path) -> None:
+    def __init__(self, path: str | Path) -> None:
         """Initialize Obsidian vault source.
 
         Args:
-            vault_path: Path to the Obsidian vault root directory.
+            path: Path to the Obsidian vault root directory.
                 Must contain a .obsidian subdirectory.
 
         Raises:
             ValueError: If the path is not a valid Obsidian vault.
         """
-        self.vault_path = Path(vault_path).resolve()
+        self.path = Path(path).resolve()
 
-        if not self.vault_path.is_dir():
-            raise ValueError(f"Vault path is not a directory: {self.vault_path}")
+        if not self.path.is_dir():
+            raise ValueError(f"Vault path is not a directory: {self.path}")
 
-        obsidian_dir = self.vault_path / ".obsidian"
+        obsidian_dir = self.path / ".obsidian"
         if not obsidian_dir.is_dir():
             raise ValueError(
-                f"Not a valid Obsidian vault (missing .obsidian directory): {self.vault_path}"
+                f"Not a valid Obsidian vault (missing .obsidian directory): {self.path}"
             )
 
         # Create DirectorySource for markdown files, excluding .obsidian directory
         self._directory_source = DirectorySource(
-            directory=self.vault_path,
+            path=self.path,
             patterns=["**/*.md", "!.obsidian/**"],
         )
 
-        logger.info(f"Initialized ObsidianVaultSource for vault: {self.vault_path}")
+        logger.info(f"Initialized ObsidianVaultSource for vault: {self.path}")
 
     def __iter__(self) -> Iterator[ObsidianDocument]:
         """Iterate over all markdown documents in the vault.
@@ -238,5 +240,42 @@ class ObsidianVaultSource:
             body=body,
         )
 
+    #TODO: convert `to_llama_doc` to a classmethod
+    @staticmethod
+    def to_llama_doc(doc: ObsidianDocument) -> LlamaDocument:
+        """Convert an ObsidianDocument to a LlamaIndex Document.
+
+        Args:
+            doc: The Obsidian document to convert.
+
+        Returns:
+            LlamaIndex Document with text and metadata.
+        """
+        metadata: dict[str, Any] = {
+            "file_path": str(doc.path),
+            "relative_path": doc.relative_path,
+        }
+
+        if doc.last_modified is not None:
+            metadata["last_modified"] = doc.last_modified.isoformat()
+
+        if doc.etag is not None:
+            metadata["etag"] = doc.etag
+
+        if doc.tags:
+            metadata["tags"] = doc.tags
+
+        if doc.aliases:
+            metadata["aliases"] = doc.aliases
+
+        if doc.frontmatter:
+            metadata["frontmatter"] = doc.frontmatter
+
+        # Use body (content without frontmatter) for text
+        return LlamaDocument(
+            text=doc.body,
+            doc_id=doc.relative_path,
+            metadata=metadata,
+        )
 
 __all__ = ["ObsidianDocument", "ObsidianVaultSource"]

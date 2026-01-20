@@ -2,18 +2,20 @@
 
 Provides FTS5 virtual table management and search operations for documents.
 The FTS5 table uses porter stemming and unicode61 tokenizer for robust search.
+Supports both explicit session injection and ambient session via contextvars.
 
 Example usage:
     from idx.store.fts import FTSManager
 
-    manager = FTSManager(engine)
-    manager.ensure_fts_table()
+    # With ambient session
+    with use_session(session):
+        manager = FTSManager()
+        manager.upsert(doc_id=1, path="notes/test.md", body="Hello world")
+        results = manager.search("hello")
 
-    # Index a document
+    # Or with explicit session
+    manager = FTSManager(session)
     manager.upsert(doc_id=1, path="notes/test.md", body="Hello world")
-
-    # Search
-    results = manager.search("hello")
 """
 
 from dataclasses import dataclass
@@ -23,6 +25,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session
 
 from idx.core.logging import get_logger
+from idx.store.session_context import current_session
 
 __all__ = [
     "FTSManager",
@@ -89,15 +92,26 @@ class FTSManager:
 
     The FTS5 table uses the document's primary key (id) as rowid
     for efficient update and delete operations.
+
+    Can be initialized with an explicit session or use the ambient session
+    from the current context (set via `use_session()`).
     """
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session | None = None) -> None:
         """Initialize the FTS manager.
 
         Args:
-            session: SQLAlchemy session for database operations.
+            session: SQLAlchemy session for database operations. If None,
+                uses the ambient session from current_session().
         """
-        self._session = session
+        self._explicit_session = session
+
+    @property
+    def _session(self) -> Session:
+        """Get the session to use for database operations."""
+        if self._explicit_session is not None:
+            return self._explicit_session
+        return current_session()
 
     def ensure_table_exists(self) -> None:
         """Ensure the FTS5 table exists.

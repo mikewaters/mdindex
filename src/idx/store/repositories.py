@@ -1,6 +1,7 @@
 """idx.store.repositories - Repository classes for data access.
 
 Repositories abstract database access patterns for Dataset and Document models.
+Supports both explicit session injection and ambient session via contextvars.
 """
 
 from datetime import datetime
@@ -10,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from idx.store.models import Dataset, Document
+from idx.store.session_context import current_session
 
 __all__ = [
     "DatasetRepository",
@@ -18,15 +20,27 @@ __all__ = [
 
 
 class DatasetRepository:
-    """Repository for Dataset model operations."""
+    """Repository for Dataset model operations.
 
-    def __init__(self, session: Session) -> None:
+    Can be initialized with an explicit session or use the ambient session
+    from the current context (set via `use_session()`).
+    """
+
+    def __init__(self, session: Session | None = None) -> None:
         """Initialize with a database session.
 
         Args:
-            session: SQLAlchemy session instance.
+            session: SQLAlchemy session instance. If None, uses the
+                ambient session from current_session().
         """
-        self._session = session
+        self._explicit_session = session
+
+    @property
+    def _session(self) -> Session:
+        """Get the session to use for database operations."""
+        if self._explicit_session is not None:
+            return self._explicit_session
+        return current_session()
 
     def create(
         self,
@@ -122,15 +136,27 @@ class DatasetRepository:
 
 
 class DocumentRepository:
-    """Repository for Document model operations."""
+    """Repository for Document model operations.
 
-    def __init__(self, session: Session) -> None:
+    Can be initialized with an explicit session or use the ambient session
+    from the current context (set via `use_session()`).
+    """
+
+    def __init__(self, session: Session | None = None) -> None:
         """Initialize with a database session.
 
         Args:
-            session: SQLAlchemy session instance.
+            session: SQLAlchemy session instance. If None, uses the
+                ambient session from current_session().
         """
-        self._session = session
+        self._explicit_session = session
+
+    @property
+    def _session(self) -> Session:
+        """Get the session to use for database operations."""
+        if self._explicit_session is not None:
+            return self._explicit_session
+        return current_session()
 
     def create(
         self,

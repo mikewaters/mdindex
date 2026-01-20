@@ -6,13 +6,12 @@ updating derived indexes (FTS, vector).
 
 Uses LlamaIndex's IngestionPipeline for document transformations with
 PersistenceTransform handling database persistence and FTS indexing
-as the final pipeline step.
+as the final pipeline step. Uses ambient session via contextvars.
 """
 
 from __future__ import annotations
 
 import hashlib
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
 
@@ -27,7 +26,8 @@ from idx.source.obsidian import ObsidianDocument, ObsidianVaultSource
 from idx.store.database import get_session
 from idx.store.fts import create_fts_table
 from idx.store.repositories import DatasetRepository
-from idx.store.service import normalize_dataset_name
+from idx.store.service import DatasetService, normalize_dataset_name
+from idx.store.session_context import use_session
 from idx.transform.llama import PersistenceTransform, TextNormalizerTransform
 
 __all__ = [
@@ -37,22 +37,6 @@ __all__ = [
 ]
 
 logger = get_logger(__name__)
-
-
-@contextmanager
-def _session_passthrough(session: Session):
-    """Yield an existing session as a context manager.
-
-    Used to pass an open session to PersistenceTransform which expects
-    a session factory returning a context manager.
-
-    Args:
-        session: An open SQLAlchemy session.
-
-    Yields:
-        The same session.
-    """
-    yield session
 
 
 def compute_content_hash(content: str) -> str:
@@ -162,7 +146,8 @@ class IngestPipeline:
             return self._session_factory()
         return get_session()
 
-    def ingest_directory(self, config: IngestDirectoryConfig) -> IngestResult:
+
+    def ingest(self, config: IngestDirectoryConfig | IngestObsidianConfig) -> IngestResult:
         """Ingest documents from a local directory.
 
         Creates or retrieves the dataset, enumerates matching files,
@@ -170,7 +155,7 @@ class IngestPipeline:
         with PersistenceTransform handling persistence and FTS indexing.
 
         Args:
-            config: Directory ingestion configuration.
+            config: Ingestion configuration, either directory or Obsidian.
 
         Returns:
             IngestResult with statistics about the operation.
@@ -179,19 +164,28 @@ class IngestPipeline:
             FileNotFoundError: If the directory does not exist.
             NotADirectoryError: If the path is not a directory.
         """
+        # TODO: make `config` generic to support multiple ingestion types
+        def get_source_instance(config):
+            match config:
+                case IngestDirectoryConfig():
+                    return DirectorySource(
+                        config.source_path,
+                        patterns=config.patterns,
+                        encoding=config.encoding,
+                    )
+                case IngestObsidianConfig():
+                    return ObsidianVaultSource(config.source_path)
+                case _:
+                    raise TypeError(f"Unsupported config type: {type(config)}")
+
         started_at = datetime.now(tz=timezone.utc)
         normalized_name = normalize_dataset_name(config.dataset_name)
 
         logger.info(
-            f"Starting directory ingestion: {config.directory} -> {normalized_name}"
+            f"Starting directory ingestion: {config.source_path} -> {normalized_name}"
         )
 
-        # Create source
-        source = DirectorySource(
-            config.directory,
-            patterns=config.patterns,
-            encoding=config.encoding,
-        )
+        source = get_source_instance(config)
 
         # Track results
         result = IngestResult(
@@ -201,46 +195,47 @@ class IngestPipeline:
         )
 
         with self._get_session_context() as session:
-            # Ensure FTS table exists
-            engine = session.get_bind()
-            if engine is not None:
-                create_fts_table(engine)  # type: ignore
+            # Set ambient session for transforms to use
+            with use_session(session):
+                # Ensure FTS table exists
+                engine = session.get_bind()
+                if engine is not None:
+                    create_fts_table(engine)  # type: ignore
 
-            # Create or get dataset
-            dataset_id = self._ensure_dataset(
-                session,
-                config.dataset_name,
-                source_type="directory",
-                source_path=str(source.directory),
-            )
-            result.dataset_id = dataset_id
+                # Create or get dataset
+                dataset_id = DatasetService.create_or_update(
+                    session,
+                    config.dataset_name,
+                    source_type=source.type_name,
+                    source_path=str(source.path),
+                )
+                result.dataset_id = dataset_id
 
-            # Convert source documents to LlamaIndex documents
-            source_docs = list(source.enumerate())
-            llama_docs = [source_doc_to_llama_doc(doc) for doc in source_docs]
+                # Convert source documents to LlamaIndex documents
+                source_docs = list(source.enumerate())
+                llama_docs = [source.to_llama_doc(doc) for doc in source_docs]  # type: ignore
 
-            # Create persistence transform with session passthrough
-            persist = PersistenceTransform(
-                session_factory=lambda: _session_passthrough(session),
-                dataset_id=dataset_id,
-                force=config.force,
-            )
+                # Create persistence transform (uses ambient session)
+                persist = PersistenceTransform(
+                    dataset_id=dataset_id,
+                    force=config.force,
+                )
 
-            # Build pipeline with transforms + persistence
-            pipeline = IngestionPipeline(
-                transformations=[*self._transformations, persist],
-            )
+                # Build pipeline with transforms + persistence
+                pipeline = IngestionPipeline(
+                    transformations=[*self._transformations, persist],
+                )
 
-            # Run pipeline - persistence happens inside
-            logger.debug(f"Running {len(llama_docs)} documents through pipeline")
-            pipeline.run(documents=llama_docs)
+                # Run pipeline - persistence happens inside using ambient session
+                logger.debug(f"Running {len(llama_docs)} documents through pipeline")
+                pipeline.run(documents=llama_docs)
 
-            # Copy stats from persistence transform
-            result.documents_created = persist.stats.created
-            result.documents_updated = persist.stats.updated
-            result.documents_skipped = persist.stats.skipped
-            result.documents_failed = persist.stats.failed
-            result.errors = persist.stats.errors
+                # Copy stats from persistence transform
+                result.documents_created = persist.stats.created
+                result.documents_updated = persist.stats.updated
+                result.documents_skipped = persist.stats.skipped
+                result.documents_failed = persist.stats.failed
+                result.errors = persist.stats.errors
 
         result.completed_at = datetime.now(tz=timezone.utc)
 
@@ -253,6 +248,19 @@ class IngestPipeline:
         )
 
         return result
+
+    def ingest_directory(self, config: IngestDirectoryConfig) -> IngestResult:
+        """Ingest documents from a local directory.
+
+        Alias for ingest() with IngestDirectoryConfig.
+
+        Args:
+            config: Directory ingestion configuration.
+
+        Returns:
+            IngestResult with statistics about the operation.
+        """
+        return self.ingest(config)
 
     def _ensure_dataset(
         self,
@@ -313,11 +321,11 @@ class IngestPipeline:
         normalized_name = normalize_dataset_name(config.dataset_name)
 
         logger.info(
-            f"Starting Obsidian vault ingestion: {config.vault_path} -> {normalized_name}"
+            f"Starting Obsidian vault ingestion: {config.source_path} -> {normalized_name}"
         )
 
         # Create source
-        source = ObsidianVaultSource(config.vault_path)
+        source = ObsidianVaultSource(config.source_path)
 
         # Track results
         result = IngestResult(
@@ -356,48 +364,47 @@ class IngestPipeline:
             config: Ingestion configuration.
             result: Result object to update.
         """
-        # Ensure FTS table exists
-        engine = session.get_bind()
-        if engine is not None:
-            create_fts_table(engine)  # type: ignore
+        # Set ambient session for transforms to use
+        with use_session(session):
+            # Ensure FTS table exists
+            engine = session.get_bind()
+            if engine is not None:
+                create_fts_table(engine)  # type: ignore
 
-        # Create or get dataset
-        dataset_id = self._ensure_dataset(
-            session,
-            config.dataset_name,
-            source_type="obsidian",
-            source_path=str(source.vault_path),
-        )
-        result.dataset_id = dataset_id
+            # Create or get dataset
+            dataset_id = self._ensure_dataset(
+                session,
+                config.dataset_name,
+                source_type=source.type_name,
+                source_path=str(source.path),
+            )
+            result.dataset_id = dataset_id
 
-        # Collect and convert Obsidian documents
-        obsidian_docs = list(source.enumerate())
-        llama_docs = [
-            self._obsidian_doc_to_llama_doc(doc) for doc in obsidian_docs
-        ]
+            # Collect and convert Obsidian documents
+            source_docs = list(source.enumerate())
+            llama_docs = [source.to_llama_doc(doc) for doc in source_docs]
 
-        # Create persistence transform with session passthrough
-        persist = PersistenceTransform(
-            session_factory=lambda: _session_passthrough(session),
-            dataset_id=dataset_id,
-            force=config.force,
-        )
+            # Create persistence transform (uses ambient session)
+            persist = PersistenceTransform(
+                dataset_id=dataset_id,
+                force=config.force,
+            )
 
-        # Build pipeline with transforms + persistence
-        pipeline = IngestionPipeline(
-            transformations=[*self._transformations, persist],
-        )
+            # Build pipeline with transforms + persistence
+            pipeline = IngestionPipeline(
+                transformations=[*self._transformations, persist],
+            )
 
-        # Run pipeline - persistence happens inside
-        logger.debug(f"Running {len(llama_docs)} documents through pipeline")
-        pipeline.run(documents=llama_docs)
+            # Run pipeline - persistence happens inside using ambient session
+            logger.debug(f"Running {len(llama_docs)} documents through pipeline")
+            pipeline.run(documents=llama_docs)
 
-        # Copy stats from persistence transform
-        result.documents_created = persist.stats.created
-        result.documents_updated = persist.stats.updated
-        result.documents_skipped = persist.stats.skipped
-        result.documents_failed = persist.stats.failed
-        result.errors = persist.stats.errors
+            # Copy stats from persistence transform
+            result.documents_created = persist.stats.created
+            result.documents_updated = persist.stats.updated
+            result.documents_skipped = persist.stats.skipped
+            result.documents_failed = persist.stats.failed
+            result.errors = persist.stats.errors
 
     def _obsidian_doc_to_llama_doc(self, doc: ObsidianDocument) -> LlamaDocument:
         """Convert an ObsidianDocument to a LlamaIndex Document.
