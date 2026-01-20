@@ -34,6 +34,12 @@ from idx.store.fts import (
     drop_fts_table,
 )
 from idx.store.llama import SQLDocStore
+from idx.store.session_context import (
+    SessionNotSetError,
+    clear_session,
+    current_session,
+    use_session,
+)
 from idx.store.service import (
     DatasetExistsError,
     DatasetNotFoundError,
@@ -79,4 +85,9 @@ __all__ = [
     "cleanup_stale_documents",
     # LlamaIndex integration
     "SQLDocStore",
+    # Session context
+    "SessionNotSetError",
+    "clear_session",
+    "current_session",
+    "use_session",
 ]
