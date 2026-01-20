@@ -119,7 +119,6 @@ class IngestPipeline:
         self,
         *,
         transformations: list[Any] | None = None,
-        session_factory: Any | None = None,
     ) -> None:
         """Initialize the pipeline.
 
@@ -127,24 +126,12 @@ class IngestPipeline:
             transformations: Optional list of LlamaIndex TransformComponents
                 to run before persistence. If not provided, uses default
                 TextNormalizerTransform. Do NOT include PersistenceTransform
-                here - it is added automatically with the correct session.
-            session_factory: Optional session factory for testing.
-                If not provided, uses get_session() from idx.store.database.
+                here - it is added automatically.
         """
         if transformations is None:
             transformations = [TextNormalizerTransform()]
 
         self._transformations = transformations
-        self._session_factory = session_factory
-
-    def _get_session_context(self):
-        """Get a session context manager.
-
-        Returns session_factory if provided, otherwise get_session().
-        """
-        if self._session_factory is not None:
-            return self._session_factory()
-        return get_session()
 
 
     def ingest(self, config: IngestDirectoryConfig | IngestObsidianConfig) -> IngestResult:
@@ -194,7 +181,7 @@ class IngestPipeline:
             started_at=started_at,
         )
 
-        with self._get_session_context() as session:
+        with get_session() as session:
             # Set ambient session for transforms to use
             with use_session(session):
                 # Ensure FTS table exists
@@ -334,7 +321,7 @@ class IngestPipeline:
             started_at=started_at,
         )
 
-        with self._get_session_context() as session:
+        with get_session() as session:
             self._ingest_obsidian_with_session(session, source, config, result)
 
         result.completed_at = datetime.now(tz=timezone.utc)
