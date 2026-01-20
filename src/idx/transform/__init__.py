@@ -5,6 +5,7 @@ for persistence and indexing.
 """
 
 from idx.transform.chunker import Chunk, ChunkerTransform, LineChunker
+from idx.transform.llama import FTSIndexerTransform, TextNormalizerTransform
 from idx.transform.normalize import (
     MimeDetector,
     TextNormalizer,
@@ -17,9 +18,11 @@ from idx.transform.normalize import (
 __all__ = [
     "Chunk",
     "ChunkerTransform",
+    "FTSIndexerTransform",
     "LineChunker",
     "MimeDetector",
     "TextNormalizer",
+    "TextNormalizerTransform",
     "TextPolicy",
     "detect_mime",
     "is_text_file",

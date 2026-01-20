@@ -5,9 +5,10 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import sessionmaker
 
-from idx.pipelines.ingest import IngestPipeline, compute_content_hash
+from idx.pipelines.ingest import IngestPipeline, compute_content_hash, source_doc_to_llama_doc
 from idx.pipelines.schemas import IngestDirectoryConfig, IngestObsidianConfig
-from idx.store.database import Base, create_engine_for_path
+from idx.source.directory import SourceDocument
+from idx.store.database import Base, create_engine_for_path, get_session
 from idx.store.fts import FTSManager, create_fts_table
 from idx.store.repositories import DatasetRepository, DocumentRepository
 
@@ -39,21 +40,79 @@ class TestComputeContentHash:
         assert len(hash_val) == 64
 
 
+class TestSourceDocToLlamaDoc:
+    """Tests for source_doc_to_llama_doc function."""
+
+    def test_basic_conversion(self) -> None:
+        """SourceDocument is converted to LlamaIndex Document."""
+        from datetime import datetime, timezone
+
+        source_doc = SourceDocument(
+            path=Path("/tmp/docs/test.md"),
+            relative_path="test.md",
+            last_modified=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            content="# Test\n\nHello world.",
+            etag="abc123",
+        )
+
+        llama_doc = source_doc_to_llama_doc(source_doc)
+
+        assert llama_doc.text == "# Test\n\nHello world."
+        assert llama_doc.doc_id == "test.md"
+        assert llama_doc.metadata["relative_path"] == "test.md"
+        assert llama_doc.metadata["file_path"] == "/tmp/docs/test.md"
+        assert llama_doc.metadata["etag"] == "abc123"
+
+    def test_extra_metadata(self) -> None:
+        """Extra metadata is merged into the document."""
+        source_doc = SourceDocument(
+            path=Path("/tmp/docs/test.md"),
+            relative_path="test.md",
+            content="Hello",
+        )
+
+        llama_doc = source_doc_to_llama_doc(
+            source_doc,
+            extra_metadata={"custom_key": "custom_value"},
+        )
+
+        assert llama_doc.metadata["custom_key"] == "custom_value"
+
+
 class TestIngestPipeline:
     """Tests for IngestPipeline class."""
 
     @pytest.fixture
-    def db_session(self, tmp_path: Path):
-        """Create a test database session with FTS table."""
+    def session_factory(self, tmp_path: Path):
+        """Create a session factory for testing."""
+        from contextlib import contextmanager
+
         db_path = tmp_path / "test.db"
         engine = create_engine_for_path(db_path)
         Base.metadata.create_all(engine)
         create_fts_table(engine)
 
         factory = sessionmaker(bind=engine, expire_on_commit=False)
-        session = factory()
-        yield session
-        session.close()
+
+        @contextmanager
+        def get_test_session():
+            session = factory()
+            try:
+                yield session
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+            finally:
+                session.close()
+
+        return get_test_session
+
+    @pytest.fixture
+    def db_session(self, session_factory):
+        """Create a test database session for verification."""
+        with session_factory() as session:
+            yield session
 
     @pytest.fixture
     def sample_directory(self, tmp_path: Path) -> Path:
@@ -72,7 +131,7 @@ class TestIngestPipeline:
         return docs_dir
 
     def test_ingest_creates_dataset(
-        self, db_session, sample_directory: Path
+        self, session_factory, db_session, sample_directory: Path
     ) -> None:
         """Ingestion creates a new dataset."""
         config = IngestDirectoryConfig(
@@ -80,7 +139,7 @@ class TestIngestPipeline:
             dataset_name="test-docs",
             patterns=["**/*.md"],
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
         result = pipeline.ingest_directory(config)
 
         assert result.dataset_name == "test-docs"
@@ -93,7 +152,7 @@ class TestIngestPipeline:
         assert dataset.source_type == "directory"
 
     def test_ingest_creates_documents(
-        self, db_session, sample_directory: Path
+        self, session_factory, db_session, sample_directory: Path
     ) -> None:
         """Ingestion creates documents for matching files."""
         config = IngestDirectoryConfig(
@@ -101,7 +160,7 @@ class TestIngestPipeline:
             dataset_name="test-docs",
             patterns=["**/*.md"],
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
         result = pipeline.ingest_directory(config)
 
         assert result.documents_created == 3  # readme.md, notes.md, subdir/deep.md
@@ -120,7 +179,7 @@ class TestIngestPipeline:
         assert "subdir/deep.md" in paths
 
     def test_ingest_updates_fts(
-        self, db_session, sample_directory: Path
+        self, session_factory, db_session, sample_directory: Path
     ) -> None:
         """Ingestion updates the FTS index."""
         config = IngestDirectoryConfig(
@@ -128,7 +187,7 @@ class TestIngestPipeline:
             dataset_name="test-docs",
             patterns=["**/*.md"],
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
         result = pipeline.ingest_directory(config)
 
         # Verify FTS index
@@ -141,7 +200,7 @@ class TestIngestPipeline:
         assert any("readme.md" in r.path for r in results)
 
     def test_ingest_skips_unchanged_documents(
-        self, db_session, sample_directory: Path
+        self, session_factory, db_session, sample_directory: Path
     ) -> None:
         """Re-ingestion skips unchanged documents."""
         config = IngestDirectoryConfig(
@@ -149,7 +208,7 @@ class TestIngestPipeline:
             dataset_name="test-docs",
             patterns=["**/*.md"],
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
 
         # First ingestion
         result1 = pipeline.ingest_directory(config)
@@ -162,7 +221,7 @@ class TestIngestPipeline:
         assert result2.documents_skipped == 3
 
     def test_ingest_updates_changed_documents(
-        self, db_session, sample_directory: Path
+        self, session_factory, db_session, sample_directory: Path
     ) -> None:
         """Re-ingestion updates changed documents."""
         config = IngestDirectoryConfig(
@@ -170,7 +229,7 @@ class TestIngestPipeline:
             dataset_name="test-docs",
             patterns=["**/*.md"],
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
 
         # First ingestion
         result1 = pipeline.ingest_directory(config)
@@ -186,7 +245,7 @@ class TestIngestPipeline:
         assert result2.documents_skipped == 2
 
     def test_ingest_force_updates_all(
-        self, db_session, sample_directory: Path
+        self, session_factory, db_session, sample_directory: Path
     ) -> None:
         """Force mode updates all documents."""
         config = IngestDirectoryConfig(
@@ -194,7 +253,7 @@ class TestIngestPipeline:
             dataset_name="test-docs",
             patterns=["**/*.md"],
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
 
         # First ingestion
         result1 = pipeline.ingest_directory(config)
@@ -213,7 +272,7 @@ class TestIngestPipeline:
         assert result2.documents_skipped == 0
 
     def test_ingest_with_exclusion_patterns(
-        self, db_session, sample_directory: Path
+        self, session_factory, db_session, sample_directory: Path
     ) -> None:
         """Exclusion patterns are respected."""
         config = IngestDirectoryConfig(
@@ -221,7 +280,7 @@ class TestIngestPipeline:
             dataset_name="test-docs",
             patterns=["**/*.md", "!**/subdir/**"],
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
         result = pipeline.ingest_directory(config)
 
         # Should only include files not in subdir
@@ -235,7 +294,7 @@ class TestIngestPipeline:
         assert "subdir/deep.md" not in paths
 
     def test_ingest_normalizes_dataset_name(
-        self, db_session, sample_directory: Path
+        self, session_factory, db_session, sample_directory: Path
     ) -> None:
         """Dataset name is normalized."""
         config = IngestDirectoryConfig(
@@ -243,13 +302,13 @@ class TestIngestPipeline:
             dataset_name="My Test Docs!",
             patterns=["**/*.md"],
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
         result = pipeline.ingest_directory(config)
 
         assert result.dataset_name == "my-test-docs"
 
     def test_ingest_reuses_existing_dataset(
-        self, db_session, sample_directory: Path
+        self, session_factory, db_session, sample_directory: Path
     ) -> None:
         """Ingestion reuses existing dataset with same name."""
         config = IngestDirectoryConfig(
@@ -257,7 +316,7 @@ class TestIngestPipeline:
             dataset_name="test-docs",
             patterns=["**/*.md"],
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
 
         result1 = pipeline.ingest_directory(config)
         result2 = pipeline.ingest_directory(config)
@@ -265,7 +324,7 @@ class TestIngestPipeline:
         assert result1.dataset_id == result2.dataset_id
 
     def test_ingest_result_properties(
-        self, db_session, sample_directory: Path
+        self, session_factory, db_session, sample_directory: Path
     ) -> None:
         """IngestResult properties work correctly."""
         config = IngestDirectoryConfig(
@@ -273,7 +332,7 @@ class TestIngestPipeline:
             dataset_name="test-docs",
             patterns=["**/*.md"],
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
         result = pipeline.ingest_directory(config)
 
         assert result.total_processed == 3
@@ -282,7 +341,7 @@ class TestIngestPipeline:
         assert result.started_at <= result.completed_at
 
     def test_ingest_handles_empty_directory(
-        self, db_session, tmp_path: Path
+        self, session_factory, db_session, tmp_path: Path
     ) -> None:
         """Ingestion handles empty directory."""
         empty_dir = tmp_path / "empty"
@@ -293,14 +352,14 @@ class TestIngestPipeline:
             dataset_name="empty-dataset",
             patterns=["**/*.md"],
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
         result = pipeline.ingest_directory(config)
 
         assert result.documents_created == 0
         assert result.success is True
 
     def test_ingest_handles_missing_directory(
-        self, db_session, tmp_path: Path
+        self, session_factory, db_session, tmp_path: Path
     ) -> None:
         """Ingestion raises error for missing directory."""
         missing_dir = tmp_path / "nonexistent"
@@ -310,140 +369,50 @@ class TestIngestPipeline:
             dataset_name="test",
             patterns=["**/*.md"],
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
 
         with pytest.raises(FileNotFoundError):
             pipeline.ingest_directory(config)
 
-    def test_stale_detection_soft_deletes_missing_docs(
-        self, db_session, sample_directory: Path
-    ) -> None:
-        """Re-ingestion detects and soft-deletes missing documents."""
-        config = IngestDirectoryConfig(
-            directory=sample_directory,
-            dataset_name="test-docs",
-            patterns=["**/*.md"],
-        )
-        pipeline = IngestPipeline(session=db_session)
-
-        # First ingestion - creates 3 docs
-        result1 = pipeline.ingest_directory(config)
-        assert result1.documents_created == 3
-        assert result1.documents_stale == 0
-
-        # Delete one file from disk
-        (sample_directory / "readme.md").unlink()
-
-        # Second ingestion - should mark readme.md as stale
-        result2 = pipeline.ingest_directory(config)
-        assert result2.documents_created == 0
-        assert result2.documents_stale == 1
-
-        # Verify document is soft-deleted
-        doc_repo = DocumentRepository(db_session)
-        active_docs = doc_repo.list_by_dataset(result2.dataset_id, active_only=True)
-        paths = {doc.path for doc in active_docs}
-        assert "readme.md" not in paths
-        assert len(paths) == 2
-
-    def test_stale_detection_removes_from_fts(
-        self, db_session, sample_directory: Path
-    ) -> None:
-        """Stale documents are removed from FTS index."""
-        config = IngestDirectoryConfig(
-            directory=sample_directory,
-            dataset_name="test-docs",
-            patterns=["**/*.md"],
-        )
-        pipeline = IngestPipeline(session=db_session)
-
-        # First ingestion
-        result1 = pipeline.ingest_directory(config)
-        assert result1.documents_created == 3
-
-        fts = FTSManager(db_session)
-        assert fts.count() == 3
-
-        # Delete one file
-        (sample_directory / "notes.md").unlink()
-
-        # Second ingestion
-        result2 = pipeline.ingest_directory(config)
-        assert result2.documents_stale == 1
-
-        # FTS should have 2 entries
-        assert fts.count() == 2
-
-        # Search should not find deleted doc
-        results = fts.search("notes")
-        assert len(results) == 0
-
-    def test_stale_detection_multiple_files(
-        self, db_session, sample_directory: Path
-    ) -> None:
-        """Multiple files can be marked stale at once."""
-        config = IngestDirectoryConfig(
-            directory=sample_directory,
-            dataset_name="test-docs",
-            patterns=["**/*.md"],
-        )
-        pipeline = IngestPipeline(session=db_session)
-
-        # First ingestion
-        result1 = pipeline.ingest_directory(config)
-        assert result1.documents_created == 3
-
-        # Delete two files
-        (sample_directory / "readme.md").unlink()
-        (sample_directory / "notes.md").unlink()
-
-        # Second ingestion
-        result2 = pipeline.ingest_directory(config)
-        assert result2.documents_stale == 2
-        assert result2.documents_skipped == 1  # subdir/deep.md
-
-    def test_rename_treated_as_delete_add(
-        self, db_session, sample_directory: Path
-    ) -> None:
-        """Renaming a file is treated as delete + add."""
-        config = IngestDirectoryConfig(
-            directory=sample_directory,
-            dataset_name="test-docs",
-            patterns=["**/*.md"],
-        )
-        pipeline = IngestPipeline(session=db_session)
-
-        # First ingestion
-        result1 = pipeline.ingest_directory(config)
-        assert result1.documents_created == 3
-
-        # "Rename" by deleting and creating with new name
-        old_content = (sample_directory / "readme.md").read_text()
-        (sample_directory / "readme.md").unlink()
-        (sample_directory / "readme-new.md").write_text(old_content)
-
-        # Second ingestion
-        result2 = pipeline.ingest_directory(config)
-        assert result2.documents_created == 1  # readme-new.md
-        assert result2.documents_stale == 1   # readme.md
-        assert result2.documents_skipped == 2
+    # NOTE: Stale document detection tests were removed.
+    # Stale document handling is now in idx.store.cleanup module.
+    # See tests for cleanup_stale_documents() function instead.
 
 
 class TestObsidianIngest:
     """Tests for Obsidian vault ingestion."""
 
     @pytest.fixture
-    def db_session(self, tmp_path: Path):
-        """Create a test database session with FTS table."""
+    def session_factory(self, tmp_path: Path):
+        """Create a session factory for testing."""
+        from contextlib import contextmanager
+
         db_path = tmp_path / "test.db"
         engine = create_engine_for_path(db_path)
         Base.metadata.create_all(engine)
         create_fts_table(engine)
 
         factory = sessionmaker(bind=engine, expire_on_commit=False)
-        session = factory()
-        yield session
-        session.close()
+
+        @contextmanager
+        def get_test_session():
+            session = factory()
+            try:
+                yield session
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+            finally:
+                session.close()
+
+        return get_test_session
+
+    @pytest.fixture
+    def db_session(self, session_factory):
+        """Create a test database session for verification."""
+        with session_factory() as session:
+            yield session
 
     @pytest.fixture
     def obsidian_vault(self, tmp_path: Path) -> Path:
@@ -505,14 +474,14 @@ In a subfolder.
         return vault_dir
 
     def test_obsidian_ingest_creates_dataset(
-        self, db_session, obsidian_vault: Path
+        self, session_factory, db_session, obsidian_vault: Path
     ) -> None:
         """Obsidian ingestion creates a dataset."""
         config = IngestObsidianConfig(
             vault_path=obsidian_vault,
             dataset_name="my-vault",
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
         result = pipeline.ingest_obsidian(config)
 
         assert result.dataset_name == "my-vault"
@@ -524,21 +493,21 @@ In a subfolder.
         assert dataset.source_type == "obsidian"
 
     def test_obsidian_ingest_creates_documents(
-        self, db_session, obsidian_vault: Path
+        self, session_factory, db_session, obsidian_vault: Path
     ) -> None:
         """Obsidian ingestion creates documents."""
         config = IngestObsidianConfig(
             vault_path=obsidian_vault,
             dataset_name="my-vault",
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
         result = pipeline.ingest_obsidian(config)
 
         assert result.documents_created == 4  # note1, note2, plain, nested
         assert result.documents_failed == 0
 
     def test_obsidian_ingest_extracts_metadata(
-        self, db_session, obsidian_vault: Path
+        self, session_factory, db_session, obsidian_vault: Path
     ) -> None:
         """Obsidian ingestion extracts frontmatter metadata."""
         import json
@@ -547,7 +516,7 @@ In a subfolder.
             vault_path=obsidian_vault,
             dataset_name="my-vault",
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
         result = pipeline.ingest_obsidian(config)
 
         doc_repo = DocumentRepository(db_session)
@@ -563,7 +532,7 @@ In a subfolder.
         assert "First Note" in metadata["aliases"]
 
     def test_obsidian_ingest_handles_no_frontmatter(
-        self, db_session, obsidian_vault: Path
+        self, session_factory, db_session, obsidian_vault: Path
     ) -> None:
         """Obsidian ingestion handles documents without frontmatter."""
         import json
@@ -572,7 +541,7 @@ In a subfolder.
             vault_path=obsidian_vault,
             dataset_name="my-vault",
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
         result = pipeline.ingest_obsidian(config)
 
         doc_repo = DocumentRepository(db_session)
@@ -585,14 +554,14 @@ In a subfolder.
             assert not metadata.get("aliases")
 
     def test_obsidian_ingest_updates_fts(
-        self, db_session, obsidian_vault: Path
+        self, session_factory, db_session, obsidian_vault: Path
     ) -> None:
         """Obsidian ingestion updates the FTS index."""
         config = IngestObsidianConfig(
             vault_path=obsidian_vault,
             dataset_name="my-vault",
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
         result = pipeline.ingest_obsidian(config)
 
         fts = FTSManager(db_session)
@@ -603,14 +572,14 @@ In a subfolder.
         assert len(results) >= 1
 
     def test_obsidian_ingest_force_mode(
-        self, db_session, obsidian_vault: Path
+        self, session_factory, db_session, obsidian_vault: Path
     ) -> None:
         """Obsidian force mode updates all documents."""
         config = IngestObsidianConfig(
             vault_path=obsidian_vault,
             dataset_name="my-vault",
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
 
         # First ingestion
         result1 = pipeline.ingest_obsidian(config)
@@ -627,7 +596,7 @@ In a subfolder.
         assert result2.documents_skipped == 0
 
     def test_obsidian_ingest_invalid_vault(
-        self, db_session, tmp_path: Path
+        self, session_factory, db_session, tmp_path: Path
     ) -> None:
         """Obsidian ingestion raises error for invalid vault."""
         not_a_vault = tmp_path / "not_vault"
@@ -637,7 +606,7 @@ In a subfolder.
             vault_path=not_a_vault,
             dataset_name="test",
         )
-        pipeline = IngestPipeline(session=db_session)
+        pipeline = IngestPipeline(session_factory=session_factory)
 
         with pytest.raises(ValueError, match="missing .obsidian"):
             pipeline.ingest_obsidian(config)

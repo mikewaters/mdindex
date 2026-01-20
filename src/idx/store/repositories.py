@@ -318,6 +318,37 @@ class DocumentRepository:
             doc.active = False
         return len(docs)
 
+    def hard_delete_by_paths(
+        self,
+        dataset_id: int,
+        paths: set[str],
+    ) -> int:
+        """Hard-delete multiple documents by path.
+
+        Permanently removes documents from the database.
+
+        Args:
+            dataset_id: The parent dataset's ID.
+            paths: Set of paths to delete.
+
+        Returns:
+            Number of documents deleted.
+        """
+        if not paths:
+            return 0
+
+        stmt = (
+            select(Document)
+            .where(
+                Document.dataset_id == dataset_id,
+                Document.path.in_(paths),
+            )
+        )
+        docs = list(self._session.execute(stmt).scalars().all())
+        for doc in docs:
+            self._session.delete(doc)
+        return len(docs)
+
     def delete(self, doc: Document) -> None:
         """Hard-delete a document.
 

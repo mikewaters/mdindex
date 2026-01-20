@@ -10,16 +10,21 @@ Example usage:
     cleanup.remove_fts_for_inactive(dataset_id)
 """
 
+from pathlib import Path
+
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from idx.core.logging import get_logger
+from idx.source.directory import DirectorySource
 from idx.store.fts import FTSManager
+from idx.store.repositories import DocumentRepository
 
 __all__ = [
     "IndexCleanup",
     "cleanup_fts_for_document",
     "cleanup_fts_for_inactive_documents",
+    "cleanup_stale_documents",
 ]
 
 logger = get_logger(__name__)
@@ -129,6 +134,58 @@ class IndexCleanup:
             return self.cleanup_fts_for_documents(doc_ids)
         return 0
 
+    def delete_stale_documents(
+        self,
+        dataset_id: int,
+        stale_paths: set[str],
+    ) -> int:
+        """Hard-delete stale documents and their FTS entries.
+
+        Removes documents from both the FTS index and the documents table.
+        This is a destructive operation that cannot be undone.
+
+        Args:
+            dataset_id: Dataset ID containing the stale documents.
+            stale_paths: Set of relative paths to delete.
+
+        Returns:
+            Number of documents deleted.
+        """
+        if not stale_paths:
+            return 0
+
+        # Get doc IDs for the stale paths
+        paths_list = list(stale_paths)
+        placeholders = ",".join([f":p{i}" for i in range(len(paths_list))])
+        params = {f"p{i}": path for i, path in enumerate(paths_list)}
+        params["dataset_id"] = dataset_id
+
+        result = self._session.execute(
+            text(f"""
+                SELECT id
+                FROM documents
+                WHERE dataset_id = :dataset_id
+                AND path IN ({placeholders})
+            """),
+            params,
+        )
+        doc_ids = [row[0] for row in result]
+
+        if not doc_ids:
+            return 0
+
+        # Clean up FTS entries first
+        self.cleanup_fts_for_documents(doc_ids)
+
+        # Hard-delete the documents
+        doc_repo = DocumentRepository(self._session)
+        deleted_count = doc_repo.hard_delete_by_paths(dataset_id, stale_paths)
+
+        logger.info(
+            f"Deleted {deleted_count} stale documents from dataset {dataset_id}"
+        )
+        return deleted_count
+
     # Vector cleanup methods (placeholder for future implementation)
 
     def cleanup_vectors_for_document(self, doc_id: int, content_hash: str) -> int:
@@ -192,3 +249,54 @@ def cleanup_fts_for_inactive_documents(
     """
     cleanup = IndexCleanup(session)
     return cleanup.cleanup_fts_for_inactive(dataset_id)
+
+
+def cleanup_stale_documents(
+    session: Session,
+    dataset_id: int,
+    source_path: Path,
+    patterns: list[str] | None = None,
+    dry_run: bool = False,
+) -> int:
+    """Find and remove documents that no longer exist in the source.
+
+    Compares the current source directory contents against indexed documents
+    and removes any documents that are no longer present in the source.
+
+    Args:
+        session: SQLAlchemy session for database operations.
+        dataset_id: Dataset ID to check for stale documents.
+        source_path: Path to the source directory.
+        patterns: Glob patterns for file matching. Defaults to ["**/*.md"].
+        dry_run: If True, only log stale paths without deleting.
+
+    Returns:
+        Number of stale documents found (dry_run) or deleted.
+    """
+    # Enumerate source paths
+    source = DirectorySource(source_path, patterns=patterns)
+    source_paths: set[str] = set()
+    for doc in source.enumerate():
+        source_paths.add(doc.relative_path)
+
+    # Get indexed paths from database
+    doc_repo = DocumentRepository(session)
+    indexed_paths = doc_repo.list_paths_by_dataset(dataset_id, active_only=False)
+
+    # Find stale paths (in DB but not in source)
+    stale_paths = indexed_paths - source_paths
+
+    if not stale_paths:
+        logger.debug(f"No stale documents found for dataset {dataset_id}")
+        return 0
+
+    if dry_run:
+        logger.info(
+            f"[DRY RUN] Found {len(stale_paths)} stale documents for dataset "
+            f"{dataset_id}: {sorted(stale_paths)}"
+        )
+        return len(stale_paths)
+
+    # Delete stale documents
+    cleanup = IndexCleanup(session)
+    return cleanup.delete_stale_documents(dataset_id, stale_paths)

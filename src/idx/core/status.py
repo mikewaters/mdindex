@@ -26,6 +26,7 @@ __all__ = [
     "check_health",
     "check_database",
     "check_vector_store",
+    "check_stale_documents",
 ]
 
 logger = get_logger(__name__)
@@ -257,3 +258,90 @@ def check_health(
         logger.warning(f"Health check failed: {status.issues}")
 
     return status
+
+
+def check_stale_documents(
+    dataset_id: int,
+    source_path: Path,
+    patterns: list[str] | None = None,
+) -> ComponentStatus:
+    """Check for stale documents in a dataset.
+
+    Compares indexed documents in the database against current source files
+    to identify stale paths (documents in DB but no longer in source).
+
+    This is a read-only check that does NOT modify any data.
+
+    Args:
+        dataset_id: The dataset ID to check.
+        source_path: Path to the source directory.
+        patterns: Glob patterns for matching source files.
+            Defaults to ["**/*.md"] if None.
+
+    Returns:
+        ComponentStatus with stale document details.
+        - healthy=True if no stale documents found
+        - healthy=False if stale documents exist
+        - details contains: stale_count, stale_paths, source_count, indexed_count
+    """
+    try:
+        from idx.source.directory import DirectorySource
+        from idx.store.database import get_session
+        from idx.store.repositories import DocumentRepository
+
+        # Enumerate current source files
+        source = DirectorySource(source_path, patterns=patterns)
+        source_paths: set[str] = set()
+
+        for doc in source.enumerate():
+            source_paths.add(doc.relative_path)
+
+        # Get indexed paths from DB
+        with get_session() as session:
+            doc_repo = DocumentRepository(session)
+            indexed_paths = doc_repo.list_paths_by_dataset(dataset_id, active_only=True)
+
+        # Find stale paths (in DB but not in source)
+        stale_paths = indexed_paths - source_paths
+
+        if stale_paths:
+            return ComponentStatus(
+                name="stale_documents",
+                healthy=False,
+                message=f"Found {len(stale_paths)} stale document(s) in dataset {dataset_id}",
+                details={
+                    "stale_count": len(stale_paths),
+                    "stale_paths": sorted(stale_paths),
+                    "source_count": len(source_paths),
+                    "indexed_count": len(indexed_paths),
+                },
+            )
+        else:
+            return ComponentStatus(
+                name="stale_documents",
+                healthy=True,
+                message="No stale documents found",
+                details={
+                    "stale_count": 0,
+                    "stale_paths": [],
+                    "source_count": len(source_paths),
+                    "indexed_count": len(indexed_paths),
+                },
+            )
+
+    except FileNotFoundError as e:
+        logger.error(f"Stale document check failed - source not found: {e}")
+        return ComponentStatus(
+            name="stale_documents",
+            healthy=False,
+            message=f"Source directory not found: {source_path}",
+            details={"error": str(e)},
+        )
+    except Exception as e:
+        logger.error(f"Stale document check failed: {e}")
+        return ComponentStatus(
+            name="stale_documents",
+            healthy=False,
+            message=f"Stale document check failed: {e}",
+            details={"error": str(e)},
+        )

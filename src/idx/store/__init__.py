@@ -25,6 +25,7 @@ from idx.store.cleanup import (
     IndexCleanup,
     cleanup_fts_for_document,
     cleanup_fts_for_inactive_documents,
+    cleanup_stale_documents,
 )
 from idx.store.fts import (
     FTSManager,
@@ -32,6 +33,7 @@ from idx.store.fts import (
     create_fts_table,
     drop_fts_table,
 )
+from idx.store.llama import SQLDocStore
 from idx.store.service import (
     DatasetExistsError,
     DatasetNotFoundError,
@@ -74,4 +76,7 @@ __all__ = [
     "IndexCleanup",
     "cleanup_fts_for_document",
     "cleanup_fts_for_inactive_documents",
+    "cleanup_stale_documents",
+    # LlamaIndex integration
+    "SQLDocStore",
 ]

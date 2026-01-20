@@ -3,6 +3,9 @@
 Provides the IngestPipeline class for ingesting documents from various
 sources into the idx system, persisting them to the database and
 updating derived indexes (FTS, vector).
+
+Uses LlamaIndex's IngestionPipeline for document transformations while
+maintaining custom persistence logic for statistics tracking and FTS indexing.
 """
 
 from __future__ import annotations
@@ -13,6 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from llama_index.core import Document as LlamaDocument
+from llama_index.core.ingestion import IngestionPipeline
+from llama_index.core.schema import BaseNode
 from sqlalchemy.orm import Session
 
 from idx.core.logging import get_logger
@@ -20,21 +26,16 @@ from idx.pipelines.schemas import IngestDirectoryConfig, IngestObsidianConfig, I
 from idx.source.directory import DirectorySource, SourceDocument
 from idx.source.obsidian import ObsidianDocument, ObsidianVaultSource
 from idx.store.database import get_session
-from idx.store.cleanup import IndexCleanup
 from idx.store.fts import FTSManager, create_fts_table
 from idx.store.models import Document
 from idx.store.repositories import DatasetRepository, DocumentRepository
-from idx.store.service import (
-    DatasetExistsError,
-    DatasetService,
-    normalize_dataset_name,
-)
-from idx.store.schemas import DatasetCreate, DocumentCreate, DocumentUpdate
-from idx.transform.normalize import TextNormalizer
+from idx.store.service import normalize_dataset_name
+from idx.transform.llama import TextNormalizerTransform
 
 __all__ = [
     "IngestPipeline",
     "compute_content_hash",
+    "source_doc_to_llama_doc",
 ]
 
 logger = get_logger(__name__)
@@ -52,16 +53,57 @@ def compute_content_hash(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
+def source_doc_to_llama_doc(
+    source_doc: SourceDocument,
+    *,
+    extra_metadata: dict[str, Any] | None = None,
+) -> LlamaDocument:
+    """Convert a SourceDocument to a LlamaIndex Document.
+
+    Args:
+        source_doc: The source document to convert.
+        extra_metadata: Optional additional metadata to include.
+
+    Returns:
+        LlamaIndex Document with text and metadata.
+    """
+    metadata: dict[str, Any] = {
+        "file_path": str(source_doc.path),
+        "relative_path": source_doc.relative_path,
+    }
+
+    if source_doc.last_modified is not None:
+        metadata["last_modified"] = source_doc.last_modified.isoformat()
+
+    if source_doc.etag is not None:
+        metadata["etag"] = source_doc.etag
+
+    if extra_metadata:
+        metadata.update(extra_metadata)
+
+    return LlamaDocument(
+        text=source_doc.content,
+        doc_id=source_doc.relative_path,
+        metadata=metadata,
+    )
+
+
 class IngestPipeline:
     """Pipeline for ingesting documents from sources.
 
-    Handles the full ingestion workflow:
-    1. Validate dataset name and create/get dataset
-    2. Enumerate documents from source
-    3. Normalize text content
-    4. Compute content hashes
-    5. Persist documents (create or update)
-    6. Update FTS index
+    Uses LlamaIndex's IngestionPipeline for document transformations
+    (normalization, etc.) while maintaining custom persistence logic
+    for statistics tracking and FTS indexing.
+
+    The workflow:
+    1. Enumerate documents from source
+    2. Convert to LlamaIndex Documents
+    3. Run through LlamaIndex transformation pipeline
+    4. Persist to database with change detection
+    5. Update FTS index
+
+    Note: Stale document handling has been moved to idx.store.cleanup.
+    Use cleanup_stale_documents() for maintenance operations.
 
     Example:
         config = IngestDirectoryConfig(
@@ -74,21 +116,43 @@ class IngestPipeline:
         print(f"Processed {result.total_processed} documents")
     """
 
-    def __init__(self, session: Session | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        transformations: list[Any] | None = None,
+        session_factory: Any | None = None,
+    ) -> None:
         """Initialize the pipeline.
 
         Args:
-            session: Optional SQLAlchemy session. If not provided,
-                    creates a new session for each operation.
+            transformations: Optional list of LlamaIndex TransformComponents.
+                If not provided, uses default TextNormalizerTransform.
+            session_factory: Optional session factory for testing.
+                If not provided, uses get_session() from idx.store.database.
         """
-        self._external_session = session
-        self._normalizer = TextNormalizer()
+        if transformations is None:
+            transformations = [TextNormalizerTransform()]
+
+        self._llama_pipeline = IngestionPipeline(
+            transformations=transformations,
+        )
+        self._session_factory = session_factory
+
+    def _get_session_context(self):
+        """Get a session context manager.
+
+        Returns session_factory if provided, otherwise get_session().
+        """
+        if self._session_factory is not None:
+            return self._session_factory()
+        return get_session()
 
     def ingest_directory(self, config: IngestDirectoryConfig) -> IngestResult:
         """Ingest documents from a local directory.
 
         Creates or retrieves the dataset, enumerates matching files,
-        and processes each document for persistence and indexing.
+        transforms them via LlamaIndex pipeline, and processes each
+        document for persistence and indexing.
 
         Args:
             config: Directory ingestion configuration.
@@ -121,18 +185,75 @@ class IngestPipeline:
             started_at=started_at,
         )
 
-        if self._external_session is not None:
-            # Use provided session
-            self._ingest_with_session(
-                self._external_session,
-                source,
-                config,
-                result,
+        with self._get_session_context() as session:
+            # Ensure FTS table exists
+            engine = session.get_bind()
+            if engine is not None:
+                create_fts_table(engine)  # type: ignore
+
+            # Create or get dataset
+            dataset_id = self._ensure_dataset(
+                session,
+                config.dataset_name,
+                source_type="directory",
+                source_path=str(source.directory),
             )
-        else:
-            # Create new session
-            with get_session() as session:
-                self._ingest_with_session(session, source, config, result)
+            result.dataset_id = dataset_id
+
+            # Initialize managers
+            doc_repo = DocumentRepository(session)
+            fts = FTSManager(session)
+
+            # Get existing document paths for change detection
+            existing_paths = doc_repo.list_paths_by_dataset(dataset_id, active_only=False)
+            existing_docs = {
+                path: doc_repo.get_by_path(dataset_id, path)
+                for path in existing_paths
+            }
+
+            # Convert source documents to LlamaIndex documents
+            source_docs = list(source.enumerate())
+            llama_docs = [source_doc_to_llama_doc(doc) for doc in source_docs]
+
+            # Run through LlamaIndex transformation pipeline
+            logger.debug(f"Running {len(llama_docs)} documents through transformation pipeline")
+            transformed_nodes = self._llama_pipeline.run(documents=llama_docs)
+
+            # Build a map from doc_id (relative_path) to transformed node
+            node_map: dict[str, BaseNode] = {
+                node.node_id: node for node in transformed_nodes
+            }
+
+            # Process each document
+            for source_doc in source_docs:
+                path = source_doc.relative_path
+                node = node_map.get(path)
+
+                if node is None:
+                    logger.warning(f"No transformed node found for {path}")
+                    result.documents_failed += 1
+                    result.errors.append(f"{path}: transformation failed")
+                    continue
+
+                try:
+                    self._process_node(
+                        session=session,
+                        doc_repo=doc_repo,
+                        fts=fts,
+                        dataset_id=dataset_id,
+                        node=node,
+                        source_doc=source_doc,
+                        existing_docs=existing_docs,
+                        force=config.force,
+                        result=result,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to process {path}: {e}")
+                    result.documents_failed += 1
+                    result.errors.append(f"{path}: {e}")
+
+            # Commit any pending changes
+            session.flush()
 
         result.completed_at = datetime.now(tz=timezone.utc)
 
@@ -141,130 +262,10 @@ class IngestPipeline:
             f"created={result.documents_created}, "
             f"updated={result.documents_updated}, "
             f"skipped={result.documents_skipped}, "
-            f"stale={result.documents_stale}, "
             f"failed={result.documents_failed}"
         )
 
         return result
-
-    def _ingest_with_session(
-        self,
-        session: Session,
-        source: DirectorySource,
-        config: IngestDirectoryConfig,
-        result: IngestResult,
-    ) -> None:
-        """Run ingestion with the given session.
-
-        Args:
-            session: SQLAlchemy session.
-            source: Document source.
-            config: Ingestion configuration.
-            result: Result object to update.
-        """
-        # Ensure FTS table exists
-        engine = session.get_bind()
-        if engine is not None:
-            create_fts_table(engine)  # type: ignore
-
-        # Create or get dataset
-        dataset_id = self._ensure_dataset(
-            session,
-            config.dataset_name,
-            source_type="directory",
-            source_path=str(source.directory),
-        )
-        result.dataset_id = dataset_id
-
-        # Initialize managers
-        doc_repo = DocumentRepository(session)
-        fts = FTSManager(session)
-        cleanup = IndexCleanup(session)
-
-        # Get existing document paths for change detection
-        existing_paths = doc_repo.list_paths_by_dataset(dataset_id, active_only=False)
-        existing_docs = {
-            path: doc_repo.get_by_path(dataset_id, path)
-            for path in existing_paths
-        }
-
-        # Track which documents we've seen in this enumeration
-        seen_paths: set[str] = set()
-
-        # Process documents
-        for source_doc in source.enumerate():
-            try:
-                seen_paths.add(source_doc.relative_path)
-                self._process_document(
-                    session=session,
-                    doc_repo=doc_repo,
-                    fts=fts,
-                    dataset_id=dataset_id,
-                    source_doc=source_doc,
-                    existing_docs=existing_docs,
-                    force=config.force,
-                    result=result,
-                )
-            except Exception as e:
-                logger.error(f"Failed to process {source_doc.relative_path}: {e}")
-                result.documents_failed += 1
-                result.errors.append(f"{source_doc.relative_path}: {e}")
-
-        # Detect and handle stale documents (in DB but not in source)
-        active_paths = doc_repo.list_paths_by_dataset(dataset_id, active_only=True)
-        stale_paths = active_paths - seen_paths
-
-        if stale_paths:
-            logger.info(f"Found {len(stale_paths)} stale documents")
-            stale_count = self._handle_stale_documents(
-                session=session,
-                doc_repo=doc_repo,
-                cleanup=cleanup,
-                dataset_id=dataset_id,
-                stale_paths=stale_paths,
-            )
-            result.documents_stale = stale_count
-
-        # Commit any pending changes
-        session.flush()
-
-    def _handle_stale_documents(
-        self,
-        session: Session,
-        doc_repo: DocumentRepository,
-        cleanup: IndexCleanup,
-        dataset_id: int,
-        stale_paths: set[str],
-    ) -> int:
-        """Handle stale documents by soft-deleting and cleaning up indexes.
-
-        Args:
-            session: SQLAlchemy session.
-            doc_repo: Document repository.
-            cleanup: Index cleanup manager.
-            dataset_id: Dataset ID.
-            stale_paths: Set of paths that are stale.
-
-        Returns:
-            Number of documents marked as stale.
-        """
-        # Get the document IDs for FTS cleanup
-        stale_doc_ids: list[int] = []
-        for path in stale_paths:
-            doc = doc_repo.get_by_path(dataset_id, path)
-            if doc is not None and doc.active:
-                stale_doc_ids.append(doc.id)
-                logger.debug(f"Marking stale: {path}")
-
-        # Soft-delete the documents
-        deleted_count = doc_repo.soft_delete_by_paths(dataset_id, stale_paths)
-
-        # Clean up FTS entries for stale documents
-        if stale_doc_ids:
-            cleanup.cleanup_fts_for_documents(stale_doc_ids)
-
-        logger.info(f"Soft-deleted {deleted_count} stale documents")
-        return deleted_count
 
     def _ensure_dataset(
         self,
@@ -304,12 +305,13 @@ class IngestPipeline:
         logger.info(f"Created dataset: {normalized_name}")
         return dataset.id
 
-    def _process_document(
+    def _process_node(
         self,
         session: Session,
         doc_repo: DocumentRepository,
         fts: FTSManager,
         dataset_id: int,
+        node: BaseNode,
         source_doc: SourceDocument,
         existing_docs: dict[str, Document | None],
         force: bool,
@@ -317,29 +319,31 @@ class IngestPipeline:
         *,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        """Process a single document.
+        """Process a transformed node for persistence.
 
         Args:
             session: SQLAlchemy session.
             doc_repo: Document repository.
             fts: FTS manager.
             dataset_id: Dataset ID.
-            source_doc: Source document to process.
+            node: Transformed LlamaIndex node.
+            source_doc: Original source document (for etag, last_modified).
             existing_docs: Map of path -> existing Document (or None).
             force: If True, always update even if unchanged.
             result: Result object to update.
             metadata: Optional metadata to store with the document.
         """
         path = source_doc.relative_path
+        normalized_body = node.get_content()
 
-        # Normalize content
-        normalized_body = self._normalizer.normalize(source_doc.content)
-
-        # Compute hash
+        # Compute hash on normalized content
         content_hash = compute_content_hash(normalized_body)
 
-        # Serialize metadata
-        metadata_json = json.dumps(metadata) if metadata else None
+        # Merge node metadata with provided metadata
+        combined_metadata = dict(node.metadata) if node.metadata else {}
+        if metadata:
+            combined_metadata.update(metadata)
+        metadata_json = json.dumps(combined_metadata) if combined_metadata else None
 
         # Check if document exists
         existing = existing_docs.get(path)
@@ -396,8 +400,9 @@ class IngestPipeline:
         """Ingest documents from an Obsidian vault.
 
         Creates or retrieves the dataset, enumerates markdown files,
-        extracts frontmatter metadata (tags, aliases), and processes
-        each document for persistence and indexing.
+        extracts frontmatter metadata (tags, aliases), transforms them
+        via LlamaIndex pipeline, and processes each document for
+        persistence and indexing.
 
         Args:
             config: Obsidian ingestion configuration.
@@ -425,18 +430,8 @@ class IngestPipeline:
             started_at=started_at,
         )
 
-        if self._external_session is not None:
-            # Use provided session
-            self._ingest_obsidian_with_session(
-                self._external_session,
-                source,
-                config,
-                result,
-            )
-        else:
-            # Create new session
-            with get_session() as session:
-                self._ingest_obsidian_with_session(session, source, config, result)
+        with self._get_session_context() as session:
+            self._ingest_obsidian_with_session(session, source, config, result)
 
         result.completed_at = datetime.now(tz=timezone.utc)
 
@@ -445,7 +440,6 @@ class IngestPipeline:
             f"created={result.documents_created}, "
             f"updated={result.documents_updated}, "
             f"skipped={result.documents_skipped}, "
-            f"stale={result.documents_stale}, "
             f"failed={result.documents_failed}"
         )
 
@@ -483,7 +477,6 @@ class IngestPipeline:
         # Initialize managers
         doc_repo = DocumentRepository(session)
         fts = FTSManager(session)
-        cleanup = IndexCleanup(session)
 
         # Get existing document paths for change detection
         existing_paths = doc_repo.list_paths_by_dataset(dataset_id, active_only=False)
@@ -492,22 +485,42 @@ class IngestPipeline:
             for path in existing_paths
         }
 
-        # Track which documents we've seen in this enumeration
-        seen_paths: set[str] = set()
+        # Collect and convert Obsidian documents
+        obsidian_docs = list(source.enumerate())
+        llama_docs = [
+            self._obsidian_doc_to_llama_doc(doc) for doc in obsidian_docs
+        ]
 
-        # Process documents
-        for obsidian_doc in source.enumerate():
+        # Run through LlamaIndex transformation pipeline
+        logger.debug(f"Running {len(llama_docs)} documents through transformation pipeline")
+        transformed_nodes = self._llama_pipeline.run(documents=llama_docs)
+
+        # Build a map from doc_id (relative_path) to transformed node
+        node_map: dict[str, BaseNode] = {
+            node.node_id: node for node in transformed_nodes
+        }
+
+        # Process each document
+        for obsidian_doc in obsidian_docs:
+            path = obsidian_doc.relative_path
+            node = node_map.get(path)
+
+            if node is None:
+                logger.warning(f"No transformed node found for {path}")
+                result.documents_failed += 1
+                result.errors.append(f"{path}: transformation failed")
+                continue
+
             try:
-                seen_paths.add(obsidian_doc.relative_path)
-
                 # Build metadata from frontmatter
                 metadata = self._build_obsidian_metadata(obsidian_doc)
 
-                self._process_document(
+                self._process_node(
                     session=session,
                     doc_repo=doc_repo,
                     fts=fts,
                     dataset_id=dataset_id,
+                    node=node,
                     source_doc=obsidian_doc,
                     existing_docs=existing_docs,
                     force=config.force,
@@ -515,27 +528,48 @@ class IngestPipeline:
                     metadata=metadata,
                 )
             except Exception as e:
-                logger.error(f"Failed to process {obsidian_doc.relative_path}: {e}")
+                logger.error(f"Failed to process {path}: {e}")
                 result.documents_failed += 1
-                result.errors.append(f"{obsidian_doc.relative_path}: {e}")
-
-        # Detect and handle stale documents (in DB but not in source)
-        active_paths = doc_repo.list_paths_by_dataset(dataset_id, active_only=True)
-        stale_paths = active_paths - seen_paths
-
-        if stale_paths:
-            logger.info(f"Found {len(stale_paths)} stale documents")
-            stale_count = self._handle_stale_documents(
-                session=session,
-                doc_repo=doc_repo,
-                cleanup=cleanup,
-                dataset_id=dataset_id,
-                stale_paths=stale_paths,
-            )
-            result.documents_stale = stale_count
+                result.errors.append(f"{path}: {e}")
 
         # Commit any pending changes
         session.flush()
+
+    def _obsidian_doc_to_llama_doc(self, doc: ObsidianDocument) -> LlamaDocument:
+        """Convert an ObsidianDocument to a LlamaIndex Document.
+
+        Args:
+            doc: The Obsidian document to convert.
+
+        Returns:
+            LlamaIndex Document with text and metadata.
+        """
+        metadata: dict[str, Any] = {
+            "file_path": str(doc.path),
+            "relative_path": doc.relative_path,
+        }
+
+        if doc.last_modified is not None:
+            metadata["last_modified"] = doc.last_modified.isoformat()
+
+        if doc.etag is not None:
+            metadata["etag"] = doc.etag
+
+        if doc.tags:
+            metadata["tags"] = doc.tags
+
+        if doc.aliases:
+            metadata["aliases"] = doc.aliases
+
+        if doc.frontmatter:
+            metadata["frontmatter"] = doc.frontmatter
+
+        # Use body (content without frontmatter) for text
+        return LlamaDocument(
+            text=doc.body,
+            doc_id=doc.relative_path,
+            metadata=metadata,
+        )
 
     def _build_obsidian_metadata(self, doc: ObsidianDocument) -> dict[str, Any]:
         """Build metadata dictionary from an Obsidian document.
