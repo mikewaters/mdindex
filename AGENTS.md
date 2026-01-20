@@ -1,6 +1,5 @@
 # Agent Instructions
 
-Immediately read @TASK_INSTRUCTIONS.md
 
 # Repository Structure
 **Task management**: 

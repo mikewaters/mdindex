@@ -29,6 +29,8 @@ DESCRIPTION = "Add resources table and resource_id FK on documents"
 
 def up(conn):
     """Apply migration: create resources table."""
+    _ensure_source_collections_columns(conn)
+
     conn.executescript(
         """
         -- Resources table for tracking fetch/index state
@@ -60,18 +62,73 @@ def up(conn):
             ON resources(source_collection_id, index_state);
         CREATE INDEX IF NOT EXISTS idx_resources_collection_load_status
             ON resources(source_collection_id, load_status);
-
-        -- Add foreign key from documents to resources
-        -- Nullable because existing documents won't have a resource_id until backfill
-        ALTER TABLE documents ADD COLUMN resource_id INTEGER REFERENCES resources(id);
-
-        -- Index for efficient document lookups by resource
-        CREATE INDEX IF NOT EXISTS idx_documents_resource_id ON documents(resource_id);
         """
     )
 
+    _ensure_documents_resource_id_column(conn)
+
     # Run data backfill after DDL
     _backfill_resources(conn)
+
+
+def _get_table_columns(conn, table_name: str) -> set[str]:
+    """Get column names for a SQLite table.
+
+    Args:
+        conn: SQLite connection.
+        table_name: Name of the table to inspect.
+
+    Returns:
+        Set of column names present in the table. Empty if table doesn't exist.
+    """
+    cursor = conn.execute(f"PRAGMA table_info({table_name})")
+    return {row[1] for row in cursor.fetchall()}
+
+
+def _ensure_source_collections_columns(conn) -> None:
+    """Ensure required columns exist on source_collections for later migrations.
+
+    Older databases may have a source_collections table (often renamed from an
+    earlier collections table) that lacks newer columns like source_type and
+    source_config. Migration v0003 relies on source_type during the backfill.
+
+    This function makes v0003 robust when upgrading those older schemas by
+    adding any missing columns with safe defaults.
+    """
+    columns = _get_table_columns(conn, "source_collections")
+    if not columns:
+        return
+
+    if "source_type" not in columns:
+        conn.execute(
+            "ALTER TABLE source_collections "
+            "ADD COLUMN source_type TEXT NOT NULL DEFAULT 'filesystem'"
+        )
+
+    if "source_config" not in columns:
+        conn.execute("ALTER TABLE source_collections ADD COLUMN source_config TEXT")
+
+
+def _ensure_documents_resource_id_column(conn) -> None:
+    """Ensure documents.resource_id exists before backfill and index creation.
+
+    Migration v0003 adds a nullable FK column on documents to link documents to
+    their source resources. Because ALTER TABLE ADD COLUMN is not idempotent in
+    SQLite, we explicitly check for column existence first.
+    """
+    columns = _get_table_columns(conn, "documents")
+    if not columns:
+        return
+
+    if "resource_id" not in columns:
+        conn.execute(
+            "ALTER TABLE documents ADD COLUMN resource_id INTEGER REFERENCES resources(id)"
+        )
+
+    # Index for efficient document lookups by resource
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_documents_resource_id ON documents(resource_id)"
+    )
 
 
 def _backfill_resources(conn):

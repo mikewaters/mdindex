@@ -319,6 +319,93 @@ class TestResourceBackfillMigration:
 
         conn.close()
 
+    def test_v0003_adds_missing_source_type_column(self, tmp_path: Path):
+        """v0003 should handle older schemas missing source_collections.source_type.
+
+        Some older databases may have a source_collections table (typically
+        renamed from collections) without the source_type/source_config columns.
+        v0003's backfill queries reference sc.source_type; ensure the migration
+        adds the column with a safe default and proceeds.
+        """
+        db_path = tmp_path / "test.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+
+        # Simulate a pre-source_type schema at user_version=2.
+        conn.executescript(
+            """
+            CREATE TABLE source_collections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                pwd TEXT NOT NULL,
+                glob_pattern TEXT NOT NULL DEFAULT '**/*.md',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_collection_id INTEGER NOT NULL REFERENCES source_collections(id),
+                path TEXT NOT NULL,
+                title TEXT NOT NULL,
+                hash TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                modified_at TEXT NOT NULL,
+                UNIQUE(source_collection_id, path)
+            );
+
+            CREATE TABLE source_metadata (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER NOT NULL UNIQUE REFERENCES documents(id),
+                source_uri TEXT NOT NULL,
+                etag TEXT,
+                last_modified TEXT,
+                last_fetched_at TEXT NOT NULL,
+                fetch_duration_ms INTEGER,
+                http_status INTEGER,
+                content_type TEXT,
+                extra_metadata TEXT
+            );
+
+            PRAGMA user_version = 2;
+            """
+        )
+
+        conn.execute(
+            """
+            INSERT INTO source_collections (id, name, pwd, glob_pattern, created_at, updated_at)
+            VALUES (1, 'test-fs', '/home/user/notes', '**/*.md', '2024-01-01T00:00:00', '2024-01-01T00:00:00')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO documents (id, source_collection_id, path, title, hash, active, modified_at)
+            VALUES (1, 1, 'doc.md', 'Doc', 'abc123', 1, '2024-01-15T10:30:00')
+            """
+        )
+        conn.commit()
+
+        runner = MigrationRunner(conn)
+        assert runner.get_version() == 2
+
+        runner.run()
+
+        # Migration should have added source_type and backfilled resources.
+        cols = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(source_collections)")
+        }
+        assert "source_type" in cols
+        assert "source_config" in cols
+
+        resource = dict(conn.execute("SELECT * FROM resources").fetchone())
+        assert resource["uri"] == "file:///home/user/notes/doc.md"
+
+        doc = conn.execute("SELECT resource_id FROM documents WHERE id = 1").fetchone()
+        assert doc["resource_id"] == resource["id"]
+
+        conn.close()
+
     def test_backfill_handles_remote_documents_with_source_metadata(self, tmp_path: Path):
         """Backfill should use source_metadata.source_uri for non-filesystem docs."""
         db_path = tmp_path / "test.db"
