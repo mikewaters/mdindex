@@ -5,31 +5,45 @@ for use in ingestion pipelines.
 
 Example usage:
     from llama_index.core.ingestion import IngestionPipeline
-    from idx.transform.llama import TextNormalizerTransform, FTSIndexerTransform
-    from idx.store.fts import FTSManager
+    from idx.transform.llama import TextNormalizerTransform, PersistenceTransform
 
+    persist = PersistenceTransform(
+        session_factory=get_session,
+        dataset_id=1,
+    )
     pipeline = IngestionPipeline(
         transformations=[
             TextNormalizerTransform(),
-            FTSIndexerTransform(fts_manager=fts_manager),
+            persist,
         ]
     )
     nodes = pipeline.run(documents=documents)
+    print(f"Created: {persist.stats['created']}")
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
+import hashlib
+import json
 
 from llama_index.core.schema import BaseNode, TransformComponent
 from sqlalchemy.orm import Session
 
+from idx.core.logging import get_logger
 from idx.store.fts import FTSManager
+from idx.store.models import Document
+from idx.store.repositories import DocumentRepository
 from idx.transform.normalize import TextNormalizer
 
 __all__ = [
     "TextNormalizerTransform",
     "FTSIndexerTransform",
+    "PersistenceTransform",
+    "PersistenceStats",
 ]
+
+logger = get_logger(__name__)
 
 
 class TextNormalizerTransform(TransformComponent):
@@ -267,3 +281,266 @@ class FTSIndexerTransform(TransformComponent):
             fts_manager.upsert(doc_id=doc_id, path=path, body=body)
 
         return nodes
+
+
+@dataclass
+class PersistenceStats:
+    """Statistics from a persistence operation.
+
+    Attributes:
+        created: Number of new documents created.
+        updated: Number of existing documents updated.
+        skipped: Number of unchanged documents skipped.
+        failed: Number of documents that failed to process.
+        errors: List of error messages for failed documents.
+    """
+
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    failed: int = 0
+    errors: list[str] = field(default_factory=list)
+
+    @property
+    def total_processed(self) -> int:
+        """Total number of documents processed (excluding failures)."""
+        return self.created + self.updated + self.skipped
+
+    def reset(self) -> None:
+        """Reset all statistics to zero."""
+        self.created = 0
+        self.updated = 0
+        self.skipped = 0
+        self.failed = 0
+        self.errors = []
+
+
+def _compute_content_hash(content: str) -> str:
+    """Compute SHA256 hash of content."""
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+class PersistenceTransform(TransformComponent):
+    """LlamaIndex TransformComponent that persists nodes to the database and FTS.
+
+    This transform handles the full persistence workflow within the pipeline:
+    1. Check if document exists (by path from node metadata)
+    2. Compare content hash to detect changes
+    3. Create new documents or update existing ones
+    4. Update FTS index
+    5. Track statistics
+
+    The transform requires a session factory and dataset_id. Statistics are
+    available via the `stats` property after the transform runs.
+
+    Example:
+        persist = PersistenceTransform(
+            session_factory=get_session,
+            dataset_id=dataset_id,
+        )
+        pipeline = IngestionPipeline(
+            transformations=[
+                TextNormalizerTransform(),
+                persist,
+            ]
+        )
+        nodes = pipeline.run(documents=documents)
+        print(f"Created {persist.stats.created} documents")
+
+    Attributes:
+        stats: PersistenceStats with counts of created/updated/skipped/failed.
+    """
+
+    # Private attributes (not Pydantic fields)
+    _session_factory: Callable[[], Any] | None = None
+    _dataset_id: int = 0
+    _force: bool = False
+    _path_key: str = "relative_path"
+    _stats: PersistenceStats | None = None
+
+    def __init__(
+        self,
+        session_factory: Callable[[], Any],
+        dataset_id: int,
+        *,
+        force: bool = False,
+        path_key: str = "relative_path",
+        **kwargs: Any,
+    ) -> None:
+        """Initialize the persistence transform.
+
+        Args:
+            session_factory: Callable that returns a context manager yielding
+                a SQLAlchemy session.
+            dataset_id: ID of the dataset to persist documents to.
+            force: If True, update all documents even if unchanged.
+            path_key: Metadata key for the document path (default: "relative_path").
+            **kwargs: Additional arguments passed to TransformComponent.
+        """
+        super().__init__(**kwargs)
+        self._session_factory = session_factory
+        self._dataset_id = dataset_id
+        self._force = force
+        self._path_key = path_key
+        self._stats = PersistenceStats()
+
+    @property
+    def stats(self) -> PersistenceStats:
+        """Get persistence statistics."""
+        if self._stats is None:
+            self._stats = PersistenceStats()
+        return self._stats
+
+    def __call__(
+        self,
+        nodes: list[BaseNode],
+        **kwargs: Any,
+    ) -> list[BaseNode]:
+        """Persist each node to the database and FTS index.
+
+        For each node:
+        - Extracts path from metadata
+        - Computes content hash
+        - Creates or updates the Document record
+        - Updates FTS index
+        - Tracks statistics
+
+        Args:
+            nodes: List of nodes to persist.
+            **kwargs: Additional arguments (unused).
+
+        Returns:
+            The same nodes with doc_id added to metadata.
+        """
+        # Reset stats for this run
+        self.stats.reset()
+
+        with self._session_factory() as session:
+            doc_repo = DocumentRepository(session)
+            fts = FTSManager(session)
+
+            # Pre-fetch existing documents for efficiency
+            existing_paths = doc_repo.list_paths_by_dataset(
+                self._dataset_id, active_only=False
+            )
+            existing_docs: dict[str, Document | None] = {
+                path: doc_repo.get_by_path(self._dataset_id, path)
+                for path in existing_paths
+            }
+
+            for node in nodes:
+                try:
+                    self._process_node(
+                        session=session,
+                        doc_repo=doc_repo,
+                        fts=fts,
+                        node=node,
+                        existing_docs=existing_docs,
+                    )
+                except Exception as e:
+                    path = self._get_path(node)
+                    logger.error(f"Failed to persist {path}: {e}")
+                    self.stats.failed += 1
+                    self.stats.errors.append(f"{path}: {e}")
+
+            session.flush()
+
+        return nodes
+
+    def _get_path(self, node: BaseNode) -> str:
+        """Extract document path from node metadata."""
+        if node.metadata and self._path_key in node.metadata:
+            return str(node.metadata[self._path_key])
+        # Fall back to node_id (which we set to relative_path)
+        return node.node_id
+
+    def _get_metadata_json(self, node: BaseNode) -> str | None:
+        """Extract metadata as JSON string."""
+        if not node.metadata:
+            return None
+        # Filter out internal keys
+        filtered = {
+            k: v for k, v in node.metadata.items()
+            if not k.startswith("_") and k not in ("file_path",)
+        }
+        return json.dumps(filtered) if filtered else None
+
+    def _process_node(
+        self,
+        session: Session,
+        doc_repo: DocumentRepository,
+        fts: FTSManager,
+        node: BaseNode,
+        existing_docs: dict[str, Document | None],
+    ) -> None:
+        """Process a single node for persistence."""
+        path = self._get_path(node)
+        body = node.get_content()
+        content_hash = _compute_content_hash(body)
+        metadata_json = self._get_metadata_json(node)
+
+        # Extract source metadata for etag/last_modified
+        etag = node.metadata.get("etag") if node.metadata else None
+        last_modified_str = node.metadata.get("last_modified") if node.metadata else None
+        last_modified = None
+        if last_modified_str:
+            from datetime import datetime
+            try:
+                last_modified = datetime.fromisoformat(last_modified_str)
+            except (ValueError, TypeError):
+                pass
+
+        existing = existing_docs.get(path)
+
+        if existing is not None:
+            # Document exists - check if changed
+            if not self._force and existing.content_hash == content_hash:
+                # Unchanged - skip (but ensure active if was inactive)
+                if not existing.active:
+                    existing.active = True
+                    existing.metadata_json = metadata_json
+                    session.flush()
+                    fts.upsert(existing.id, path, body)
+                    self.stats.updated += 1
+                    # Add doc_id to node metadata for downstream use
+                    node.metadata["doc_id"] = existing.id
+                else:
+                    self.stats.skipped += 1
+                    node.metadata["doc_id"] = existing.id
+                return
+
+            # Changed or force - update
+            existing.content_hash = content_hash
+            existing.body = body
+            existing.etag = etag
+            existing.last_modified = last_modified
+            existing.active = True
+            existing.metadata_json = metadata_json
+            session.flush()
+
+            fts.upsert(existing.id, path, body)
+            node.metadata["doc_id"] = existing.id
+
+            logger.debug(f"Updated document: {path}")
+            self.stats.updated += 1
+        else:
+            # New document - create
+            doc = doc_repo.create(
+                dataset_id=self._dataset_id,
+                path=path,
+                content_hash=content_hash,
+                body=body,
+                etag=etag,
+                last_modified=last_modified,
+                metadata_json=metadata_json,
+            )
+            session.flush()
+
+            fts.upsert(doc.id, path, body)
+            node.metadata["doc_id"] = doc.id
+
+            # Add to existing_docs cache for any future nodes with same path
+            existing_docs[path] = doc
+
+            logger.debug(f"Created document: {path}")
+            self.stats.created += 1

@@ -4,21 +4,20 @@ Provides the IngestPipeline class for ingesting documents from various
 sources into the idx system, persisting them to the database and
 updating derived indexes (FTS, vector).
 
-Uses LlamaIndex's IngestionPipeline for document transformations while
-maintaining custom persistence logic for statistics tracking and FTS indexing.
+Uses LlamaIndex's IngestionPipeline for document transformations with
+PersistenceTransform handling database persistence and FTS indexing
+as the final pipeline step.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from llama_index.core import Document as LlamaDocument
 from llama_index.core.ingestion import IngestionPipeline
-from llama_index.core.schema import BaseNode
 from sqlalchemy.orm import Session
 
 from idx.core.logging import get_logger
@@ -26,11 +25,10 @@ from idx.pipelines.schemas import IngestDirectoryConfig, IngestObsidianConfig, I
 from idx.source.directory import DirectorySource, SourceDocument
 from idx.source.obsidian import ObsidianDocument, ObsidianVaultSource
 from idx.store.database import get_session
-from idx.store.fts import FTSManager, create_fts_table
-from idx.store.models import Document
-from idx.store.repositories import DatasetRepository, DocumentRepository
+from idx.store.fts import create_fts_table
+from idx.store.repositories import DatasetRepository
 from idx.store.service import normalize_dataset_name
-from idx.transform.llama import TextNormalizerTransform
+from idx.transform.llama import PersistenceTransform, TextNormalizerTransform
 
 __all__ = [
     "IngestPipeline",
@@ -39,6 +37,22 @@ __all__ = [
 ]
 
 logger = get_logger(__name__)
+
+
+@contextmanager
+def _session_passthrough(session: Session):
+    """Yield an existing session as a context manager.
+
+    Used to pass an open session to PersistenceTransform which expects
+    a session factory returning a context manager.
+
+    Args:
+        session: An open SQLAlchemy session.
+
+    Yields:
+        The same session.
+    """
+    yield session
 
 
 def compute_content_hash(content: str) -> str:
@@ -92,15 +106,16 @@ class IngestPipeline:
     """Pipeline for ingesting documents from sources.
 
     Uses LlamaIndex's IngestionPipeline for document transformations
-    (normalization, etc.) while maintaining custom persistence logic
-    for statistics tracking and FTS indexing.
+    with PersistenceTransform at the end handling database persistence
+    and FTS indexing within the pipeline.
 
     The workflow:
     1. Enumerate documents from source
     2. Convert to LlamaIndex Documents
-    3. Run through LlamaIndex transformation pipeline
-    4. Persist to database with change detection
-    5. Update FTS index
+    3. Run through LlamaIndex transformation pipeline:
+       - TextNormalizerTransform (and any custom transforms)
+       - PersistenceTransform (creates/updates documents, indexes FTS)
+    4. Return results with statistics
 
     Note: Stale document handling has been moved to idx.store.cleanup.
     Use cleanup_stale_documents() for maintenance operations.
@@ -125,17 +140,17 @@ class IngestPipeline:
         """Initialize the pipeline.
 
         Args:
-            transformations: Optional list of LlamaIndex TransformComponents.
-                If not provided, uses default TextNormalizerTransform.
+            transformations: Optional list of LlamaIndex TransformComponents
+                to run before persistence. If not provided, uses default
+                TextNormalizerTransform. Do NOT include PersistenceTransform
+                here - it is added automatically with the correct session.
             session_factory: Optional session factory for testing.
                 If not provided, uses get_session() from idx.store.database.
         """
         if transformations is None:
             transformations = [TextNormalizerTransform()]
 
-        self._llama_pipeline = IngestionPipeline(
-            transformations=transformations,
-        )
+        self._transformations = transformations
         self._session_factory = session_factory
 
     def _get_session_context(self):
@@ -151,8 +166,8 @@ class IngestPipeline:
         """Ingest documents from a local directory.
 
         Creates or retrieves the dataset, enumerates matching files,
-        transforms them via LlamaIndex pipeline, and processes each
-        document for persistence and indexing.
+        and runs them through the LlamaIndex transformation pipeline
+        with PersistenceTransform handling persistence and FTS indexing.
 
         Args:
             config: Directory ingestion configuration.
@@ -200,60 +215,32 @@ class IngestPipeline:
             )
             result.dataset_id = dataset_id
 
-            # Initialize managers
-            doc_repo = DocumentRepository(session)
-            fts = FTSManager(session)
-
-            # Get existing document paths for change detection
-            existing_paths = doc_repo.list_paths_by_dataset(dataset_id, active_only=False)
-            existing_docs = {
-                path: doc_repo.get_by_path(dataset_id, path)
-                for path in existing_paths
-            }
-
             # Convert source documents to LlamaIndex documents
             source_docs = list(source.enumerate())
             llama_docs = [source_doc_to_llama_doc(doc) for doc in source_docs]
 
-            # Run through LlamaIndex transformation pipeline
-            logger.debug(f"Running {len(llama_docs)} documents through transformation pipeline")
-            transformed_nodes = self._llama_pipeline.run(documents=llama_docs)
+            # Create persistence transform with session passthrough
+            persist = PersistenceTransform(
+                session_factory=lambda: _session_passthrough(session),
+                dataset_id=dataset_id,
+                force=config.force,
+            )
 
-            # Build a map from doc_id (relative_path) to transformed node
-            node_map: dict[str, BaseNode] = {
-                node.node_id: node for node in transformed_nodes
-            }
+            # Build pipeline with transforms + persistence
+            pipeline = IngestionPipeline(
+                transformations=[*self._transformations, persist],
+            )
 
-            # Process each document
-            for source_doc in source_docs:
-                path = source_doc.relative_path
-                node = node_map.get(path)
+            # Run pipeline - persistence happens inside
+            logger.debug(f"Running {len(llama_docs)} documents through pipeline")
+            pipeline.run(documents=llama_docs)
 
-                if node is None:
-                    logger.warning(f"No transformed node found for {path}")
-                    result.documents_failed += 1
-                    result.errors.append(f"{path}: transformation failed")
-                    continue
-
-                try:
-                    self._process_node(
-                        session=session,
-                        doc_repo=doc_repo,
-                        fts=fts,
-                        dataset_id=dataset_id,
-                        node=node,
-                        source_doc=source_doc,
-                        existing_docs=existing_docs,
-                        force=config.force,
-                        result=result,
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to process {path}: {e}")
-                    result.documents_failed += 1
-                    result.errors.append(f"{path}: {e}")
-
-            # Commit any pending changes
-            session.flush()
+            # Copy stats from persistence transform
+            result.documents_created = persist.stats.created
+            result.documents_updated = persist.stats.updated
+            result.documents_skipped = persist.stats.skipped
+            result.documents_failed = persist.stats.failed
+            result.errors = persist.stats.errors
 
         result.completed_at = datetime.now(tz=timezone.utc)
 
@@ -304,97 +291,6 @@ class IngestPipeline:
         session.flush()
         logger.info(f"Created dataset: {normalized_name}")
         return dataset.id
-
-    def _process_node(
-        self,
-        session: Session,
-        doc_repo: DocumentRepository,
-        fts: FTSManager,
-        dataset_id: int,
-        node: BaseNode,
-        source_doc: SourceDocument,
-        existing_docs: dict[str, Document | None],
-        force: bool,
-        result: IngestResult,
-        *,
-        metadata: dict[str, Any] | None = None,
-    ) -> None:
-        """Process a transformed node for persistence.
-
-        Args:
-            session: SQLAlchemy session.
-            doc_repo: Document repository.
-            fts: FTS manager.
-            dataset_id: Dataset ID.
-            node: Transformed LlamaIndex node.
-            source_doc: Original source document (for etag, last_modified).
-            existing_docs: Map of path -> existing Document (or None).
-            force: If True, always update even if unchanged.
-            result: Result object to update.
-            metadata: Optional metadata to store with the document.
-        """
-        path = source_doc.relative_path
-        normalized_body = node.get_content()
-
-        # Compute hash on normalized content
-        content_hash = compute_content_hash(normalized_body)
-
-        # Merge node metadata with provided metadata
-        combined_metadata = dict(node.metadata) if node.metadata else {}
-        if metadata:
-            combined_metadata.update(metadata)
-        metadata_json = json.dumps(combined_metadata) if combined_metadata else None
-
-        # Check if document exists
-        existing = existing_docs.get(path)
-
-        if existing is not None:
-            # Document exists - check if changed
-            if not force and existing.content_hash == content_hash:
-                # Unchanged - skip (but ensure active if was inactive)
-                if not existing.active:
-                    existing.active = True
-                    existing.metadata_json = metadata_json
-                    session.flush()
-                    # Re-index in FTS
-                    fts.upsert(existing.id, path, normalized_body)
-                    result.documents_updated += 1
-                else:
-                    result.documents_skipped += 1
-                return
-
-            # Changed or force - update
-            existing.content_hash = content_hash
-            existing.body = normalized_body
-            existing.etag = source_doc.etag
-            existing.last_modified = source_doc.last_modified
-            existing.active = True
-            existing.metadata_json = metadata_json
-            session.flush()
-
-            # Update FTS
-            fts.upsert(existing.id, path, normalized_body)
-
-            logger.debug(f"Updated document: {path}")
-            result.documents_updated += 1
-        else:
-            # New document - create
-            doc = doc_repo.create(
-                dataset_id=dataset_id,
-                path=path,
-                content_hash=content_hash,
-                body=normalized_body,
-                etag=source_doc.etag,
-                last_modified=source_doc.last_modified,
-                metadata_json=metadata_json,
-            )
-            session.flush()
-
-            # Index in FTS
-            fts.upsert(doc.id, path, normalized_body)
-
-            logger.debug(f"Created document: {path}")
-            result.documents_created += 1
 
     def ingest_obsidian(self, config: IngestObsidianConfig) -> IngestResult:
         """Ingest documents from an Obsidian vault.
@@ -474,66 +370,34 @@ class IngestPipeline:
         )
         result.dataset_id = dataset_id
 
-        # Initialize managers
-        doc_repo = DocumentRepository(session)
-        fts = FTSManager(session)
-
-        # Get existing document paths for change detection
-        existing_paths = doc_repo.list_paths_by_dataset(dataset_id, active_only=False)
-        existing_docs = {
-            path: doc_repo.get_by_path(dataset_id, path)
-            for path in existing_paths
-        }
-
         # Collect and convert Obsidian documents
         obsidian_docs = list(source.enumerate())
         llama_docs = [
             self._obsidian_doc_to_llama_doc(doc) for doc in obsidian_docs
         ]
 
-        # Run through LlamaIndex transformation pipeline
-        logger.debug(f"Running {len(llama_docs)} documents through transformation pipeline")
-        transformed_nodes = self._llama_pipeline.run(documents=llama_docs)
+        # Create persistence transform with session passthrough
+        persist = PersistenceTransform(
+            session_factory=lambda: _session_passthrough(session),
+            dataset_id=dataset_id,
+            force=config.force,
+        )
 
-        # Build a map from doc_id (relative_path) to transformed node
-        node_map: dict[str, BaseNode] = {
-            node.node_id: node for node in transformed_nodes
-        }
+        # Build pipeline with transforms + persistence
+        pipeline = IngestionPipeline(
+            transformations=[*self._transformations, persist],
+        )
 
-        # Process each document
-        for obsidian_doc in obsidian_docs:
-            path = obsidian_doc.relative_path
-            node = node_map.get(path)
+        # Run pipeline - persistence happens inside
+        logger.debug(f"Running {len(llama_docs)} documents through pipeline")
+        pipeline.run(documents=llama_docs)
 
-            if node is None:
-                logger.warning(f"No transformed node found for {path}")
-                result.documents_failed += 1
-                result.errors.append(f"{path}: transformation failed")
-                continue
-
-            try:
-                # Build metadata from frontmatter
-                metadata = self._build_obsidian_metadata(obsidian_doc)
-
-                self._process_node(
-                    session=session,
-                    doc_repo=doc_repo,
-                    fts=fts,
-                    dataset_id=dataset_id,
-                    node=node,
-                    source_doc=obsidian_doc,
-                    existing_docs=existing_docs,
-                    force=config.force,
-                    result=result,
-                    metadata=metadata,
-                )
-            except Exception as e:
-                logger.error(f"Failed to process {path}: {e}")
-                result.documents_failed += 1
-                result.errors.append(f"{path}: {e}")
-
-        # Commit any pending changes
-        session.flush()
+        # Copy stats from persistence transform
+        result.documents_created = persist.stats.created
+        result.documents_updated = persist.stats.updated
+        result.documents_skipped = persist.stats.skipped
+        result.documents_failed = persist.stats.failed
+        result.errors = persist.stats.errors
 
     def _obsidian_doc_to_llama_doc(self, doc: ObsidianDocument) -> LlamaDocument:
         """Convert an ObsidianDocument to a LlamaIndex Document.
@@ -570,26 +434,3 @@ class IngestPipeline:
             doc_id=doc.relative_path,
             metadata=metadata,
         )
-
-    def _build_obsidian_metadata(self, doc: ObsidianDocument) -> dict[str, Any]:
-        """Build metadata dictionary from an Obsidian document.
-
-        Args:
-            doc: Obsidian document with parsed frontmatter.
-
-        Returns:
-            Metadata dictionary with tags, aliases, and frontmatter.
-        """
-        metadata: dict[str, Any] = {}
-
-        if doc.tags:
-            metadata["tags"] = doc.tags
-
-        if doc.aliases:
-            metadata["aliases"] = doc.aliases
-
-        if doc.frontmatter:
-            # Store raw frontmatter for future use
-            metadata["frontmatter"] = doc.frontmatter
-
-        return metadata if metadata else {}
