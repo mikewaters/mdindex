@@ -7,6 +7,7 @@ verify FTS results and soft-delete behavior.
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import Engine, text
@@ -17,6 +18,7 @@ from idx.pipelines.schemas import IngestDirectoryConfig, IngestObsidianConfig
 from idx.search.fts import FTSSearch
 from idx.search.models import SearchCriteria
 from idx.store.database import Base, create_engine_for_path
+from idx.store.fts import create_fts_table
 
 
 @pytest.fixture
@@ -25,13 +27,19 @@ def test_engine(tmp_path: Path) -> Engine:
     db_path = tmp_path / "test.db"
     engine = create_engine_for_path(db_path)
     Base.metadata.create_all(engine)
+    create_fts_table(engine)
     return engine
 
 
+@pytest.fixture
+def session_factory(test_engine: Engine):
+    """Create a session factory for the test database."""
+    return sessionmaker(bind=test_engine, expire_on_commit=False)
+
+
 @contextmanager
-def create_session(engine: Engine) -> Generator[Session, None, None]:
+def create_session(factory) -> Generator[Session, None, None]:
     """Create a session that auto-commits on exit."""
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
     session = factory()
     try:
         yield session
@@ -41,6 +49,18 @@ def create_session(engine: Engine) -> Generator[Session, None, None]:
         raise
     finally:
         session.close()
+
+
+@pytest.fixture
+def patched_get_session(session_factory):
+    """Patch get_session to use the test database."""
+    @contextmanager
+    def get_test_session():
+        with create_session(session_factory) as session:
+            yield session
+
+    with patch("idx.pipelines.ingest.get_session", get_test_session):
+        yield get_test_session
 
 
 @pytest.fixture
@@ -108,26 +128,26 @@ class TestIngestAndSearch:
 
     def test_ingest_directory_then_search(
         self,
-        test_engine: Engine,
+        patched_get_session,
+        session_factory,
         sample_vault: Path,
     ) -> None:
         """Ingest directory and verify FTS search works."""
         # Ingest the directory
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            config = IngestDirectoryConfig(
-                source_path=sample_vault,
-                dataset_name="test-vault",
-                patterns=["**/*.md"],
-            )
+        pipeline = IngestPipeline()
+        config = IngestDirectoryConfig(
+            source_path=sample_vault,
+            dataset_name="test-vault",
+            patterns=["**/*.md"],
+        )
 
-            result = pipeline.ingest_directory(config)
+        result = pipeline.ingest(config)
 
-            assert result.documents_created == 4
-            assert result.documents_failed == 0
+        assert result.documents_created == 4
+        assert result.documents_failed == 0
 
         # Search for Python content
-        with create_session(test_engine) as session:
+        with create_session(session_factory) as session:
             search = FTSSearch(session)
             results = search.search(
                 SearchCriteria(query="python", limit=10)
@@ -139,20 +159,21 @@ class TestIngestAndSearch:
 
     def test_search_with_dataset_filter(
         self,
-        test_engine: Engine,
+        patched_get_session,
+        session_factory,
         sample_vault: Path,
         tmp_path: Path,
     ) -> None:
         """Search results can be filtered by dataset."""
+        pipeline = IngestPipeline()
+
         # Ingest first vault
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            config1 = IngestDirectoryConfig(
-                source_path=sample_vault,
-                dataset_name="vault1",
-                patterns=["**/*.md"],
-            )
-            pipeline.ingest_directory(config1)
+        config1 = IngestDirectoryConfig(
+            source_path=sample_vault,
+            dataset_name="vault1",
+            patterns=["**/*.md"],
+        )
+        pipeline.ingest(config1)
 
         # Create and ingest second vault
         vault2 = tmp_path / "vault2"
@@ -160,17 +181,15 @@ class TestIngestAndSearch:
         (vault2 / ".obsidian").mkdir()
         (vault2 / "other.md").write_text("# Other Python Note\n\nMore python content here.")
 
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            config2 = IngestDirectoryConfig(
-                source_path=vault2,
-                dataset_name="vault2",
-                patterns=["**/*.md"],
-            )
-            pipeline.ingest_directory(config2)
+        config2 = IngestDirectoryConfig(
+            source_path=vault2,
+            dataset_name="vault2",
+            patterns=["**/*.md"],
+        )
+        pipeline.ingest(config2)
 
         # Search all datasets
-        with create_session(test_engine) as session:
+        with create_session(session_factory) as session:
             search = FTSSearch(session)
 
             # Search without filter
@@ -196,7 +215,7 @@ class TestRefreshBehavior:
 
     def test_refresh_detects_unchanged_files(
         self,
-        test_engine: Engine,
+        patched_get_session,
         sample_vault: Path,
     ) -> None:
         """Re-ingesting unchanged files skips them."""
@@ -206,22 +225,20 @@ class TestRefreshBehavior:
             patterns=["**/*.md"],
         )
 
+        pipeline = IngestPipeline()
+
         # First ingest
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            result1 = pipeline.ingest_directory(config)
-            assert result1.documents_created == 4
+        result1 = pipeline.ingest(config)
+        assert result1.documents_created == 4
 
         # Second ingest (no changes)
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            result2 = pipeline.ingest_directory(config)
-            assert result2.documents_created == 0
-            assert result2.documents_skipped == 4
+        result2 = pipeline.ingest(config)
+        assert result2.documents_created == 0
+        assert result2.documents_skipped == 4
 
     def test_refresh_detects_modified_files(
         self,
-        test_engine: Engine,
+        patched_get_session,
         sample_vault: Path,
     ) -> None:
         """Re-ingesting modified files updates them."""
@@ -231,11 +248,11 @@ class TestRefreshBehavior:
             patterns=["**/*.md"],
         )
 
+        pipeline = IngestPipeline()
+
         # First ingest
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            result1 = pipeline.ingest_directory(config)
-            assert result1.documents_created == 4
+        result1 = pipeline.ingest(config)
+        assert result1.documents_created == 4
 
         # Modify a file
         import time
@@ -244,15 +261,13 @@ class TestRefreshBehavior:
         note1.write_text(note1.read_text() + "\n\nNew content added!")
 
         # Second ingest
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            result2 = pipeline.ingest_directory(config)
-            assert result2.documents_updated >= 1
-            assert result2.documents_skipped == 3
+        result2 = pipeline.ingest(config)
+        assert result2.documents_updated >= 1
+        assert result2.documents_skipped == 3
 
     def test_refresh_detects_added_files(
         self,
-        test_engine: Engine,
+        patched_get_session,
         sample_vault: Path,
     ) -> None:
         """Re-ingesting with new files adds them."""
@@ -262,81 +277,95 @@ class TestRefreshBehavior:
             patterns=["**/*.md"],
         )
 
+        pipeline = IngestPipeline()
+
         # First ingest
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            result1 = pipeline.ingest_directory(config)
-            assert result1.documents_created == 4
+        result1 = pipeline.ingest(config)
+        assert result1.documents_created == 4
 
         # Add a new file
         (sample_vault / "new_note.md").write_text("# New Note\n\nBrand new content.")
 
         # Second ingest
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            result2 = pipeline.ingest_directory(config)
-            assert result2.documents_created == 1
-            assert result2.documents_skipped == 4
+        result2 = pipeline.ingest(config)
+        assert result2.documents_created == 1
+        assert result2.documents_skipped == 4
 
 
 class TestSoftDeleteBehavior:
-    """Tests for soft-delete and stale document handling."""
+    """Tests for soft-delete and stale document handling.
+
+    Note: Stale document detection has moved to idx.store.cleanup module.
+    These tests now use cleanup_stale_documents() for marking stale docs.
+    """
 
     def test_deleted_files_are_soft_deleted(
         self,
-        test_engine: Engine,
+        patched_get_session,
+        session_factory,
         sample_vault: Path,
     ) -> None:
-        """Files removed from disk are soft-deleted in database."""
+        """Files removed from disk are cleaned up from database."""
+        from idx.store.cleanup import cleanup_stale_documents
+
         config = IngestDirectoryConfig(
             source_path=sample_vault,
             dataset_name="test-vault",
             patterns=["**/*.md"],
         )
 
+        pipeline = IngestPipeline()
+
         # First ingest
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            result1 = pipeline.ingest_directory(config)
-            assert result1.documents_created == 4
+        result1 = pipeline.ingest(config)
+        assert result1.documents_created == 4
 
         # Delete a file
         (sample_vault / "note2.md").unlink()
 
-        # Second ingest
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            result2 = pipeline.ingest_directory(config)
-            assert result2.documents_stale == 1
+        # Second ingest (processes existing files)
+        pipeline.ingest(config)
 
-        # Check database - document should be inactive
-        with create_session(test_engine) as session:
+        # Run cleanup to remove stale documents
+        with create_session(session_factory) as session:
+            stale_count = cleanup_stale_documents(
+                session,
+                result1.dataset_id,
+                source_path=sample_vault,
+                patterns=["**/*.md"],
+            )
+            assert stale_count == 1
+
+        # Check database - document should be deleted (hard delete)
+        with create_session(session_factory) as session:
             result = session.execute(
-                text("SELECT path, active FROM documents WHERE path LIKE '%note2.md'")
+                text("SELECT path FROM documents WHERE path LIKE '%note2.md'")
             )
             row = result.fetchone()
-            assert row is not None
-            assert row[1] == 0  # active = False
+            assert row is None  # Document was hard-deleted
 
-    def test_soft_deleted_not_in_search(
+    def test_deleted_file_not_in_search(
         self,
-        test_engine: Engine,
+        patched_get_session,
+        session_factory,
         sample_vault: Path,
     ) -> None:
-        """Soft-deleted documents don't appear in search results."""
+        """Deleted documents don't appear in search results after cleanup."""
+        from idx.store.cleanup import cleanup_stale_documents
+
         config = IngestDirectoryConfig(
             source_path=sample_vault,
             dataset_name="test-vault",
             patterns=["**/*.md"],
         )
 
+        pipeline = IngestPipeline()
+
         # Ingest
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            pipeline.ingest_directory(config)
+        result = pipeline.ingest(config)
 
         # Verify JavaScript file is searchable
-        with create_session(test_engine) as session:
+        with create_session(session_factory) as session:
             search = FTSSearch(session)
             results = search.search(SearchCriteria(query="javascript", limit=10))
             assert len(results.results) >= 1
@@ -344,58 +373,69 @@ class TestSoftDeleteBehavior:
         # Delete the JavaScript file
         (sample_vault / "note2.md").unlink()
 
-        # Re-ingest to mark as stale
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            pipeline.ingest_directory(config)
+        # Re-ingest and cleanup stale
+        pipeline.ingest(config)
+        with create_session(session_factory) as session:
+            cleanup_stale_documents(
+                session,
+                result.dataset_id,
+                source_path=sample_vault,
+                patterns=["**/*.md"],
+            )
 
         # Search again - should not find JavaScript
-        with create_session(test_engine) as session:
+        with create_session(session_factory) as session:
             search = FTSSearch(session)
             results = search.search(SearchCriteria(query="javascript", limit=10))
-            # note2.md was soft-deleted, so no JavaScript results
+            # note2.md was deleted, so no JavaScript results
             assert len(results.results) == 0
 
-    def test_reappeared_file_reactivated(
+    def test_reappeared_file_is_reindexed(
         self,
-        test_engine: Engine,
+        patched_get_session,
+        session_factory,
         sample_vault: Path,
     ) -> None:
-        """File that reappears after deletion is reactivated."""
+        """File that reappears after cleanup is re-indexed."""
+        from idx.store.cleanup import cleanup_stale_documents
+
         config = IngestDirectoryConfig(
             source_path=sample_vault,
             dataset_name="test-vault",
             patterns=["**/*.md"],
         )
 
+        pipeline = IngestPipeline()
+
         # First ingest
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            pipeline.ingest_directory(config)
+        result = pipeline.ingest(config)
 
         # Save content and delete
         note2_path = sample_vault / "note2.md"
         original_content = note2_path.read_text()
         note2_path.unlink()
 
-        # Ingest to mark as stale
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            result2 = pipeline.ingest_directory(config)
-            assert result2.documents_stale == 1
+        # Ingest and cleanup to delete stale docs
+        pipeline.ingest(config)
+        with create_session(session_factory) as session:
+            stale_count = cleanup_stale_documents(
+                session,
+                result.dataset_id,
+                source_path=sample_vault,
+                patterns=["**/*.md"],
+            )
+            assert stale_count == 1
 
         # Restore the file
         note2_path.write_text(original_content)
 
-        # Ingest again - should reactivate
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            result3 = pipeline.ingest_directory(config)
-            # Should be treated as update (reactivation)
-            assert result3.documents_updated >= 1 or result3.documents_created >= 1
+        # Ingest again - should create new document
+        result3 = pipeline.ingest(config)
+        # Should be created (since it was hard-deleted and now reappears)
+        assert result3.documents_created >= 1
 
         # Verify searchable again
-        with create_session(test_engine) as session:
+        with create_session(session_factory) as session:
             search = FTSSearch(session)
             results = search.search(SearchCriteria(query="javascript", limit=10))
             assert len(results.results) >= 1
@@ -406,7 +446,8 @@ class TestObsidianIngest:
 
     def test_ingest_obsidian_extracts_frontmatter(
         self,
-        test_engine: Engine,
+        patched_get_session,
+        session_factory,
         sample_vault: Path,
     ) -> None:
         """Obsidian ingest extracts frontmatter metadata."""
@@ -415,15 +456,14 @@ class TestObsidianIngest:
             dataset_name="obsidian-vault",
         )
 
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            result = pipeline.ingest_obsidian(config)
+        pipeline = IngestPipeline()
+        result = pipeline.ingest(config)
 
-            assert result.documents_created == 4
-            assert result.documents_failed == 0
+        assert result.documents_created == 4
+        assert result.documents_failed == 0
 
         # Verify metadata was stored
-        with create_session(test_engine) as session:
+        with create_session(session_factory) as session:
             result = session.execute(
                 text("SELECT metadata_json FROM documents WHERE path LIKE '%note1.md'")
             )
@@ -436,7 +476,8 @@ class TestObsidianIngest:
 
     def test_obsidian_excludes_obsidian_dir(
         self,
-        test_engine: Engine,
+        patched_get_session,
+        session_factory,
         sample_vault: Path,
     ) -> None:
         """Obsidian ingest excludes .obsidian directory."""
@@ -448,15 +489,14 @@ class TestObsidianIngest:
             dataset_name="obsidian-vault",
         )
 
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            result = pipeline.ingest_obsidian(config)
+        pipeline = IngestPipeline()
+        result = pipeline.ingest(config)
 
-            # Should only have the 4 markdown files, not the config
-            assert result.documents_created == 4
+        # Should only have the 4 markdown files, not the config
+        assert result.documents_created == 4
 
         # Verify config.json not in database
-        with create_session(test_engine) as session:
+        with create_session(session_factory) as session:
             result = session.execute(
                 text("SELECT COUNT(*) FROM documents WHERE path LIKE '%.json%'")
             )

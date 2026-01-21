@@ -22,6 +22,7 @@ from idx.search.fts import FTSSearch
 from idx.search.hybrid import HybridSearch, rrf_fusion
 from idx.search.models import SearchCriteria, SearchResult, SearchResults
 from idx.store.database import Base, create_engine_for_path
+from idx.store.fts import create_fts_table
 
 
 @pytest.fixture
@@ -30,13 +31,19 @@ def test_engine(tmp_path: Path) -> Engine:
     db_path = tmp_path / "test.db"
     engine = create_engine_for_path(db_path)
     Base.metadata.create_all(engine)
+    create_fts_table(engine)
     return engine
 
 
+@pytest.fixture
+def session_factory(test_engine: Engine):
+    """Create a session factory for the test database."""
+    return sessionmaker(bind=test_engine, expire_on_commit=False)
+
+
 @contextmanager
-def create_session(engine: Engine) -> Generator[Session, None, None]:
+def create_session(factory) -> Generator[Session, None, None]:
     """Create a session that auto-commits on exit."""
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
     session = factory()
     try:
         yield session
@@ -46,6 +53,18 @@ def create_session(engine: Engine) -> Generator[Session, None, None]:
         raise
     finally:
         session.close()
+
+
+@pytest.fixture
+def patched_get_session(session_factory):
+    """Patch get_session to use the test database."""
+    @contextmanager
+    def get_test_session():
+        with create_session(session_factory) as session:
+            yield session
+
+    with patch("idx.pipelines.ingest.get_session", get_test_session):
+        yield get_test_session
 
 
 @pytest.fixture
@@ -141,20 +160,20 @@ class TestHybridSearchIntegration:
 
     def test_hybrid_search_combines_sources(
         self,
-        test_engine: Engine,
+        patched_get_session,
+        session_factory,
         sample_docs: Path,
     ) -> None:
         """Hybrid search combines FTS and vector results."""
         # Ingest documents (FTS only for this test)
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            config = IngestDirectoryConfig(
-                source_path=sample_docs,
-                dataset_name="test-vault",
-                patterns=["**/*.md"],
-            )
-            result = pipeline.ingest_directory(config)
-            assert result.documents_created == 3
+        pipeline = IngestPipeline()
+        config = IngestDirectoryConfig(
+            source_path=sample_docs,
+            dataset_name="test-vault",
+            patterns=["**/*.md"],
+        )
+        result = pipeline.ingest(config)
+        assert result.documents_created == 3
 
         # Create mock vector search
         mock_vector = MagicMock()
@@ -164,7 +183,7 @@ class TestHybridSearchIntegration:
         ]
 
         # Run hybrid search
-        with create_session(test_engine) as session:
+        with create_session(session_factory) as session:
             hybrid = HybridSearch(
                 session=session,
                 vector_search=mock_vector,
@@ -183,19 +202,19 @@ class TestHybridSearchIntegration:
 
     def test_hybrid_search_normalizes_scores(
         self,
-        test_engine: Engine,
+        patched_get_session,
+        session_factory,
         sample_docs: Path,
     ) -> None:
         """Hybrid search normalizes RRF scores to 0-1 range."""
         # Ingest documents
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            config = IngestDirectoryConfig(
-                source_path=sample_docs,
-                dataset_name="test-vault",
-                patterns=["**/*.md"],
-            )
-            pipeline.ingest_directory(config)
+        pipeline = IngestPipeline()
+        config = IngestDirectoryConfig(
+            source_path=sample_docs,
+            dataset_name="test-vault",
+            patterns=["**/*.md"],
+        )
+        pipeline.ingest(config)
 
         # Mock vector search
         mock_vector = MagicMock()
@@ -205,7 +224,7 @@ class TestHybridSearchIntegration:
         ]
 
         # Run hybrid search
-        with create_session(test_engine) as session:
+        with create_session(session_factory) as session:
             hybrid = HybridSearch(
                 session=session,
                 vector_search=mock_vector,
@@ -224,33 +243,34 @@ class TestHybridSearchIntegration:
 
     def test_hybrid_search_respects_dataset_filter(
         self,
-        test_engine: Engine,
+        patched_get_session,
+        session_factory,
         sample_docs: Path,
         tmp_path: Path,
     ) -> None:
         """Hybrid search filters by dataset name."""
+        pipeline = IngestPipeline()
+
         # Create two datasets
         docs2 = tmp_path / "docs2"
         docs2.mkdir()
         (docs2 / "other.md").write_text("# Other\n\nUnrelated content.")
 
         # Ingest both
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            pipeline.ingest_directory(
-                IngestDirectoryConfig(
-                    source_path=sample_docs,
-                    dataset_name="vault1",
-                    patterns=["**/*.md"],
-                )
+        pipeline.ingest(
+            IngestDirectoryConfig(
+                source_path=sample_docs,
+                dataset_name="vault1",
+                patterns=["**/*.md"],
             )
-            pipeline.ingest_directory(
-                IngestDirectoryConfig(
-                    source_path=docs2,
-                    dataset_name="vault2",
-                    patterns=["**/*.md"],
-                )
+        )
+        pipeline.ingest(
+            IngestDirectoryConfig(
+                source_path=docs2,
+                dataset_name="vault2",
+                patterns=["**/*.md"],
             )
+        )
 
         # Mock vector search that respects dataset filter
         mock_vector = MagicMock()
@@ -259,7 +279,7 @@ class TestHybridSearchIntegration:
         ]
 
         # Search with filter
-        with create_session(test_engine) as session:
+        with create_session(session_factory) as session:
             hybrid = HybridSearch(
                 session=session,
                 vector_search=mock_vector,
@@ -389,22 +409,22 @@ class TestEndToEndFlow:
     @pytest.mark.asyncio
     async def test_full_pipeline_ingest_search_rerank(
         self,
-        test_engine: Engine,
+        patched_get_session,
+        session_factory,
         sample_docs: Path,
     ) -> None:
         """Full flow: ingest -> hybrid search -> rerank."""
         from idx.llm.reranker import Reranker
 
         # 1. Ingest documents
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            config = IngestDirectoryConfig(
-                source_path=sample_docs,
-                dataset_name="test-vault",
-                patterns=["**/*.md"],
-            )
-            result = pipeline.ingest_directory(config)
-            assert result.documents_created == 3
+        pipeline = IngestPipeline()
+        config = IngestDirectoryConfig(
+            source_path=sample_docs,
+            dataset_name="test-vault",
+            patterns=["**/*.md"],
+        )
+        result = pipeline.ingest(config)
+        assert result.documents_created == 3
 
         # 2. Hybrid search (with mocked vector)
         mock_vector = MagicMock()
@@ -413,7 +433,7 @@ class TestEndToEndFlow:
             ("api.md", "test-vault", 0.85),
         ]
 
-        with create_session(test_engine) as session:
+        with create_session(session_factory) as session:
             hybrid = HybridSearch(
                 session=session,
                 vector_search=mock_vector,
@@ -453,22 +473,22 @@ class TestEndToEndFlow:
 
     def test_fts_search_standalone(
         self,
-        test_engine: Engine,
+        patched_get_session,
+        session_factory,
         sample_docs: Path,
     ) -> None:
         """FTS search works independently of vector search."""
         # Ingest
-        with create_session(test_engine) as session:
-            pipeline = IngestPipeline(session)
-            config = IngestDirectoryConfig(
-                source_path=sample_docs,
-                dataset_name="test-vault",
-                patterns=["**/*.md"],
-            )
-            pipeline.ingest_directory(config)
+        pipeline = IngestPipeline()
+        config = IngestDirectoryConfig(
+            source_path=sample_docs,
+            dataset_name="test-vault",
+            patterns=["**/*.md"],
+        )
+        pipeline.ingest(config)
 
         # Search
-        with create_session(test_engine) as session:
+        with create_session(session_factory) as session:
             fts = FTSSearch(session)
             results = fts.search(
                 SearchCriteria(query="authentication", mode="fts", limit=10)

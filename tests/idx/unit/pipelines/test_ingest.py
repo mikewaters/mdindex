@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy.orm import sessionmaker
 
-from idx.pipelines.ingest import IngestPipeline, compute_content_hash, source_doc_to_llama_doc
+from idx.pipelines.ingest import IngestPipeline
 from idx.pipelines.schemas import IngestDirectoryConfig, IngestObsidianConfig
 from idx.source.directory import SourceDocument
 from idx.store.database import Base, create_engine_for_path
@@ -15,70 +15,8 @@ from idx.store.fts import FTSManager, create_fts_table
 from idx.store.repositories import DatasetRepository, DocumentRepository
 
 
-class TestComputeContentHash:
-    """Tests for compute_content_hash function."""
-
-    def test_hash_basic_text(self) -> None:
-        """Hash is computed correctly for basic text."""
-        hash1 = compute_content_hash("Hello, World!")
-        hash2 = compute_content_hash("Hello, World!")
-        assert hash1 == hash2
-        assert len(hash1) == 64  # SHA256 hex length
-
-    def test_hash_different_content(self) -> None:
-        """Different content produces different hashes."""
-        hash1 = compute_content_hash("Hello")
-        hash2 = compute_content_hash("World")
-        assert hash1 != hash2
-
-    def test_hash_empty_string(self) -> None:
-        """Empty string produces valid hash."""
-        hash_val = compute_content_hash("")
-        assert len(hash_val) == 64
-
-    def test_hash_unicode(self) -> None:
-        """Unicode content is hashed correctly."""
-        hash_val = compute_content_hash("Hello 世界 ")
-        assert len(hash_val) == 64
 
 
-class TestSourceDocToLlamaDoc:
-    """Tests for source_doc_to_llama_doc function."""
-
-    def test_basic_conversion(self) -> None:
-        """SourceDocument is converted to LlamaIndex Document."""
-        from datetime import datetime, timezone
-
-        source_doc = SourceDocument(
-            path=Path("/tmp/docs/test.md"),
-            relative_path="test.md",
-            last_modified=datetime(2024, 1, 1, tzinfo=timezone.utc),
-            content="# Test\n\nHello world.",
-            etag="abc123",
-        )
-
-        llama_doc = source_doc_to_llama_doc(source_doc)
-
-        assert llama_doc.text == "# Test\n\nHello world."
-        assert llama_doc.doc_id == "test.md"
-        assert llama_doc.metadata["relative_path"] == "test.md"
-        assert llama_doc.metadata["file_path"] == "/tmp/docs/test.md"
-        assert llama_doc.metadata["etag"] == "abc123"
-
-    def test_extra_metadata(self) -> None:
-        """Extra metadata is merged into the document."""
-        source_doc = SourceDocument(
-            path=Path("/tmp/docs/test.md"),
-            relative_path="test.md",
-            content="Hello",
-        )
-
-        llama_doc = source_doc_to_llama_doc(
-            source_doc,
-            extra_metadata={"custom_key": "custom_value"},
-        )
-
-        assert llama_doc.metadata["custom_key"] == "custom_value"
 
 
 class TestIngestPipeline:
@@ -142,7 +80,7 @@ class TestIngestPipeline:
             patterns=["**/*.md"],
         )
         pipeline = IngestPipeline()
-        result = pipeline.ingest_directory(config)
+        result = pipeline.ingest(config)
 
         assert result.dataset_name == "test-docs"
         assert result.dataset_id > 0
@@ -163,7 +101,7 @@ class TestIngestPipeline:
             patterns=["**/*.md"],
         )
         pipeline = IngestPipeline()
-        result = pipeline.ingest_directory(config)
+        result = pipeline.ingest(config)
 
         assert result.documents_created == 3  # readme.md, notes.md, subdir/deep.md
         assert result.documents_updated == 0
@@ -190,7 +128,7 @@ class TestIngestPipeline:
             patterns=["**/*.md"],
         )
         pipeline = IngestPipeline()
-        result = pipeline.ingest_directory(config)
+        result = pipeline.ingest(config)
 
         # Verify FTS index
         fts = FTSManager(db_session)
@@ -213,11 +151,11 @@ class TestIngestPipeline:
         pipeline = IngestPipeline()
 
         # First ingestion
-        result1 = pipeline.ingest_directory(config)
+        result1 = pipeline.ingest(config)
         assert result1.documents_created == 3
 
         # Second ingestion - should skip all
-        result2 = pipeline.ingest_directory(config)
+        result2 = pipeline.ingest(config)
         assert result2.documents_created == 0
         assert result2.documents_updated == 0
         assert result2.documents_skipped == 3
@@ -234,14 +172,14 @@ class TestIngestPipeline:
         pipeline = IngestPipeline()
 
         # First ingestion
-        result1 = pipeline.ingest_directory(config)
+        result1 = pipeline.ingest(config)
         assert result1.documents_created == 3
 
         # Modify a file
         (sample_directory / "readme.md").write_text("# Updated Readme\n\nNew content.")
 
         # Second ingestion - should update one
-        result2 = pipeline.ingest_directory(config)
+        result2 = pipeline.ingest(config)
         assert result2.documents_created == 0
         assert result2.documents_updated == 1
         assert result2.documents_skipped == 2
@@ -258,7 +196,7 @@ class TestIngestPipeline:
         pipeline = IngestPipeline()
 
         # First ingestion
-        result1 = pipeline.ingest_directory(config)
+        result1 = pipeline.ingest(config)
         assert result1.documents_created == 3
 
         # Force ingestion - should update all
@@ -268,7 +206,7 @@ class TestIngestPipeline:
             patterns=["**/*.md"],
             force=True,
         )
-        result2 = pipeline.ingest_directory(config_force)
+        result2 = pipeline.ingest(config_force)
         assert result2.documents_created == 0
         assert result2.documents_updated == 3
         assert result2.documents_skipped == 0
@@ -283,7 +221,7 @@ class TestIngestPipeline:
             patterns=["**/*.md", "!**/subdir/**"],
         )
         pipeline = IngestPipeline()
-        result = pipeline.ingest_directory(config)
+        result = pipeline.ingest(config)
 
         # Should only include files not in subdir
         assert result.documents_created == 2
@@ -305,7 +243,7 @@ class TestIngestPipeline:
             patterns=["**/*.md"],
         )
         pipeline = IngestPipeline()
-        result = pipeline.ingest_directory(config)
+        result = pipeline.ingest(config)
 
         assert result.dataset_name == "my-test-docs"
 
@@ -320,8 +258,8 @@ class TestIngestPipeline:
         )
         pipeline = IngestPipeline()
 
-        result1 = pipeline.ingest_directory(config)
-        result2 = pipeline.ingest_directory(config)
+        result1 = pipeline.ingest(config)
+        result2 = pipeline.ingest(config)
 
         assert result1.dataset_id == result2.dataset_id
 
@@ -335,7 +273,7 @@ class TestIngestPipeline:
             patterns=["**/*.md"],
         )
         pipeline = IngestPipeline()
-        result = pipeline.ingest_directory(config)
+        result = pipeline.ingest(config)
 
         assert result.total_processed == 3
         assert result.success is True
@@ -355,7 +293,7 @@ class TestIngestPipeline:
             patterns=["**/*.md"],
         )
         pipeline = IngestPipeline()
-        result = pipeline.ingest_directory(config)
+        result = pipeline.ingest(config)
 
         assert result.documents_created == 0
         assert result.success is True
@@ -364,17 +302,17 @@ class TestIngestPipeline:
         self, test_db, db_session, tmp_path: Path
     ) -> None:
         """Ingestion raises error for missing directory."""
+        from pydantic import ValidationError
+
         missing_dir = tmp_path / "nonexistent"
 
-        config = IngestDirectoryConfig(
-            source_path=missing_dir,
-            dataset_name="test",
-            patterns=["**/*.md"],
-        )
-        pipeline = IngestPipeline()
-
-        with pytest.raises(FileNotFoundError):
-            pipeline.ingest_directory(config)
+        # Validation happens at config creation time
+        with pytest.raises(ValidationError, match="does not exist"):
+            IngestDirectoryConfig(
+                source_path=missing_dir,
+                dataset_name="test",
+                patterns=["**/*.md"],
+            )
 
     # NOTE: Stale document detection tests were removed.
     # Stale document handling is now in idx.store.cleanup module.
@@ -484,7 +422,7 @@ In a subfolder.
             dataset_name="my-vault",
         )
         pipeline = IngestPipeline()
-        result = pipeline.ingest_obsidian(config)
+        result = pipeline.ingest(config)
 
         assert result.dataset_name == "my-vault"
         assert result.dataset_id > 0
@@ -503,7 +441,7 @@ In a subfolder.
             dataset_name="my-vault",
         )
         pipeline = IngestPipeline()
-        result = pipeline.ingest_obsidian(config)
+        result = pipeline.ingest(config)
 
         assert result.documents_created == 4  # note1, note2, plain, nested
         assert result.documents_failed == 0
@@ -519,7 +457,7 @@ In a subfolder.
             dataset_name="my-vault",
         )
         pipeline = IngestPipeline()
-        result = pipeline.ingest_obsidian(config)
+        result = pipeline.ingest(config)
 
         doc_repo = DocumentRepository(db_session)
         doc1 = doc_repo.get_by_path(result.dataset_id, "note1.md")
@@ -544,7 +482,7 @@ In a subfolder.
             dataset_name="my-vault",
         )
         pipeline = IngestPipeline()
-        result = pipeline.ingest_obsidian(config)
+        result = pipeline.ingest(config)
 
         doc_repo = DocumentRepository(db_session)
         plain_doc = doc_repo.get_by_path(result.dataset_id, "plain.md")
@@ -564,7 +502,7 @@ In a subfolder.
             dataset_name="my-vault",
         )
         pipeline = IngestPipeline()
-        result = pipeline.ingest_obsidian(config)
+        result = pipeline.ingest(config)
 
         fts = FTSManager(db_session)
         assert fts.count() == 4
@@ -584,7 +522,7 @@ In a subfolder.
         pipeline = IngestPipeline()
 
         # First ingestion
-        result1 = pipeline.ingest_obsidian(config)
+        result1 = pipeline.ingest(config)
         assert result1.documents_created == 4
 
         # Force ingestion
@@ -593,7 +531,7 @@ In a subfolder.
             dataset_name="my-vault",
             force=True,
         )
-        result2 = pipeline.ingest_obsidian(config_force)
+        result2 = pipeline.ingest(config_force)
         assert result2.documents_updated == 4
         assert result2.documents_skipped == 0
 
@@ -601,14 +539,14 @@ In a subfolder.
         self, test_db, db_session, tmp_path: Path
     ) -> None:
         """Obsidian ingestion raises error for invalid vault."""
+        from pydantic import ValidationError
+
         not_a_vault = tmp_path / "not_vault"
         not_a_vault.mkdir()
 
-        config = IngestObsidianConfig(
-            source_path=not_a_vault,
-            dataset_name="test",
-        )
-        pipeline = IngestPipeline()
-
-        with pytest.raises(ValueError, match="missing .obsidian"):
-            pipeline.ingest_obsidian(config)
+        # Validation happens at config creation time
+        with pytest.raises(ValidationError, match="missing .obsidian"):
+            IngestObsidianConfig(
+                source_path=not_a_vault,
+                dataset_name="test",
+            )

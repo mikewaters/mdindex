@@ -162,6 +162,7 @@ class TestEndToEndStatusIntegration:
 
     def test_status_after_ingest(self, tmp_path: Path) -> None:
         """Health check passes after document ingestion."""
+        from contextlib import contextmanager
         from unittest.mock import MagicMock, patch
 
         from idx.core.status import check_health
@@ -183,22 +184,32 @@ class TestEndToEndStatusIntegration:
         Base.metadata.create_all(engine)
         create_fts_table(engine)
 
-        # Ingest documents
+        # Create session factory
         factory = sessionmaker(bind=engine, expire_on_commit=False)
-        session = factory()
-        try:
-            pipeline = IngestPipeline(session)
+
+        @contextmanager
+        def get_test_session():
+            session = factory()
+            try:
+                yield session
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+            finally:
+                session.close()
+
+        # Ingest documents using patched session
+        with patch("idx.pipelines.ingest.get_session", get_test_session):
+            pipeline = IngestPipeline()
             config = IngestDirectoryConfig(
                 source_path=docs_dir,
                 dataset_name="test",
                 patterns=["**/*.md"],
             )
-            result = pipeline.ingest_directory(config)
-            session.commit()
+            result = pipeline.ingest(config)
 
-            assert result.documents_created == 1
-        finally:
-            session.close()
+        assert result.documents_created == 1
 
         # Check health with the same database
         with (
