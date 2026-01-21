@@ -2,12 +2,17 @@
 
 Combines full-text search and vector search results using RRF,
 then deduplicates by (dataset_name, path) keeping the best chunk.
+Uses ambient session via contextvars.
 
 Example usage:
     from idx.search.hybrid import HybridSearch
+    from idx.store.database import get_session
+    from idx.store.session_context import use_session
 
-    search = HybridSearch(session, vector_search)
-    results = search.search(SearchCriteria(query="auth", mode="hybrid"))
+    with get_session() as session:
+        with use_session(session):
+            search = HybridSearch(vector_search=vector_search)
+            results = search.search(SearchCriteria(query="auth", mode="hybrid"))
 """
 
 from __future__ import annotations
@@ -82,29 +87,36 @@ class HybridSearch:
     Executes both search modes, fuses results with RRF, and deduplicates
     by (dataset_name, path) keeping the best chunk from each document.
 
+    Uses ambient session via contextvars. The session must be set
+    via `use_session()` before calling search methods.
+
     Example:
-        hybrid = HybridSearch(session)
-        results = hybrid.search(
-            SearchCriteria(query="authentication patterns", limit=10)
-        )
+        with get_session() as session:
+            with use_session(session):
+                hybrid = HybridSearch()
+                results = hybrid.search(
+                    SearchCriteria(query="authentication patterns", limit=10)
+                )
     """
 
     def __init__(
         self,
-        session: Session,
+        session: Session | None = None,
         vector_search: VectorSearch | None = None,
         persist_dir: Path | None = None,
     ) -> None:
         """Initialize hybrid search.
 
         Args:
-            session: SQLAlchemy session for FTS operations.
+            session: Optional SQLAlchemy session for FTS operations. If None,
+                uses ambient session from current_session(). Providing explicit
+                session is deprecated; prefer using ambient session pattern.
             vector_search: Optional pre-initialized VectorSearch instance.
                 If not provided, a new one will be created.
             persist_dir: Directory for vector store persistence.
                 Only used when vector_search is not provided.
         """
-        self._session = session
+        # FTSSearch now uses ambient session by default
         self._fts = FTSSearch(session)
         self._vector = vector_search or VectorSearch(persist_dir=persist_dir)
 

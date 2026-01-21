@@ -18,7 +18,6 @@ Example usage:
             print(f"Created: {persist.stats.created}")
 """
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 import hashlib
@@ -133,8 +132,8 @@ class FTSIndexerTransform(TransformComponent):
     for each node, then returns the nodes unchanged. This allows FTS
     indexing to be integrated into LlamaIndex ingestion pipelines.
 
-    The transform requires either an FTSManager instance or a session
-    factory callable that produces SQLAlchemy sessions.
+    Uses ambient session via contextvars. The session must be set
+    via `use_session()` before calling the transform.
 
     Attributes:
         doc_id_key: Metadata key containing the document ID (default: "doc_id").
@@ -146,42 +145,30 @@ class FTSIndexerTransform(TransformComponent):
 
     # These are not Pydantic fields - set in __init__
     _fts_manager: FTSManager | None = None
-    _session_factory: Callable[[], Session] | None = None
 
     def __init__(
         self,
         *,
         fts_manager: FTSManager | None = None,
-        session_factory: Callable[[], Session] | None = None,
         doc_id_key: str = "doc_id",
         path_key: str = "path",
         **kwargs: Any,
     ) -> None:
         """Initialize the FTS indexer transform.
 
-        Provide either an FTSManager instance or a session factory.
-        If a session factory is provided, a new FTSManager will be created
-        for each call.
+        Can optionally provide a pre-configured FTSManager instance.
+        If not provided, a new FTSManager will be created using the
+        ambient session from current_session().
 
         Args:
-            fts_manager: Pre-configured FTSManager instance.
-            session_factory: Callable that returns a SQLAlchemy session.
+            fts_manager: Optional pre-configured FTSManager instance.
             doc_id_key: Metadata key for document ID (used as FTS rowid).
             path_key: Metadata key for document path.
             **kwargs: Additional arguments passed to TransformComponent.
-
-        Raises:
-            ValueError: If neither fts_manager nor session_factory is provided.
         """
         super().__init__(**kwargs)
 
-        if fts_manager is None and session_factory is None:
-            raise ValueError(
-                "Either fts_manager or session_factory must be provided"
-            )
-
         self._fts_manager = fts_manager
-        self._session_factory = session_factory
         self.doc_id_key = doc_id_key
         self.path_key = path_key
 
@@ -189,18 +176,14 @@ class FTSIndexerTransform(TransformComponent):
         """Get the FTSManager instance to use.
 
         Returns:
-            FTSManager instance.
+            FTSManager instance. Uses explicit instance if provided,
+            otherwise creates one using ambient session.
         """
         if self._fts_manager is not None:
             return self._fts_manager
 
-        # Create from session factory
-        if self._session_factory is not None:
-            session = self._session_factory()
-            return FTSManager(session)
-
-        # Should never reach here due to __init__ validation
-        raise RuntimeError("No FTSManager or session_factory available")
+        # Create using ambient session
+        return FTSManager()
 
     def _get_doc_id(self, node: BaseNode) -> int | None:
         """Extract document ID from node metadata or ref_doc_id.

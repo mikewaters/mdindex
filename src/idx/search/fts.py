@@ -1,12 +1,17 @@
 """idx.search.fts - Full-text search implementation.
 
 Provides FTS search with BM25 normalization and dataset filtering.
+Uses ambient session via contextvars.
 
 Example usage:
     from idx.search.fts import FTSSearch
+    from idx.store.database import get_session
+    from idx.store.session_context import use_session
 
-    search = FTSSearch(session)
-    results = search.search(SearchCriteria(query="hello", mode="fts"))
+    with get_session() as session:
+        with use_session(session):
+            search = FTSSearch()
+            results = search.search(SearchCriteria(query="hello", mode="fts"))
 """
 
 from sqlalchemy.orm import Session
@@ -14,6 +19,7 @@ from sqlalchemy.orm import Session
 from idx.core.logging import get_logger
 from idx.search.models import SearchCriteria, SearchResult, SearchResults
 from idx.store.fts import FTSManager
+from idx.store.session_context import current_session
 
 __all__ = [
     "FTSSearch",
@@ -28,21 +34,39 @@ class FTSSearch:
     Provides FTS query passthrough with BM25 score normalization
     and optional dataset filtering.
 
+    Uses ambient session via contextvars. The session must be set
+    via `use_session()` before calling search methods.
+
     Example:
-        search = FTSSearch(session)
-        results = search.search(
-            SearchCriteria(query="python tutorial", limit=10)
-        )
+        with get_session() as session:
+            with use_session(session):
+                search = FTSSearch()
+                results = search.search(
+                    SearchCriteria(query="python tutorial", limit=10)
+                )
     """
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session | None = None) -> None:
         """Initialize the FTS search.
 
         Args:
-            session: SQLAlchemy session for database operations.
+            session: Optional SQLAlchemy session. If None, uses ambient
+                session from current_session(). Providing explicit session
+                is deprecated; prefer using ambient session pattern.
         """
-        self._session = session
+        self._explicit_session = session
+        # FTSManager uses ambient session by default
         self._fts = FTSManager(session)
+
+    @property
+    def _session(self) -> Session:
+        """Get the session to use for database operations.
+
+        Returns explicit session if provided, otherwise ambient session.
+        """
+        if self._explicit_session is not None:
+            return self._explicit_session
+        return current_session()
 
     def search(self, criteria: SearchCriteria) -> SearchResults:
         """Execute an FTS search.
