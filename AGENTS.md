@@ -1,7 +1,18 @@
 # Agent Instructions
 
+# Architecture Decisions
+
+When making decisions that meet ANY of these criteria, create an ADR in `docs/adr/`:
+- Choosing between multiple valid technical approaches
+- Adopting or rejecting a library/framework
+- Establishing patterns that future code should follow
+- Decisions someone might later ask "why did we do it this way?"
+
+Use the next sequential number. Keep ADRs concise.
+For an example of the output structure, see `docs/adr/README.md`.
 
 # Repository Structure
+
 **Task management**: 
 - This project uses `bd` commands instead of markdown TODOs or other methods of task tracking. 
 - Only use `bd` when breaking down coding tasks (always use `bd` for coding tasks!), **not** for general reasoning.

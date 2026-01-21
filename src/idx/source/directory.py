@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Any
 
 from loguru import logger
 from pydantic import BaseModel, Field
-
+from llama_index.core import Document as LlamaDocument
 
 class SourceDocument(BaseModel):
     """A document read from a source.
@@ -48,10 +48,11 @@ class DirectorySource:
         for doc in source.enumerate():
             print(f"{doc.relative_path}: {len(doc.content)} chars")
     """
+    type_name = 'directory'
 
     def __init__(
         self,
-        directory: Path,
+        path: Path,
         patterns: list[str] | None = None,
         *,
         encoding: str = "utf-8",
@@ -60,7 +61,7 @@ class DirectorySource:
         """Initialize directory source.
 
         Args:
-            directory: Root directory to scan for documents.
+            path: Root directory to scan for documents.
             patterns: Glob patterns for matching files.
                 Use ! prefix for exclusion patterns.
                 Defaults to ["**/*.md"].
@@ -70,7 +71,7 @@ class DirectorySource:
         Raises:
             ValueError: If no include patterns are provided.
         """
-        self._directory = directory.resolve()
+        self._directory = path.resolve()
         self._patterns = self._parse_patterns(patterns)
         self._encoding = encoding
         self._follow_symlinks = follow_symlinks
@@ -92,7 +93,7 @@ class DirectorySource:
         )
 
     @property
-    def directory(self) -> Path:
+    def path(self) -> Path:
         """Get the resolved base directory."""
         return self._directory
 
@@ -290,6 +291,44 @@ class DirectorySource:
         if not patterns:
             return ["**/*.md"]
         return list(patterns)
+
+    #TODO: convert `to_llama_doc` to a classmethod,
+    # which accesses the document type (SourceDocument) from a class-level configuration
+    @staticmethod
+    def to_llama_doc(
+        source_doc: SourceDocument,
+        *,
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> LlamaDocument:
+        """Convert a SourceDocument to a LlamaIndex Document.
+
+        Args:
+            source_doc: The source document to convert.
+            extra_metadata: Optional additional metadata to include.
+
+        Returns:
+            LlamaIndex Document with text and metadata.
+
+        """
+        metadata: dict[str, Any] = {
+            "file_path": str(source_doc.path),
+            "relative_path": source_doc.relative_path,
+        }
+
+        if source_doc.last_modified is not None:
+            metadata["last_modified"] = source_doc.last_modified.isoformat()
+
+        if source_doc.etag is not None:
+            metadata["etag"] = source_doc.etag
+
+        if extra_metadata:
+            metadata.update(extra_metadata)
+
+        return LlamaDocument(
+            text=source_doc.content,
+            doc_id=source_doc.relative_path,
+            metadata=metadata,
+        )
 
 
 __all__ = ["DirectorySource", "SourceDocument"]

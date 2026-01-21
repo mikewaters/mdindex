@@ -189,7 +189,7 @@ class TestEndToEndStatusIntegration:
         try:
             pipeline = IngestPipeline(session)
             config = IngestDirectoryConfig(
-                directory=docs_dir,
+                source_path=docs_dir,
                 dataset_name="test",
                 patterns=["**/*.md"],
             )

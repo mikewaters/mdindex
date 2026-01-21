@@ -116,7 +116,7 @@ class TestIngestAndSearch:
         with create_session(test_engine) as session:
             pipeline = IngestPipeline(session)
             config = IngestDirectoryConfig(
-                directory=sample_vault,
+                source_path=sample_vault,
                 dataset_name="test-vault",
                 patterns=["**/*.md"],
             )
@@ -148,7 +148,7 @@ class TestIngestAndSearch:
         with create_session(test_engine) as session:
             pipeline = IngestPipeline(session)
             config1 = IngestDirectoryConfig(
-                directory=sample_vault,
+                source_path=sample_vault,
                 dataset_name="vault1",
                 patterns=["**/*.md"],
             )
@@ -163,7 +163,7 @@ class TestIngestAndSearch:
         with create_session(test_engine) as session:
             pipeline = IngestPipeline(session)
             config2 = IngestDirectoryConfig(
-                directory=vault2,
+                source_path=vault2,
                 dataset_name="vault2",
                 patterns=["**/*.md"],
             )
@@ -201,7 +201,7 @@ class TestRefreshBehavior:
     ) -> None:
         """Re-ingesting unchanged files skips them."""
         config = IngestDirectoryConfig(
-            directory=sample_vault,
+            source_path=sample_vault,
             dataset_name="test-vault",
             patterns=["**/*.md"],
         )
@@ -226,7 +226,7 @@ class TestRefreshBehavior:
     ) -> None:
         """Re-ingesting modified files updates them."""
         config = IngestDirectoryConfig(
-            directory=sample_vault,
+            source_path=sample_vault,
             dataset_name="test-vault",
             patterns=["**/*.md"],
         )
@@ -257,7 +257,7 @@ class TestRefreshBehavior:
     ) -> None:
         """Re-ingesting with new files adds them."""
         config = IngestDirectoryConfig(
-            directory=sample_vault,
+            source_path=sample_vault,
             dataset_name="test-vault",
             patterns=["**/*.md"],
         )
@@ -289,7 +289,7 @@ class TestSoftDeleteBehavior:
     ) -> None:
         """Files removed from disk are soft-deleted in database."""
         config = IngestDirectoryConfig(
-            directory=sample_vault,
+            source_path=sample_vault,
             dataset_name="test-vault",
             patterns=["**/*.md"],
         )
@@ -325,7 +325,7 @@ class TestSoftDeleteBehavior:
     ) -> None:
         """Soft-deleted documents don't appear in search results."""
         config = IngestDirectoryConfig(
-            directory=sample_vault,
+            source_path=sample_vault,
             dataset_name="test-vault",
             patterns=["**/*.md"],
         )
@@ -363,7 +363,7 @@ class TestSoftDeleteBehavior:
     ) -> None:
         """File that reappears after deletion is reactivated."""
         config = IngestDirectoryConfig(
-            directory=sample_vault,
+            source_path=sample_vault,
             dataset_name="test-vault",
             patterns=["**/*.md"],
         )
@@ -411,7 +411,7 @@ class TestObsidianIngest:
     ) -> None:
         """Obsidian ingest extracts frontmatter metadata."""
         config = IngestObsidianConfig(
-            vault_path=sample_vault,
+            source_path=sample_vault,
             dataset_name="obsidian-vault",
         )
 
@@ -444,7 +444,7 @@ class TestObsidianIngest:
         (sample_vault / ".obsidian" / "config.json").write_text('{"theme": "dark"}')
 
         config = IngestObsidianConfig(
-            vault_path=sample_vault,
+            source_path=sample_vault,
             dataset_name="obsidian-vault",
         )
 

@@ -166,7 +166,7 @@ Full adoption provides the most value:
 
        def ingest_directory(self, config: IngestDirectoryConfig) -> IngestResult:
            reader = SimpleDirectoryReader(
-               str(config.directory),
+               str(config.source_path),
                filename_as_id=True,
                required_exts=self._patterns_to_exts(config.patterns),
            )

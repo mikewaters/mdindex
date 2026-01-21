@@ -272,7 +272,7 @@ class TestObsidianVaultSource:
         """Initialize with valid Obsidian vault."""
         source = ObsidianVaultSource(vault_dir)
 
-        assert source.vault_path == vault_dir
+        assert source.path == vault_dir
 
     def test_init_not_directory(self, tmp_path: Path) -> None:
         """Raises ValueError if path is not a directory."""
@@ -294,7 +294,7 @@ class TestObsidianVaultSource:
         """Initialize with string path works."""
         source = ObsidianVaultSource(str(vault_dir))
 
-        assert source.vault_path == vault_dir
+        assert source.path == vault_dir
 
     def test_enumerate_empty_vault(self, vault_dir: Path) -> None:
         """Empty vault yields no documents."""

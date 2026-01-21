@@ -13,6 +13,7 @@ dependencies = [
     "pmd",
     "idx",
     "llama-index-core>=0.11.0",
+    "llama-index-embeddings-huggingface>=0.6.1",
 ]
 
 [project.optional-dependencies]
@@ -46,7 +47,7 @@ idx = { workspace = true }
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-#addopts = "--testmon" #--cov=src/pmd --cov-report=term-missing --cov-report=html"
+addopts = "--ignore=tests/idx/scenario" #--testmon #--cov=src/pmd --cov-report=term-missing --cov-report=html"
 markers = [
     "slow: marks tests as slow",
     "requires_llm: tests requiring LLM provider",

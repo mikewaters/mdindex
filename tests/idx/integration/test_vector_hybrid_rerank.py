@@ -149,7 +149,7 @@ class TestHybridSearchIntegration:
         with create_session(test_engine) as session:
             pipeline = IngestPipeline(session)
             config = IngestDirectoryConfig(
-                directory=sample_docs,
+                source_path=sample_docs,
                 dataset_name="test-vault",
                 patterns=["**/*.md"],
             )
@@ -191,7 +191,7 @@ class TestHybridSearchIntegration:
         with create_session(test_engine) as session:
             pipeline = IngestPipeline(session)
             config = IngestDirectoryConfig(
-                directory=sample_docs,
+                source_path=sample_docs,
                 dataset_name="test-vault",
                 patterns=["**/*.md"],
             )
@@ -239,14 +239,14 @@ class TestHybridSearchIntegration:
             pipeline = IngestPipeline(session)
             pipeline.ingest_directory(
                 IngestDirectoryConfig(
-                    directory=sample_docs,
+                    source_path=sample_docs,
                     dataset_name="vault1",
                     patterns=["**/*.md"],
                 )
             )
             pipeline.ingest_directory(
                 IngestDirectoryConfig(
-                    directory=docs2,
+                    source_path=docs2,
                     dataset_name="vault2",
                     patterns=["**/*.md"],
                 )
@@ -399,7 +399,7 @@ class TestEndToEndFlow:
         with create_session(test_engine) as session:
             pipeline = IngestPipeline(session)
             config = IngestDirectoryConfig(
-                directory=sample_docs,
+                source_path=sample_docs,
                 dataset_name="test-vault",
                 patterns=["**/*.md"],
             )
@@ -461,7 +461,7 @@ class TestEndToEndFlow:
         with create_session(test_engine) as session:
             pipeline = IngestPipeline(session)
             config = IngestDirectoryConfig(
-                directory=sample_docs,
+                source_path=sample_docs,
                 dataset_name="test-vault",
                 patterns=["**/*.md"],
             )

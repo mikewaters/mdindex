@@ -13,14 +13,14 @@ class IngestDirectoryConfig(BaseModel):
     """Configuration for directory ingestion.
 
     Attributes:
-        directory: Path to the directory to ingest.
+        source_path: Path to the directory to ingest.
         dataset_name: Name for the dataset (will be normalized).
         patterns: Glob patterns for matching files (default: ["**/*.md"]).
         encoding: File encoding to use (default: utf-8).
         force: If True, reprocess all documents even if unchanged.
     """
 
-    directory: Path
+    source_path: Path
     dataset_name: str
     patterns: list[str] = Field(default_factory=lambda: ["**/*.md"])
     encoding: str = "utf-8"
@@ -33,12 +33,12 @@ class IngestObsidianConfig(BaseModel):
     """Configuration for Obsidian vault ingestion.
 
     Attributes:
-        vault_path: Path to the Obsidian vault.
+        source_path: Path to the Obsidian vault.
         dataset_name: Name for the dataset (will be normalized).
         force: If True, reprocess all documents even if unchanged.
     """
 
-    vault_path: Path
+    source_path: Path
     dataset_name: str
     force: bool = False
 

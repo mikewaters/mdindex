@@ -259,6 +259,44 @@ class DatasetService:
             updated_at=dataset.updated_at,
             document_count=doc_count,
         )
+    
+    @staticmethod
+    def create_or_update(
+        session: Session,
+        name: str,
+        source_type: str,
+        source_path: str,
+    ) -> int:
+        """Ensure dataset exists, creating if necessary.
+
+        Args:
+            session: SQLAlchemy session.
+            name: Dataset name.
+            source_type: Type of source (e.g., "directory", "obsidian").
+            source_path: Path to the source.
+
+        Returns:
+            Dataset ID.
+        """
+        normalized_name = normalize_dataset_name(name)
+        repo = DatasetRepository(session)
+
+        # Check if dataset exists
+        dataset = repo.get_by_name(normalized_name)
+        if dataset is not None:
+            logger.debug(f"Using existing dataset: {normalized_name}")
+            return dataset.id
+
+        # Create new dataset
+        dataset = repo.create(
+            name=normalized_name,
+            uri=f"dataset:{normalized_name}",
+            source_type=source_type,
+            source_path=source_path,
+        )
+        session.flush()
+        logger.info(f"Created dataset: {normalized_name}")
+        return dataset.id
 
     # Document operations
 
