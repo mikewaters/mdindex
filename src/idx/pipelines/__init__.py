@@ -4,7 +4,7 @@ Contains Ingestion Pipeline and Retrieval Pipeline.
 Client entry point with uncomplicated Pydantic model interfaces.
 """
 
-from idx.pipelines.ingest import IngestPipeline, compute_content_hash
+from idx.pipelines.ingest import IngestPipeline 
 from idx.pipelines.schemas import (
     DocumentStats,
     IngestDirectoryConfig,
@@ -18,5 +18,4 @@ __all__ = [
     "IngestObsidianConfig",
     "IngestPipeline",
     "IngestResult",
-    "compute_content_hash",
 ]

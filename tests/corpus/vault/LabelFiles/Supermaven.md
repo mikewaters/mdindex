@@ -1,0 +1,5 @@
+# Supermaven
+
+<https://supermaven.com>
+
+$

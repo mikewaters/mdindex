@@ -47,3 +47,4 @@ htmlcov/
 !CLAUDE.md
 
 .testmondata
+.ruff_cache

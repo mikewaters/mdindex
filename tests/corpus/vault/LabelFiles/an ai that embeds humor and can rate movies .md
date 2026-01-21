@@ -1,0 +1,1 @@
+# an ai that embeds humor and can rate movies 

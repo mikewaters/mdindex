@@ -102,6 +102,14 @@ class DirectorySource:
         """Get all patterns (include and exclude)."""
         return self._patterns
 
+    @staticmethod
+    def validate(path: Path) -> None:
+        """Validate that the given path is a valid directory."""
+        if not path.exists():
+            raise ValueError(f"Directory path does not exist: {path}")
+        if not path.is_dir():
+            raise ValueError(f"Path is not a directory: {path}")
+
     def enumerate(self) -> Iterator[SourceDocument]:
         """Enumerate all documents matching the glob patterns.
 

@@ -1,0 +1,6 @@
+# USB Technical Details
+
+### USB-C —> USB-C 5-wire Cables
+
+> 4 wires in a USB-C cable only happens with legacy adapter cables, specifically the USB 2.0 versions. A common example of a legacy adapter cable is the cable with a USB-A on one ende, and USB-C on the other. The reason it's limited to 4 wires total connecting end-to-end is because the USB 2.0 Type-A connector only has 4 pins (D+, D-, Vbus, Gnd). When you've heard of USB-C cables that have a total of 5 wires, the extra wire is called "Configuration Channel" or CC, and these only exist on cables where both ends are USB-C. 5 wires in a USB-C cable is a USB 2.0-only USB Type-C To USB Type-C cable. Cables do not have CC1 or CC2. In the context of a cable, it's only ever "CC" by itself. I wrote a whole article about the Configuration Channel here: <https://medium.com/@leung.benson/usb-type-c-s-configuration-channel-31e08047677d>
+> To summarize, CC does: \* Determines role, Host Vs. Device \* Determines when devices are attached to host \* Determines orientation, allowing for Type-C’s “flipability” \* Negotiates up to 3A power between source and sink. \* All of USB Power Delivery is signaled over CC

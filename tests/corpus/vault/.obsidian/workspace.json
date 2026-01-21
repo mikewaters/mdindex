@@ -1,0 +1,240 @@
+{
+  "main": {
+    "id": "a7558ca9adba1185",
+    "type": "split",
+    "children": [
+      {
+        "id": "7e72652537213d1f",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "ed6dec2fe8ebf467",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "LabelFiles/ Claude Hallucinations   .md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Claude Hallucinations"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "ef1de202b1ced344",
+    "type": "split",
+    "children": [
+      {
+        "id": "5023b2417c084f19",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "55ad5f7495b32af2",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "96391f1cb3ef3c47",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "tag:#type",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "6de34fd94329215d",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 409.5
+  },
+  "right": {
+    "id": "bc1264d9e4b42e04",
+    "type": "split",
+    "children": [
+      {
+        "id": "ba7acfc422382096",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "8b013b55d4f15627",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "label-index.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for label-index"
+            }
+          },
+          {
+            "id": "1fb74ea5523c7c1f",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "label-index.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from label-index"
+            }
+          },
+          {
+            "id": "be2b231170d79db8",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "7ae576228b40a633",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "79e13cdc5a682154",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "label-index.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of label-index"
+            }
+          }
+        ],
+        "currentTab": 2
+      }
+    ],
+    "direction": "horizontal",
+    "width": 228.5,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "floating": {
+    "id": "b44019f80f5d54b7",
+    "type": "floating",
+    "children": [
+      {
+        "id": "4df18d7a140ec949",
+        "type": "window",
+        "children": [
+          {
+            "id": "d195c5be3deda5fd",
+            "type": "tabs",
+            "children": [
+              {
+                "id": "77c647f714a566ad",
+                "type": "leaf",
+                "state": {
+                  "type": "markdown",
+                  "state": {
+                    "file": "label-index.md",
+                    "mode": "source",
+                    "source": false
+                  },
+                  "icon": "lucide-file",
+                  "title": "label-index"
+                }
+              }
+            ]
+          }
+        ],
+        "direction": "vertical",
+        "x": 1596,
+        "y": 50,
+        "width": 949,
+        "height": 1369,
+        "maximize": false,
+        "zoom": 0
+      }
+    ]
+  },
+  "active": "77c647f714a566ad",
+  "lastOpenFiles": [
+    "LabelFiles/ Claude Hallucinations   .md",
+    "LabelFiles/A SQLite client lib that understands Heptabase.md",
+    "label-index.md",
+    "LabelFiles/23andme Bankruptcy.md",
+    "LabelFiles/(Speech, Video, Image) to (…).md",
+    "\"LabelFiles/23andme.md",
+    "\"LabelFiles",
+    "\"LabelFiles/23andme Bankruptcy\".md",
+    "LabelFiles/(Speech,.md",
+    "LabelFiles.md",
+    "LabelFiles/Highlight Update.md"
+  ]
+}

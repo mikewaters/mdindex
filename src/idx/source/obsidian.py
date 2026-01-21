@@ -156,6 +156,19 @@ class ObsidianVaultSource:
     """
     type_name = 'obsidian'
 
+    @staticmethod
+    def validate(path: Path) -> None:
+        """Validate that the given path is a valid Obsidian vault."""
+        if not path.exists():
+            raise ValueError(f"Vault path does not exist: {path}")
+        if not path.is_dir():
+            raise ValueError(f"Vault path is not a directory: {path}")
+        obsidian_dir = path / ".obsidian"
+        if not obsidian_dir.is_dir():
+            raise ValueError(
+                f"Not a valid Obsidian vault (missing .obsidian directory): {path}"
+            )
+
     def __init__(self, path: str | Path) -> None:
         """Initialize Obsidian vault source.
 
@@ -168,14 +181,7 @@ class ObsidianVaultSource:
         """
         self.path = Path(path).resolve()
 
-        if not self.path.is_dir():
-            raise ValueError(f"Vault path is not a directory: {self.path}")
-
-        obsidian_dir = self.path / ".obsidian"
-        if not obsidian_dir.is_dir():
-            raise ValueError(
-                f"Not a valid Obsidian vault (missing .obsidian directory): {self.path}"
-            )
+        self.validate(self.path)
 
         # Create DirectorySource for markdown files, excluding .obsidian directory
         self._directory_source = DirectorySource(

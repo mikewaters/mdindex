@@ -1476,6 +1476,8 @@ version = "0.1.0"
 source = { editable = "src/idx" }
 dependencies = [
     { name = "llama-index" },
+    { name = "llama-index-core" },
+    { name = "llama-index-embeddings-huggingface" },
     { name = "loguru" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -1485,6 +1487,8 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "llama-index", specifier = ">=0.12.0" },
+    { name = "llama-index-core", specifier = ">=0.11.0" },
+    { name = "llama-index-embeddings-huggingface", specifier = ">=0.6.1" },
     { name = "loguru", specifier = ">=0.7.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
@@ -2339,12 +2343,10 @@ version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "idx" },
-    { name = "llama-index-core" },
-    { name = "llama-index-embeddings-huggingface" },
     { name = "pmd" },
 ]
 
-[package.optional-dependencies]
+[package.dev-dependencies]
 dev = [
     { name = "mypy" },
     { name = "pytest" },
@@ -2359,19 +2361,20 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "idx", editable = "src/idx" },
-    { name = "llama-index-core", specifier = ">=0.11.0" },
-    { name = "llama-index-embeddings-huggingface", specifier = ">=0.6.1" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
     { name = "pmd", editable = "src/pmd" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "pytest-testmon", marker = "extra == 'dev'", specifier = ">=2.2.0" },
-    { name = "respx", marker = "extra == 'dev'", specifier = ">=0.22.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.2.0" },
-    { name = "tach", marker = "extra == 'dev'", specifier = ">=0.33.0" },
 ]
-provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.8.0" },
+    { name = "pytest", specifier = ">=8.0.0" },
+    { name = "pytest-asyncio", specifier = ">=0.23.0" },
+    { name = "pytest-cov", specifier = ">=4.0.0" },
+    { name = "pytest-testmon", specifier = ">=2.2.0" },
+    { name = "respx", specifier = ">=0.22.0" },
+    { name = "ruff", specifier = ">=0.2.0" },
+    { name = "tach", specifier = ">=0.33.0" },
+]
 
 [[package]]
 name = "mdurl"

@@ -6,7 +6,8 @@ Defines the models used for configuring and reporting pipeline results.
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
 
 
 class IngestDirectoryConfig(BaseModel):
@@ -28,6 +29,13 @@ class IngestDirectoryConfig(BaseModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
+    @model_validator(mode="after")
+    def validate_source_path(self) -> "IngestDirectoryConfig":
+        """Validate that the source path exists and is a directory."""
+        from idx.source.directory import DirectorySource
+        DirectorySource.validate(self.source_path)
+        return self
+
 
 class IngestObsidianConfig(BaseModel):
     """Configuration for Obsidian vault ingestion.
@@ -44,6 +52,12 @@ class IngestObsidianConfig(BaseModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
+    @model_validator(mode="after")
+    def validate_source_path(self) -> "IngestObsidianConfig":
+        """Validate that the source path exists and is a directory."""
+        from idx.source.obsidian import ObsidianVaultSource
+        ObsidianVaultSource.validate(self.source_path)
+        return self
 
 class DocumentStats(BaseModel):
     """Statistics for a single document ingestion.
