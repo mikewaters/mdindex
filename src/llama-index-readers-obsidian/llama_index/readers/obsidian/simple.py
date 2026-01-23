@@ -18,6 +18,7 @@ Optionally, tasks can be extracted from the text and stored in metadata.
 
 import os
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -28,6 +29,15 @@ from llama_index.core.readers import SimpleDirectoryReader
 from llama_index.core.schema import Document
 from llama_index.readers.file import MarkdownReader
 
+def stable_doc_id(doc: Document, path: Path) -> str:
+    # ObsidianReader sets these metadata keys (see its source)
+    folder_path = Path(doc.metadata["folder_path"])
+    file_name = doc.metadata["file_name"]
+    abs_path = (folder_path / file_name).resolve()
+
+    # Use a vault-relative path as the stable ID
+    rel_path = abs_path.relative_to(path.resolve())
+    return f"obsidian:{rel_path.as_posix()}"
 
 def is_hardlink(filepath: Path) -> bool:
     """
@@ -109,26 +119,43 @@ class SimpleObsidianReader(SimpleDirectoryReader):
         """
         Generate Obsidian-specific metadata for a file.
 
+        Includes both Obsidian-specific fields and standard file metadata
+        that SimpleDirectoryReader normally provides.
+
         Args:
             file_path: Path to the markdown file.
 
         Returns:
-            Dictionary containing file_name, folder_path, folder_name, and note_name.
+            Dictionary containing file metadata for caching and Obsidian features.
         """
-        file_path_obj = Path(file_path)
+        file_path_obj = Path(file_path).resolve()
         note_name = file_path_obj.stem
 
         try:
             folder_name = str(file_path_obj.parent.relative_to(self._vault_root))
+            if folder_name == ".":
+                folder_name = ""
         except ValueError:
             # Fallback if relative_to fails
             folder_name = str(file_path_obj.parent)
 
+        # Get file stats for caching metadata
+        stat = file_path_obj.stat()
+        creation_date = datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d")
+        last_modified_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
+
         return {
+            # Obsidian-specific metadata
             "file_name": file_path_obj.name,
             "folder_path": str(file_path_obj.parent),
             "folder_name": folder_name,
             "note_name": note_name,
+            # Standard file metadata (needed for caching)
+            "file_path": str(file_path_obj),
+            "file_type": "text/markdown",
+            "file_size": stat.st_size,
+            "creation_date": creation_date,
+            "last_modified_date": last_modified_date,
         }
 
     def _is_safe_file(self, file_path: Path) -> bool:
@@ -267,10 +294,11 @@ class SimpleObsidianReader(SimpleDirectoryReader):
                 if self._should_remove_tasks:
                     docs[i] = Document(text=cleaned_text, metadata=doc.metadata)
 
-        # Second pass: assign backlinks to each document
+        # Second pass: assign backlinks and stable doc IDs
         for doc in docs:
             note_name = doc.metadata.get("note_name", "")
             doc.metadata["backlinks"] = backlinks_map.get(note_name, [])
+            doc.id_ = stable_doc_id(doc, self._vault_root)
 
         return docs
 
