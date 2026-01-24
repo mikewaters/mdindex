@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from idx.pipelines.ingest import IngestPipeline
+from idx.ingest.pipelines import IngestPipeline
 from idx.store.database import Base, create_engine_for_path
 from idx.store.fts import create_fts_table
 

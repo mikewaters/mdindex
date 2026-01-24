@@ -7,9 +7,8 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy.orm import sessionmaker
 
-from idx.pipelines.ingest import IngestPipeline
-from idx.pipelines.schemas import IngestDirectoryConfig, IngestObsidianConfig
-from idx.source.directory import SourceDocument
+from idx.ingest.pipelines import IngestPipeline
+from idx.ingest.schemas import IngestDirectoryConfig, IngestObsidianConfig
 from idx.store.database import Base, create_engine_for_path
 from idx.store.fts import FTSManager, create_fts_table
 from idx.store.repositories import DatasetRepository, DocumentRepository

@@ -7,7 +7,7 @@ from pathlib import Path
 from pytest_bdd import given, then, when
 from pytest_bdd.parsers import parse
 
-from idx.pipelines.schemas import IngestDirectoryConfig, IngestResult
+from idx.ingest.schemas import IngestDirectoryConfig, IngestResult
 from idx.store.fts import FTSManager
 from idx.store.repositories import DatasetRepository, DocumentRepository
 from tests.idx.scenario.pipelines.conftest import ScenarioContext

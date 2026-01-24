@@ -11,23 +11,22 @@ as the final pipeline step. Uses ambient session via contextvars.
 
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime, timezone
-from typing import Any
 
-from llama_index.core import Document as LlamaDocument
 from llama_index.core.ingestion import IngestionPipeline
-from sqlalchemy.orm import Session
+from llama_index.core.ingestion.pipeline import DocstoreStrategy
+from llama_index.core.storage.docstore import SimpleDocumentStore
 
 from idx.core.logging import get_logger
-from idx.pipelines.schemas import IngestDirectoryConfig, IngestObsidianConfig, IngestResult
-from idx.source.directory import DirectorySource, SourceDocument
-from idx.source.obsidian import ObsidianDocument, ObsidianVaultSource
+from idx.ingest.schemas import IngestDirectoryConfig, IngestObsidianConfig, IngestResult
+from idx.ingest.directory import DirectorySource
+from idx.ingest.obsidian import ObsidianVaultSource
 from idx.store.database import get_session
 from idx.store.fts import create_fts_table
-from idx.store.repositories import DatasetRepository
 from idx.store.service import DatasetService, normalize_dataset_name
 from idx.store.session_context import use_session
+from idx.ingest.cache import load_pipeline, persist_pipeline
+
 from idx.transform.llama import PersistenceTransform, TextNormalizerTransform
 
 __all__ = [
@@ -35,7 +34,6 @@ __all__ = [
 ]
 
 logger = get_logger(__name__)
-
 
 
 # TODO: make `config` generic to support multiple ingestion types
@@ -55,6 +53,21 @@ def _get_source_instance(config):
 
 class IngestPipeline:
     """Pipeline for ingesting documents from sources.
+
+    frontmatter extraction (reader) -> 
+        document and FTS persistence -> 
+            content splitting ->
+                embedding generation ->
+                    vector persistence
+                chunk classification (with ontology)
+                text chunk (--> document) persistence
+
+    for vector, I will need to flatten the metadata as well as ensure that 
+    non-vectored metadata is excluded
+    - https://llamaindexxx.readthedocs.io/en/latest/module_guides/loading/documents_and_nodes/usage_documents.html#customizing-embedding-metadata-text
+
+    ParentDocumentRetriever
+    issue: wikilinks are document-level, but dont apply to every chunk
 
     Uses LlamaIndex's IngestionPipeline for document transformations
     with PersistenceTransform at the end handling database persistence
@@ -89,6 +102,15 @@ class IngestPipeline:
         and runs them through the LlamaIndex transformation pipeline
         with PersistenceTransform handling persistence and FTS indexing.
 
+        Notes: 
+        - This implementation leans on LLamaIndex node caching, and
+        so we cannot know if a document was updated/skipped until after
+        running the pipeline.
+
+        - LlamaIndex can technically split Documents into TextNodes,
+        but effectively this pipeline treats each Document as a single node,
+        and so the terms are used interchangeably.
+
         Args:
             config: Ingestion configuration, either directory or Obsidian.
 
@@ -117,9 +139,10 @@ class IngestPipeline:
         )
 
         with get_session() as session:
-            # Set ambient session for transforms to use
             with use_session(session):
+
                 # Ensure FTS table exists
+                #TODO: move to migration?
                 engine = session.get_bind()
                 if engine is not None:
                     create_fts_table(engine)  # type: ignore
@@ -133,10 +156,6 @@ class IngestPipeline:
                 )
                 result.dataset_id = dataset_id
 
-                # Convert source documents to LlamaIndex documents
-                source_docs = list(source.enumerate())
-                llama_docs = [source.to_llama_doc(doc) for doc in source_docs]  # type: ignore
-
                 # Create persistence transform (uses ambient session)
                 persist = PersistenceTransform(
                     dataset_id=dataset_id,
@@ -146,11 +165,26 @@ class IngestPipeline:
                 # Build pipeline with transforms + persistence
                 pipeline = IngestionPipeline(
                     transformations=[TextNormalizerTransform(), persist],
+                    #transformations=[
+                    #    SentenceSplitter(),
+                    #    #HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5"),
+                    #],
+                    docstore=SimpleDocumentStore(),
+                    docstore_strategy=DocstoreStrategy.DUPLICATES_ONLY,
+                    #docstore_strategy=DocstoreStrategy.UPSERTS,
+                    #vector_store=SimpleVectorStore()
                 )
 
+                # Load persisted pipeline if available
+                if not config.force:
+                    pipeline = load_pipeline(normalized_name, pipeline)
+
                 # Run pipeline - persistence happens inside using ambient session
-                logger.debug(f"Running {len(llama_docs)} documents through pipeline")
-                pipeline.run(documents=llama_docs)
+                logger.debug(f"Running {len(source.documents)} documents through pipeline")
+                nodes = pipeline.run(documents=source.documents)
+
+                # Update the cache
+                persist_pipeline(normalized_name, pipeline)
 
                 # Copy stats from persistence transform
                 result.documents_created = persist.stats.created
@@ -158,6 +192,10 @@ class IngestPipeline:
                 result.documents_skipped = persist.stats.skipped
                 result.documents_failed = persist.stats.failed
                 result.errors = persist.stats.errors
+
+                # this only works if the pipeline doesn't split documents
+                result.documents_filtered = len(source.documents) - len(nodes)
+                result.documents_read = len(source.documents)
 
         result.completed_at = datetime.now(tz=timezone.utc)
 
@@ -170,7 +208,4 @@ class IngestPipeline:
         )
 
         return result
-
-
-
 

@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from idx.source.obsidian import (
+from idx.ingest.obsidian import (
     ObsidianDocument,
     ObsidianVaultSource,
     _extract_aliases,

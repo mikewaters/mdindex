@@ -21,7 +21,7 @@ With 23andMe’s recent bankruptcy filing, it’s prudent to take steps to secur
 
 To retain a personal copy of your genetic information:
 
-• Access Your Account: Log in to your 23andMe account.
+• Access Your Account: Log in to your [[23andMe]] account.
 
 • Navigate to Settings: Click on your profile name or icon and select “Settings.”
 

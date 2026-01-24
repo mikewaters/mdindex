@@ -16,8 +16,8 @@ import pytest
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from idx.pipelines.ingest import IngestPipeline
-from idx.pipelines.schemas import IngestDirectoryConfig
+from idx.ingest.pipelines import IngestPipeline
+from idx.ingest.schemas import IngestDirectoryConfig
 from idx.search.fts import FTSSearch
 from idx.search.hybrid import HybridSearch, rrf_fusion
 from idx.search.models import SearchCriteria, SearchResult, SearchResults
@@ -304,7 +304,7 @@ class TestRerankerIntegration:
     @pytest.mark.asyncio
     async def test_reranker_invocation(self) -> None:
         """Reranker can score search results."""
-        from idx.llm.reranker import Reranker, RerankScore
+        from idx.llm.reranker import Reranker
 
         # Create mock provider
         mock_provider = MagicMock()

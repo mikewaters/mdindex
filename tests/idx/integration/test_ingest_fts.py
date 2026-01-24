@@ -13,8 +13,8 @@ import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from idx.pipelines.ingest import IngestPipeline
-from idx.pipelines.schemas import IngestDirectoryConfig, IngestObsidianConfig
+from idx.ingest.pipelines import IngestPipeline
+from idx.ingest.schemas import IngestDirectoryConfig, IngestObsidianConfig
 from idx.search.fts import FTSSearch
 from idx.search.models import SearchCriteria
 from idx.store.database import Base, create_engine_for_path

@@ -130,6 +130,10 @@ class Settings(BaseSettings):
         default=Path("~/.idx/vector_store").expanduser(),
         description="Path to LlamaIndex persist directory (rebuildable cache)",
     )
+    cache_path: Path = Field(
+        default=Path("~/.idx/cache").expanduser(),
+        description="Path to cache directory for temporary files",
+    )
 
     # Model configuration
     embedding_model: str = Field(
@@ -165,6 +169,7 @@ class Settings(BaseSettings):
         """
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self.vector_store_path.mkdir(parents=True, exist_ok=True)
+        self.cache_path.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache(maxsize=1)
@@ -181,4 +186,6 @@ def get_settings() -> Settings:
         settings = get_settings()
         print(settings.database_path)
     """
-    return Settings()
+    settings = Settings()
+    settings.ensure_directories()
+    return settings

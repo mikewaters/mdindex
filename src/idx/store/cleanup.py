@@ -16,7 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from idx.core.logging import get_logger
-from idx.source.directory import DirectorySource
+from idx.ingest.directory import DirectorySource
 from idx.store.fts import FTSManager
 from idx.store.repositories import DocumentRepository
 

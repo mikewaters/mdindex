@@ -12,19 +12,20 @@ license = {text = "MIT"}
 dependencies = [
     "pmd",
     "idx",
-
+    "llama-index-readers-obsidian",
+    "llama-index-embeddings-huggingface>=0.6.1",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0.0",
+    "pytest",
     "pytest-asyncio>=0.23.0",
-    "pytest-cov>=4.0.0",
-    "mypy>=1.8.0",
-    "ruff>=0.2.0",
-    "tach>=0.33.0",
-    "respx>=0.22.0",
-    "pytest-testmon>=2.2.0",
+    "pytest-cov",
+    "mypy",
+    "ruff",
+    "tach",
+    "respx",
+    "pytest-testmon",
 ]
 
 [build-system]
@@ -40,6 +41,8 @@ members = ["src/*"]
 [tool.uv.sources]
 pmd = { workspace = true }
 idx = { workspace = true }
+llama-index-readers-obsidian = { workspace = true }
+
 
 # Shared tool config across the workspace
 [tool.pytest.ini_options]

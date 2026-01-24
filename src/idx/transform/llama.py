@@ -166,6 +166,7 @@ class FTSIndexerTransform(TransformComponent):
             path_key: Metadata key for document path.
             **kwargs: Additional arguments passed to TransformComponent.
         """
+        raise NotImplementedError()
         super().__init__(**kwargs)
 
         self._fts_manager = fts_manager
@@ -254,6 +255,7 @@ class FTSIndexerTransform(TransformComponent):
             doc_id = self._get_doc_id(node)
             if doc_id is None:
                 # Skip nodes without valid doc_id
+
                 continue
 
             path = self._get_path(node)

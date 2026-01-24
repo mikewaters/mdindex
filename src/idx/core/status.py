@@ -285,7 +285,7 @@ def check_stale_documents(
         - details contains: stale_count, stale_paths, source_count, indexed_count
     """
     try:
-        from idx.source.directory import DirectorySource
+        from idx.ingest.directory import DirectorySource
         from idx.store.database import get_session
         from idx.store.repositories import DocumentRepository
 

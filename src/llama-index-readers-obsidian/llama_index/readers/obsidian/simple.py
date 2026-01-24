@@ -22,22 +22,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-if TYPE_CHECKING:
-    from langchain.docstore.document import Document as LCDocument
-
 from llama_index.core.readers import SimpleDirectoryReader
 from llama_index.core.schema import Document
 from llama_index.readers.file import MarkdownReader
 
-def stable_doc_id(doc: Document, path: Path) -> str:
-    # ObsidianReader sets these metadata keys (see its source)
-    folder_path = Path(doc.metadata["folder_path"])
-    file_name = doc.metadata["file_name"]
-    abs_path = (folder_path / file_name).resolve()
-
-    # Use a vault-relative path as the stable ID
-    rel_path = abs_path.relative_to(path.resolve())
-    return f"obsidian:{rel_path.as_posix()}"
 
 def is_hardlink(filepath: Path) -> bool:
     """
@@ -52,6 +40,50 @@ def is_hardlink(filepath: Path) -> bool:
     stat_info = os.stat(filepath)
     return stat_info.st_nlink > 1
 
+def extract_tasks(text: str, should_remove_tasks: bool) -> Tuple[List[str], str]:
+    """
+    Extract markdown tasks from text.
+
+    A task is a checklist item in markdown, for example:
+        - [ ] Do something
+        - [x] Completed task
+
+    Args:
+        text: Document text to extract tasks from.
+
+    Returns:
+        Tuple of (list of task strings, text with task lines removed).
+    """
+    # Matches lines starting with '-' or '*' followed by a checkbox.
+    task_pattern = re.compile(
+        r"^\s*[-*]\s*\[\s*(?:x|X| )\s*\]\s*(.*)$", re.MULTILINE
+    )
+    tasks = task_pattern.findall(text)
+    cleaned_text = task_pattern.sub("", text) if should_remove_tasks else text
+    return tasks, cleaned_text
+
+def extract_wikilinks(text: str) -> List[str]:
+    """
+    Extract Obsidian wikilinks from text.
+
+    Matches patterns like:
+        - [[Note Name]]
+        - [[Note Name|Alias]]
+
+    Args:
+        text: Document text to extract wikilinks from.
+
+    Returns:
+        List of unique wikilink targets (aliases are stripped).
+    """
+    pattern = r"\[\[([^\]]+)\]\]"
+    matches = re.findall(pattern, text)
+    links = []
+    for match in matches:
+        # If a pipe is present (e.g. [[Note|Alias]]), take only the part before it.
+        target = match.split("|")[0].strip()
+        links.append(target)
+    return list(set(links))
 
 class SimpleObsidianReader(SimpleDirectoryReader):
     """
@@ -76,22 +108,17 @@ class SimpleObsidianReader(SimpleDirectoryReader):
 
     def __init__(
         self,
-        input_dir: str,
+        input_dir: Path,
         extract_tasks: bool = False,
         remove_tasks_from_text: bool = False,
-        exclude_hidden: bool = True,
         **kwargs: Any,
     ) -> None:
-        if not exclude_hidden:
-            raise NotImplementedError(
-                "SimpleObsidianReader requires exclude_hidden=True. "
-                "Non-hidden traversal is not supported."
-            )
 
-        # Store vault root for metadata enrichment and safety checks
-        self._vault_root = Path(input_dir).resolve()
-        self._should_extract_tasks = extract_tasks
-        self._should_remove_tasks = remove_tasks_from_text
+        # Input checks
+        if "exclude_hidden" in kwargs and not kwargs["exclude_hidden"]:
+            raise NotImplementedError(
+                "SimpleObsidianReader only supports exclude_hidden=True."
+            )
 
         # Check for non-local filesystem (fsspec)
         if "fs" in kwargs and kwargs["fs"] is not None:
@@ -104,18 +131,23 @@ class SimpleObsidianReader(SimpleDirectoryReader):
         kwargs.pop("required_exts", None)
         kwargs.pop("file_extractor", None)
 
+        self._vault_root = input_dir.resolve()
+        self._should_extract_tasks = extract_tasks
+        self._should_remove_tasks = remove_tasks_from_text
+
         super().__init__(
-            input_dir=input_dir,
-            required_exts=[".md"],
-            exclude_hidden=True,
+            input_dir=str(input_dir),
+            required_exts=[".md"],  # Markdown files only
+            exclude_hidden=True,  # Exclude .obsidian and hidden files
             recursive=True,  # Walk subdirectories
             file_extractor={".md": MarkdownReader()},
-            file_metadata=self._get_file_metadata,
-            raise_on_error=False,  # Best-effort error handling
+            file_metadata=self.get_file_metadata,  # Build Obsidian metadata
+            filename_as_id=True,  # stable doc IDs are required for caching
+            raise_on_error=False, 
             **kwargs,
         )
-
-    def _get_file_metadata(self, file_path: str) -> Dict[str, Any]:
+    
+    def get_file_metadata(self, file_path: str) -> Dict[str, Any]:
         """
         Generate Obsidian-specific metadata for a file.
 
@@ -128,8 +160,12 @@ class SimpleObsidianReader(SimpleDirectoryReader):
         Returns:
             Dictionary containing file metadata for caching and Obsidian features.
         """
+        metadata = {}
+
         file_path_obj = Path(file_path).resolve()
-        note_name = file_path_obj.stem
+        metadata['file_name'] = file_path_obj.name
+        metadata['folder_path'] = str(file_path_obj.parent)
+        metadata['note_name'] = file_path_obj.stem
 
         try:
             folder_name = str(file_path_obj.parent.relative_to(self._vault_root))
@@ -139,24 +175,11 @@ class SimpleObsidianReader(SimpleDirectoryReader):
             # Fallback if relative_to fails
             folder_name = str(file_path_obj.parent)
 
-        # Get file stats for caching metadata
-        stat = file_path_obj.stat()
-        creation_date = datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d")
-        last_modified_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
+        metadata['folder_name'] = folder_name
+        metadata['file_type'] = "text/markdown"
+        metadata.update(self.get_resource_info(str(file_path_obj)))
 
-        return {
-            # Obsidian-specific metadata
-            "file_name": file_path_obj.name,
-            "folder_path": str(file_path_obj.parent),
-            "folder_name": folder_name,
-            "note_name": note_name,
-            # Standard file metadata (needed for caching)
-            "file_path": str(file_path_obj),
-            "file_type": "text/markdown",
-            "file_size": stat.st_size,
-            "creation_date": creation_date,
-            "last_modified_date": last_modified_date,
-        }
+        return metadata
 
     def _is_safe_file(self, file_path: Path) -> bool:
         """
@@ -191,51 +214,6 @@ class SimpleObsidianReader(SimpleDirectoryReader):
 
         return True
 
-    def _extract_wikilinks(self, text: str) -> List[str]:
-        """
-        Extract Obsidian wikilinks from text.
-
-        Matches patterns like:
-          - [[Note Name]]
-          - [[Note Name|Alias]]
-
-        Args:
-            text: Document text to extract wikilinks from.
-
-        Returns:
-            List of unique wikilink targets (aliases are stripped).
-        """
-        pattern = r"\[\[([^\]]+)\]\]"
-        matches = re.findall(pattern, text)
-        links = []
-        for match in matches:
-            # If a pipe is present (e.g. [[Note|Alias]]), take only the part before it.
-            target = match.split("|")[0].strip()
-            links.append(target)
-        return list(set(links))
-
-    def _extract_tasks(self, text: str) -> Tuple[List[str], str]:
-        """
-        Extract markdown tasks from text.
-
-        A task is a checklist item in markdown, for example:
-            - [ ] Do something
-            - [x] Completed task
-
-        Args:
-            text: Document text to extract tasks from.
-
-        Returns:
-            Tuple of (list of task strings, text with task lines removed).
-        """
-        # Matches lines starting with '-' or '*' followed by a checkbox.
-        task_pattern = re.compile(
-            r"^\s*[-*]\s*\[\s*(?:x|X| )\s*\]\s*(.*)$", re.MULTILINE
-        )
-        tasks = task_pattern.findall(text)
-        cleaned_text = task_pattern.sub("", text) if self._should_remove_tasks else text
-        return tasks, cleaned_text
-
     def load_data(
         self,
         show_progress: bool = False,
@@ -266,7 +244,7 @@ class SimpleObsidianReader(SimpleDirectoryReader):
                 safe_files.append(file_path)
 
         # Update input_files to only include safe files
-        self._input_files = safe_files
+        self.input_files = safe_files
 
         # Load documents using parent class
         docs = super().load_data(
@@ -280,7 +258,7 @@ class SimpleObsidianReader(SimpleDirectoryReader):
 
         # First pass: extract wikilinks and build backlinks map
         for i, doc in enumerate(docs):
-            wikilinks = self._extract_wikilinks(doc.text)
+            wikilinks = extract_wikilinks(doc.text)
             doc.metadata["wikilinks"] = wikilinks
 
             note_name = doc.metadata.get("note_name", "")
@@ -289,28 +267,15 @@ class SimpleObsidianReader(SimpleDirectoryReader):
 
             # Optionally extract tasks
             if self._should_extract_tasks:
-                tasks, cleaned_text = self._extract_tasks(doc.text)
+                tasks, cleaned_text = extract_tasks(doc.text, self._should_remove_tasks)
                 doc.metadata["tasks"] = tasks
                 if self._should_remove_tasks:
                     docs[i] = Document(text=cleaned_text, metadata=doc.metadata)
 
-        # Second pass: assign backlinks and stable doc IDs
+        # Second pass: assign backlinks 
         for doc in docs:
             note_name = doc.metadata.get("note_name", "")
             doc.metadata["backlinks"] = backlinks_map.get(note_name, [])
-            doc.id_ = stable_doc_id(doc, self._vault_root)
 
         return docs
 
-    def load_langchain_documents(self, **load_kwargs: Any) -> List["LCDocument"]:
-        """
-        Load data in LangChain document format.
-
-        Args:
-            **load_kwargs: Arguments passed to load_data().
-
-        Returns:
-            List of LangChain Document objects.
-        """
-        docs = self.load_data(**load_kwargs)
-        return [d.to_langchain_format() for d in docs]

@@ -166,8 +166,8 @@ class TestEndToEndStatusIntegration:
         from unittest.mock import MagicMock, patch
 
         from idx.core.status import check_health
-        from idx.pipelines.ingest import IngestPipeline
-        from idx.pipelines.schemas import IngestDirectoryConfig
+        from idx.ingest.pipelines import IngestPipeline
+        from idx.ingest.schemas import IngestDirectoryConfig
         from idx.store.fts import create_fts_table
 
         # Create test documents

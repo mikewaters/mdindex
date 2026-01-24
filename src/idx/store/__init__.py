@@ -33,7 +33,7 @@ from idx.store.fts import (
     create_fts_table,
     drop_fts_table,
 )
-from idx.store.llama import SQLDocStore
+from idx.store.docstore import SQLDocStore
 from idx.store.session_context import (
     SessionNotSetError,
     clear_session,

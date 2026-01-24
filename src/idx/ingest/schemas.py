@@ -32,7 +32,7 @@ class IngestDirectoryConfig(BaseModel):
     @model_validator(mode="after")
     def validate_source_path(self) -> "IngestDirectoryConfig":
         """Validate that the source path exists and is a directory."""
-        from idx.source.directory import DirectorySource
+        from idx.ingest.directory import DirectorySource
         DirectorySource.validate(self.source_path)
         return self
 
@@ -55,7 +55,7 @@ class IngestObsidianConfig(BaseModel):
     @model_validator(mode="after")
     def validate_source_path(self) -> "IngestObsidianConfig":
         """Validate that the source path exists and is a directory."""
-        from idx.source.obsidian import ObsidianVaultSource
+        from idx.ingest.obsidian import ObsidianVaultSource
         ObsidianVaultSource.validate(self.source_path)
         return self
 
@@ -79,11 +79,13 @@ class IngestResult(BaseModel):
     Attributes:
         dataset_id: ID of the dataset.
         dataset_name: Normalized name of the dataset.
+        documents_read: Total number of documents read.
         documents_created: Number of new documents created.
         documents_updated: Number of documents updated.
         documents_skipped: Number of unchanged documents skipped.
         documents_stale: Number of documents marked as stale (soft-deleted).
         documents_failed: Number of documents that failed to process.
+        documents_filtered: Number of documents filtered out before processing.
         started_at: When the ingestion started.
         completed_at: When the ingestion completed.
         errors: List of error messages if any.
@@ -91,11 +93,13 @@ class IngestResult(BaseModel):
 
     dataset_id: int
     dataset_name: str
+    documents_read: int = 0
     documents_created: int = 0
     documents_updated: int = 0
     documents_skipped: int = 0
     documents_stale: int = 0
     documents_failed: int = 0
+    documents_filtered: int = 0
     started_at: datetime
     completed_at: datetime | None = None
     errors: list[str] = Field(default_factory=list)
