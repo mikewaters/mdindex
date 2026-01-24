@@ -143,7 +143,7 @@ class FTSSearch:
         """
         from sqlalchemy import text
 
-        from idx.store.service import normalize_dataset_name
+        from idx.store.dataset import normalize_dataset_name
 
         normalized = normalize_dataset_name(dataset_name)
         result = self._session.execute(

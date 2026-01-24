@@ -29,108 +29,128 @@ from idx.core.logging import get_logger
 logger = get_logger(__name__)
 
 
-def parse_frontmatter(content: str) -> tuple[dict[str, Any] | None, str]:
-    """Parse YAML frontmatter from markdown content.
+import re
+from typing import Any, Optional, Tuple
 
-    Extracts the YAML block between --- delimiters at the start
-    of the document, if present.
+# Compile once at module scope
+# - Allows optional BOM at start
+# - Requires opening fence on its own line
+# - Captures until a closing fence on its own line (--- or ...)
+# - Closing fence must be followed by newline or end-of-string
+_FRONTMATTER_RE = re.compile(
+    r"\A(?:\ufeff)?---[ \t]*\r?\n"          # opening fence
+    r"(?P<yaml>.*?)"                        # yaml body (non-greedy)
+    r"\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|\Z)",  # closing fence
+    re.DOTALL,
+)
 
-    Args:
-        content: Full markdown document content.
-
-    Returns:
-        Tuple of (frontmatter_dict or None, remaining_content).
+def parse_frontmatter(
+    content: str,
+    *,
+    max_scan_chars: int = 65536,
+    on_yaml_error: str = "none",  # "none" or "raise"
+) -> Tuple[Optional[dict[str, Any]], str]:
     """
-    # Regex to match YAML frontmatter block at start of document
-    # Matches: ---\n<yaml content>\n---\n
-    _FRONTMATTER_PATTERN = re.compile(
-        r"^---\s*\n(.*?)\n?---\s*\n?",
-        re.DOTALL,
-    )
-    match = _FRONTMATTER_PATTERN.match(content)
-    if not match:
+    Extract YAML frontmatter if present at the very start of the document.
+    Returns (frontmatter_dict_or_none, remaining_content).
+    """
+
+    # Limit scan to reduce worst-case regex work on huge files.
+    head = content[:max_scan_chars]
+    m = _FRONTMATTER_RE.match(head)
+    if not m:
         return None, content
-    
-    yaml_text = match.group(1)
-    remaining_content = content[match.end() :]
+
+    yaml_text = m.group("yaml")
+    remaining = content[m.end():]  # use original content indices
 
     try:
         data = yaml.safe_load(yaml_text)
-        if data is None:
-            return {}, remaining_content
-        if not isinstance(data, dict):
-            # YAML could parse to a scalar or list - wrap it
-            return {"_raw": data}, remaining_content
-        return data, remaining_content
-    except yaml.YAMLError as e:
-        raise e
-        logger.warning(f"Failed to parse YAML frontmatter: {e}")
+    except yaml.YAMLError:
+        if on_yaml_error == "raise":
+            raise
+        # lenient: treat as no frontmatter; keep content unchanged
         return None, content
+
+    if data is None:
+        return {}, remaining
+    if isinstance(data, dict):
+        return data, remaining
+
+    # Policy: non-mapping YAML is unusual; preserve it but make it explicit
+    return {"_raw": data}, remaining
+
 
 
 class ObsidianMarkdownReader(MarkdownReader):
-    """
-    Markdown reader customized for Obsidian markdown files.
-
-    Extends the base MarkdownReader with Obsidian-specific parsing
-    features if needed in the future.
-
-    Adds a `frontmatter` node to the Document metadata containing
-    extracted frontmatter YAML, if configured to do so.
-
-    Args:
-        extract_frontmatter: 
-            If True, extract frontmatter and add to metadata.
-        remove_frontmatter_from_text: 
-            If True, strip frontmatter yaml from document body.
-    """
-
-    def __init__(self, extract_frontmatter: bool = True, 
-                 remove_frontmatter_from_text: bool = True,
-                 *args: Any, **kwargs: Any
-                 ) -> None:
-        """Initialize ObsidianMarkdownReader."""
+    def __init__(
+        self,
+        extract_frontmatter: bool = True,
+        remove_frontmatter_from_text: bool = True,
+        frontmatter_metadata_key: str | None = "frontmatter",  # or "obsidian_frontmatter"
+        split_on_headers: bool = True,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
         self._extract_frontmatter = extract_frontmatter
         self._remove_frontmatter_from_text = remove_frontmatter_from_text
+        self._frontmatter_metadata_key = frontmatter_metadata_key
+        self._split_on_headers = split_on_headers
         super().__init__(*args, **kwargs)
-    
+
+    def _read_text(self, file: Any, fs: Optional[AbstractFileSystem]) -> str:
+        # mirror MarkdownReader behavior as closely as possible
+        if fs is not None:
+            with fs.open(file, "r") as f:
+                return f.read()
+        with open(file, "r") as f:
+            return f.read()
+
     def load_data(
         self,
-        file: str,
+        file: Any,  # Path | str
         extra_info: Optional[Dict] = None,
         fs: Optional[AbstractFileSystem] = None,
     ) -> List[Document]:
-        """Parse file into string."""
-        tups = self.parse_tups(file, fs)
+        extra_info = dict(extra_info or {})
+        content = self._read_text(file, fs)
 
-        # Based on behavior of `parse_tups`, if frontmatter is present
-        # it will be located in its own node (index 0) with a `None` header
-        if self._extract_frontmatter and len(tups) > 1 and tups[0][0] is None:
-            
+        # Preserve upstream MarkdownReader behavior: hyperlink/image removal happens
+        # in parse_tups today, so apply it here before splitting.
+        # (You can also call super().parse_tups after you refactor, but then
+        # you'd lose access to raw content for frontmatter unless you re-read.)
+        if self._remove_hyperlinks:
+            content = self.remove_hyperlinks(content)
+        if self._remove_images:
+            content = self.remove_images(content)
+
+        if self._extract_frontmatter:
             try:
-                frontmatter, remainder = parse_frontmatter(tups[0][1])
+                frontmatter, remainder = parse_frontmatter(content)
             except yaml.YAMLError as e:
                 logger.warning(f"Failed to parse frontmatter YAML in {file}: {e}")
             else:
-                extra_info = extra_info or {}
-                extra_info.update({'frontmatter': frontmatter})
-                # Conditionally drop the tuple containing frontmatter yaml;
-                # if there was non-yaml text after the frontmatter, keep it.
-                if self._remove_frontmatter_from_text:
-                    if len(remainder.strip()) == 0:
-                        tups = tups[1:]  # remove frontmatter node
+                # only treat it as frontmatter if parse_frontmatter actually found one
+                if frontmatter is not None:
+                    if self._frontmatter_metadata_key is not None:
+                        extra_info[self._frontmatter_metadata_key] = frontmatter
                     else:
-                        tups[0] = (None, remainder)   
-        # The remainder of this code is straight from the superclass
-        results = []
-        for header, text in tups:
-            if header is None:
-                results.append(Document(text=text, metadata=extra_info or {}))
-            else:
-                results.append(
-                    Document(text=f"\n\n{header}\n{text}", metadata=extra_info or {})
-                )
-        return results
+                        extra_info.update(frontmatter)  
+                    if self._remove_frontmatter_from_text:
+                        content = remainder
+
+        # Now do the normal header splitting and document creation
+        if not self._split_on_headers:
+            return [Document(text=content, metadata=extra_info)]
+        else:
+            tups = self.markdown_to_tups(content)
+            results = []
+            for header, text in tups:
+                if header is None:
+                    results.append(Document(text=text, metadata=extra_info))
+                else:
+                    results.append(Document(text=f"\n\n{header}\n{text}", metadata=extra_info))
+            return results
 
 
 def is_hardlink(filepath: Path) -> bool:
@@ -232,6 +252,7 @@ class SimpleObsidianReader(SimpleDirectoryReader):
         remove_frontmatter_from_text: bool = True,
         remove_dead_wikilinks: bool = True,
         vault_metadata: dict[str, Any] | None = None,
+        split_on_headers: bool = False,
         **kwargs: Any,
     ) -> None:
 
@@ -262,6 +283,7 @@ class SimpleObsidianReader(SimpleDirectoryReader):
         extractor = ObsidianMarkdownReader(
             extract_frontmatter=extract_frontmatter,
             remove_frontmatter_from_text=remove_frontmatter_from_text,
+            split_on_headers=split_on_headers
         )
 
         super().__init__(
@@ -454,7 +476,7 @@ class SimpleObsidianReader(SimpleDirectoryReader):
                         valid_wikilinks.append(link)
                     else:
                         current_file = doc.metadata.get("file_name", "unknown")
-                        logger.warning(
+                        logger.debug(
                             f"Dead wikilink found in '{current_file}': [[{link}]]"
                         )
                 final_wikilinks = valid_wikilinks

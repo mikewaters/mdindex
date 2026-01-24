@@ -88,14 +88,13 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"dataset_id={result.dataset_id} dataset_name={result.dataset_name}")
     print(
-        "read={read} created={created} updated={updated} skipped={skipped} stale={stale} failed={failed} filtered={filtered}".format(
+        "read={read} created={created} updated={updated} skipped={skipped} stale={stale} failed={failed}".format(
             read=result.documents_read,
             created=result.documents_created,
             updated=result.documents_updated,
             skipped=result.documents_skipped,
             stale=result.documents_stale,
             failed=result.documents_failed,
-            filtered=result.documents_filtered,
         )
     )
     if result.errors:

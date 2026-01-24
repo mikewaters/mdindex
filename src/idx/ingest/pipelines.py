@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.ingestion.pipeline import DocstoreStrategy
 from llama_index.core.storage.docstore import SimpleDocumentStore
+from llama_index.core.node_parser import MarkdownNodeParser
 
 from idx.core.logging import get_logger
 from idx.ingest.schemas import IngestDirectoryConfig, IngestObsidianConfig, IngestResult
@@ -23,7 +24,7 @@ from idx.ingest.directory import DirectorySource
 from idx.ingest.obsidian import ObsidianVaultSource
 from idx.store.database import get_session
 from idx.store.fts import create_fts_table
-from idx.store.service import DatasetService, normalize_dataset_name
+from idx.store.dataset import DatasetService, normalize_dataset_name
 from idx.store.session_context import use_session
 from idx.ingest.cache import load_pipeline, persist_pipeline
 
@@ -161,14 +162,15 @@ class IngestPipeline:
                     dataset_id=dataset_id,
                     force=config.force,
                 )
-
+                split = MarkdownNodeParser(
+                    include_metadata=True,
+                    include_prev_next_rel=True,
+                    header_path_separator=" / ",
+                )
                 # Build pipeline with transforms + persistence
                 pipeline = IngestionPipeline(
-                    transformations=[TextNormalizerTransform(), persist],
-                    #transformations=[
-                    #    SentenceSplitter(),
-                    #    #HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5"),
-                    #],
+                    transformations=[TextNormalizerTransform(), persist, split],
+
                     docstore=SimpleDocumentStore(),
                     docstore_strategy=DocstoreStrategy.DUPLICATES_ONLY,
                     #docstore_strategy=DocstoreStrategy.UPSERTS,
@@ -180,7 +182,7 @@ class IngestPipeline:
                     pipeline = load_pipeline(normalized_name, pipeline)
 
                 # Run pipeline - persistence happens inside using ambient session
-                logger.debug(f"Running {len(source.documents)} documents through pipeline")
+                logger.info(f"Running {len(source.documents)} documents through pipeline")
                 nodes = pipeline.run(documents=source.documents)
 
                 # Update the cache
@@ -193,8 +195,7 @@ class IngestPipeline:
                 result.documents_failed = persist.stats.failed
                 result.errors = persist.stats.errors
 
-                # this only works if the pipeline doesn't split documents
-                result.documents_filtered = len(source.documents) - len(nodes)
+                # this only works because the reader doesn't split documents
                 result.documents_read = len(source.documents)
 
         result.completed_at = datetime.now(tz=timezone.utc)

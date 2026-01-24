@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from idx.store.database import Base, create_engine_for_path
 from idx.store.schemas import DatasetCreate, DocumentCreate, DocumentUpdate
-from idx.store.service import (
+from idx.store.dataset import (
     DatasetExistsError,
     DatasetNotFoundError,
     DatasetService,

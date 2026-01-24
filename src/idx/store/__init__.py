@@ -40,7 +40,7 @@ from idx.store.session_context import (
     current_session,
     use_session,
 )
-from idx.store.service import (
+from idx.store.dataset import (
     DatasetExistsError,
     DatasetNotFoundError,
     DatasetService,

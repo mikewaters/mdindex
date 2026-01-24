@@ -85,7 +85,6 @@ class IngestResult(BaseModel):
         documents_skipped: Number of unchanged documents skipped.
         documents_stale: Number of documents marked as stale (soft-deleted).
         documents_failed: Number of documents that failed to process.
-        documents_filtered: Number of documents filtered out before processing.
         started_at: When the ingestion started.
         completed_at: When the ingestion completed.
         errors: List of error messages if any.
@@ -99,7 +98,6 @@ class IngestResult(BaseModel):
     documents_skipped: int = 0
     documents_stale: int = 0
     documents_failed: int = 0
-    documents_filtered: int = 0
     started_at: datetime
     completed_at: datetime | None = None
     errors: list[str] = Field(default_factory=list)
