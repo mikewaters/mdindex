@@ -33,7 +33,14 @@ from idx.store.fts import (
     create_fts_table,
     drop_fts_table,
 )
+from idx.store.fts_chunk import (
+    FTSChunkManager,
+    FTSChunkResult,
+    create_chunks_fts_table,
+    drop_chunks_fts_table,
+)
 from idx.store.docstore import SQLDocStore
+from idx.store.vector import VectorStoreManager
 from idx.store.session_context import (
     SessionNotSetError,
     clear_session,
@@ -73,11 +80,16 @@ __all__ = [
     "DatasetNotFoundError",
     "DocumentNotFoundError",
     "normalize_dataset_name",
-    # FTS
+    # FTS (document-level)
     "FTSManager",
     "FTSResult",
     "create_fts_table",
     "drop_fts_table",
+    # FTS (chunk-level)
+    "FTSChunkManager",
+    "FTSChunkResult",
+    "create_chunks_fts_table",
+    "drop_chunks_fts_table",
     # Cleanup
     "IndexCleanup",
     "cleanup_fts_for_document",
@@ -85,6 +97,7 @@ __all__ = [
     "cleanup_stale_documents",
     # LlamaIndex integration
     "SQLDocStore",
+    "VectorStoreManager",
     # Session context
     "SessionNotSetError",
     "clear_session",

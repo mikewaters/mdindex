@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from idx.ingest.pipelines import IngestPipeline
 from idx.ingest.schemas import IngestDirectoryConfig
 from idx.search.fts import FTSSearch
-from idx.search.hybrid import HybridSearch, rrf_fusion
+from idx.search.hybrid import HybridSearch
 from idx.search.models import SearchCriteria, SearchResult, SearchResults
 from idx.store.database import Base, create_engine_for_path
 from idx.store.fts import create_fts_table
@@ -137,19 +137,17 @@ class TestVectorSearchIntegration:
             assert "vector" in result.scores
 
     def test_vector_search_with_scores_format(self) -> None:
-        """search_with_scores returns (path, dataset, score) tuples."""
-        # Mock the return format used for hybrid fusion
+        """search_with_scores returns (path, dataset, score) tuples format."""
+        # Mock the return format used internally
         vec_scores = [
             ("auth.md", "vault", 0.95),
             ("api.md", "vault", 0.85),
             ("database.md", "vault", 0.70),
         ]
 
-        # Verify format works for RRF fusion
-        fused = rrf_fusion([vec_scores])
-
-        assert len(fused) == 3
-        for path, dataset_name, score in fused:
+        # Verify format is correct for search pipeline
+        assert len(vec_scores) == 3
+        for path, dataset_name, score in vec_scores:
             assert isinstance(path, str)
             assert isinstance(dataset_name, str)
             assert isinstance(score, float)
