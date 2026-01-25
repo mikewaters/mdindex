@@ -10,16 +10,17 @@ authors = [
 license = {text = "MIT"}
 
 dependencies = [
-    "pmd",
+    #"pmd",
     "idx",
     "llama-index-readers-obsidian",
     "llama-index-embeddings-huggingface>=0.6.1",
+    "mlx-embeddings>=0.0.5",
 ]
 
 [dependency-groups]
 dev = [
     "pytest",
-    "pytest-asyncio>=0.23.0",
+    "pytest-asyncio>=0.24",
     "pytest-cov",
     "mypy",
     "ruff",
@@ -36,12 +37,12 @@ build-backend = "hatchling.build"
 packages = ["app"]
 
 [tool.uv.workspace]
-members = ["src/*"]
+members = ["src/idx"]
 
 [tool.uv.sources]
-pmd = { workspace = true }
+#pmd = { workspace = true }
 idx = { workspace = true }
-llama-index-readers-obsidian = { workspace = true }
+#llama-index-readers-obsidian = { workspace = true }
 
 
 # Shared tool config across the workspace
@@ -56,7 +57,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["src/pmd", "src/idx", "app"]
+source = ["src/idx", "app"]
 branch = true
 omit = ["*/tests/*", "*/__pycache__/*"]
 
