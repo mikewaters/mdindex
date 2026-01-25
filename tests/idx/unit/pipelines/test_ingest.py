@@ -1,5 +1,6 @@
 """Tests for idx.pipelines.ingest module."""
 
+import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
@@ -7,11 +8,26 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy.orm import sessionmaker
 
+from idx.core.settings import get_settings
 from idx.ingest.pipelines import IngestPipeline
 from idx.ingest.schemas import IngestDirectoryConfig, IngestObsidianConfig
 from idx.store.database import Base, create_engine_for_path
 from idx.store.fts import FTSManager, create_fts_table
 from idx.store.repositories import DatasetRepository, DocumentRepository
+
+
+def _clear_pipeline_cache(dataset_names: list[str]) -> None:
+    """Clear LlamaIndex pipeline cache for specific datasets.
+
+    This ensures test isolation by removing persisted docstores
+    that would otherwise cause documents to be skipped.
+    """
+    settings = get_settings()
+    pipeline_dir = settings.cache_path / "pipeline_storage"
+    for name in dataset_names:
+        cache_path = pipeline_dir / name
+        if cache_path.exists():
+            shutil.rmtree(cache_path)
 
 
 
@@ -20,6 +36,24 @@ from idx.store.repositories import DatasetRepository, DocumentRepository
 
 class TestIngestPipeline:
     """Tests for IngestPipeline class."""
+
+    @pytest.fixture(autouse=True)
+    def clear_cache(self) -> None:
+        """Clear pipeline cache before each test for isolation."""
+        _clear_pipeline_cache(["test-docs", "test-vault", "my-dataset"])
+        yield
+        # Also clear after test
+        _clear_pipeline_cache(["test-docs", "test-vault", "my-dataset"])
+
+    @pytest.fixture(autouse=True)
+    def disable_pipeline_cache(self) -> None:
+        """Disable pipeline cache loading to ensure documents reach transforms.
+
+        Without this, LlamaIndex's docstore would filter duplicates before
+        they reach PersistenceTransform, causing skipped count to be 0.
+        """
+        with patch("idx.ingest.pipelines.load_pipeline", lambda name, pipeline: pipeline):
+            yield
 
     @pytest.fixture
     def test_db(self, tmp_path: Path):
@@ -44,7 +78,7 @@ class TestIngestPipeline:
                 session.close()
 
         # Patch get_session to use our test database
-        with patch("idx.pipelines.ingest.get_session", get_test_session):
+        with patch("idx.ingest.pipelines.get_session", get_test_session):
             yield get_test_session
 
     @pytest.fixture
@@ -321,6 +355,20 @@ class TestIngestPipeline:
 class TestObsidianIngest:
     """Tests for Obsidian vault ingestion."""
 
+    @pytest.fixture(autouse=True)
+    def clear_cache(self) -> None:
+        """Clear pipeline cache before each test for isolation."""
+        _clear_pipeline_cache(["my-vault", "test-vault"])
+        yield
+        # Also clear after test
+        _clear_pipeline_cache(["my-vault", "test-vault"])
+
+    @pytest.fixture(autouse=True)
+    def disable_pipeline_cache(self) -> None:
+        """Disable pipeline cache loading to ensure documents reach transforms."""
+        with patch("idx.ingest.pipelines.load_pipeline", lambda name, pipeline: pipeline):
+            yield
+
     @pytest.fixture
     def test_db(self, tmp_path: Path):
         """Create a test database and patch get_session."""
@@ -344,7 +392,7 @@ class TestObsidianIngest:
                 session.close()
 
         # Patch get_session to use our test database
-        with patch("idx.pipelines.ingest.get_session", get_test_session):
+        with patch("idx.ingest.pipelines.get_session", get_test_session):
             yield get_test_session
 
     @pytest.fixture
@@ -464,11 +512,14 @@ In a subfolder.
         assert doc1.metadata_json is not None
 
         metadata = json.loads(doc1.metadata_json)
-        assert "tags" in metadata
-        assert "work" in metadata["tags"]
-        assert "important" in metadata["tags"]
-        assert "aliases" in metadata
-        assert "First Note" in metadata["aliases"]
+        # Frontmatter is stored under "frontmatter" key
+        assert "frontmatter" in metadata
+        frontmatter = metadata["frontmatter"]
+        assert "tags" in frontmatter
+        assert "work" in frontmatter["tags"]
+        assert "important" in frontmatter["tags"]
+        assert "aliases" in frontmatter
+        assert "First Note" in frontmatter["aliases"]
 
     def test_obsidian_ingest_handles_no_frontmatter(
         self, test_db, db_session, obsidian_vault: Path
@@ -486,11 +537,12 @@ In a subfolder.
         doc_repo = DocumentRepository(db_session)
         plain_doc = doc_repo.get_by_path(result.dataset_id, "plain.md")
         assert plain_doc is not None
-        # Metadata should be empty or minimal
+        # Metadata should be empty or minimal - frontmatter should be absent or empty
         if plain_doc.metadata_json:
             metadata = json.loads(plain_doc.metadata_json)
-            assert not metadata.get("tags")
-            assert not metadata.get("aliases")
+            frontmatter = metadata.get("frontmatter", {})
+            assert not frontmatter.get("tags")
+            assert not frontmatter.get("aliases")
 
     def test_obsidian_ingest_updates_fts(
         self, test_db, db_session, obsidian_vault: Path

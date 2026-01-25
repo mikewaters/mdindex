@@ -200,7 +200,7 @@ class TestEndToEndStatusIntegration:
                 session.close()
 
         # Ingest documents using patched session
-        with patch("idx.pipelines.ingest.get_session", get_test_session):
+        with patch("idx.ingest.pipelines.get_session", get_test_session):
             pipeline = IngestPipeline()
             config = IngestDirectoryConfig(
                 source_path=docs_dir,

@@ -7,6 +7,7 @@ and surfaces basic metadata for refresh semantics.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from functools import cached_property
 from pathlib import Path
 from typing import Iterator, Any
 
@@ -101,6 +102,19 @@ class DirectorySource:
     def patterns(self) -> list[str]:
         """Get all patterns (include and exclude)."""
         return self._patterns
+
+    @cached_property
+    def documents(self) -> list[LlamaDocument]:
+        """Load and return all documents from the directory as LlamaIndex Documents.
+
+        This property enumerates all matching files and converts them to
+        LlamaIndex Document instances suitable for ingestion pipelines.
+        Results are cached for consistent document identity across accesses.
+
+        Returns:
+            List of LlamaIndex Document instances.
+        """
+        return [self.to_llama_doc(doc) for doc in self.enumerate()]
 
     @staticmethod
     def validate(path: Path) -> None:

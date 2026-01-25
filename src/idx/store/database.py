@@ -72,9 +72,9 @@ def create_engine_for_path(database_path: Path, *, echo: bool = False) -> Engine
         echo=echo,
         pool_pre_ping=True,
     )
-    Base.metadata.create_all(engine)
-    # Register pragma listener
+    # Register pragma listener BEFORE using the engine
     event.listen(engine, "connect", _set_sqlite_pragmas)
+    Base.metadata.create_all(engine)
 
     return engine
 

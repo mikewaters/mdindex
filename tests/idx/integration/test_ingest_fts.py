@@ -4,6 +4,7 @@ Tests end-to-end flow: ingest dataset, refresh with add/change/delete,
 verify FTS results and soft-delete behavior.
 """
 
+import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
@@ -13,12 +14,23 @@ import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from idx.core.settings import get_settings
 from idx.ingest.pipelines import IngestPipeline
 from idx.ingest.schemas import IngestDirectoryConfig, IngestObsidianConfig
 from idx.search.fts import FTSSearch
 from idx.search.models import SearchCriteria
 from idx.store.database import Base, create_engine_for_path
 from idx.store.fts import create_fts_table
+
+
+def _clear_pipeline_cache(dataset_names: list[str]) -> None:
+    """Clear LlamaIndex pipeline cache for specific datasets."""
+    settings = get_settings()
+    pipeline_dir = settings.cache_path / "pipeline_storage"
+    for name in dataset_names:
+        cache_path = pipeline_dir / name
+        if cache_path.exists():
+            shutil.rmtree(cache_path)
 
 
 @pytest.fixture
@@ -51,6 +63,26 @@ def create_session(factory) -> Generator[Session, None, None]:
         session.close()
 
 
+@pytest.fixture(autouse=True)
+def clear_cache() -> None:
+    """Clear pipeline cache before and after each test for isolation."""
+    dataset_names = ["test-vault", "obsidian-vault", "vault1", "vault2"]
+    _clear_pipeline_cache(dataset_names)
+    yield
+    _clear_pipeline_cache(dataset_names)
+
+
+@pytest.fixture(autouse=True)
+def disable_pipeline_cache() -> None:
+    """Disable pipeline cache loading to ensure documents reach transforms.
+
+    Without this, LlamaIndex's docstore would filter duplicates before
+    they reach PersistenceTransform, causing skipped count to be 0.
+    """
+    with patch("idx.ingest.pipelines.load_pipeline", lambda name, pipeline: pipeline):
+        yield
+
+
 @pytest.fixture
 def patched_get_session(session_factory):
     """Patch get_session to use the test database."""
@@ -59,7 +91,7 @@ def patched_get_session(session_factory):
         with create_session(session_factory) as session:
             yield session
 
-    with patch("idx.pipelines.ingest.get_session", get_test_session):
+    with patch("idx.ingest.pipelines.get_session", get_test_session):
         yield get_test_session
 
 
@@ -464,15 +496,16 @@ class TestObsidianIngest:
 
         # Verify metadata was stored
         with create_session(session_factory) as session:
-            result = session.execute(
+            query_result = session.execute(
                 text("SELECT metadata_json FROM documents WHERE path LIKE '%note1.md'")
             )
-            row = result.fetchone()
+            row = query_result.fetchone()
             assert row is not None
-            # Metadata should contain frontmatter fields
+            # Metadata should contain frontmatter under "frontmatter" key
             import json
             metadata = json.loads(row[0]) if row[0] else {}
-            assert "title" in metadata or "tags" in metadata
+            frontmatter = metadata.get("frontmatter", {})
+            assert "title" in frontmatter or "tags" in frontmatter
 
     def test_obsidian_excludes_obsidian_dir(
         self,

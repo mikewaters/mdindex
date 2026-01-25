@@ -359,6 +359,13 @@ class SimpleObsidianReader(SimpleDirectoryReader):
         metadata['folder_name'] = folder_name
         metadata['file_type'] = "text/markdown"
 
+        # Add relative_path for PersistenceTransform compatibility
+        try:
+            metadata['relative_path'] = str(file_path_obj.relative_to(self._vault_root))
+        except ValueError:
+            # Fallback to filename if not within vault
+            metadata['relative_path'] = file_path_obj.name
+
 
         # use superclass to get normal file metadata
         metadata.update(self.get_resource_info(str(file_path_obj)))
