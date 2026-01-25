@@ -14,7 +14,10 @@ Pipeline flow:
 3. MarkdownNodeParser (split into chunks)
 4. ChunkPersistenceTransform (upsert chunks to chunks_fts)
 5. SizeAwareChunkSplitter (split oversized nodes for embedding)
-6. EmbeddingTransform (generate embeddings and insert into vector store)
+6. embed_model (generate embeddings via native vector_store integration)
+
+Vector store integration uses LlamaIndex's native vector_store parameter
+with DocstoreStrategy.UPSERTS for proper upsert semantics on document changes.
 """
 
 from __future__ import annotations
@@ -37,7 +40,7 @@ from idx.store.fts import create_fts_table
 from idx.store.fts_chunk import create_chunks_fts_table
 from idx.store.dataset import DatasetService, normalize_dataset_name
 from idx.store.session_context import use_session
-from idx.ingest.cache import load_pipeline, persist_pipeline
+from idx.ingest.cache import load_pipeline, persist_pipeline, clear_cache
 
 from idx.transform.llama import (
     PersistenceTransform,
@@ -45,7 +48,6 @@ from idx.transform.llama import (
     ChunkPersistenceTransform,
 )
 from idx.transform.splitter import SizeAwareChunkSplitter
-from idx.transform.embedding import EmbeddingTransform
 
 if TYPE_CHECKING:
     from llama_index.core.embeddings import BaseEmbedding
@@ -82,14 +84,14 @@ class IngestPipeline:
     3. MarkdownNodeParser - split into chunks (TextNodes)
     4. ChunkPersistenceTransform - upsert chunks to chunks_fts
     5. SizeAwareChunkSplitter - split oversized nodes for embedding
-    6. EmbeddingTransform - generate embeddings and insert into vector store
+    6. embed_model - generate embeddings via native vector_store integration
 
-    Uses LlamaIndex's IngestionPipeline for document transformations
-    with PersistenceTransform and ChunkPersistenceTransform handling
-    database persistence and FTS indexing within the pipeline.
+    Uses LlamaIndex's IngestionPipeline with native vector_store parameter
+    for vector storage. This enables DocstoreStrategy.UPSERTS which properly
+    handles document updates by re-embedding changed content.
 
     Vector indexing is always performed using the configured embedding
-    backend (MLX or HuggingFace) via EmbeddingTransform.
+    backend (MLX or HuggingFace).
 
     Note: Stale document handling has been moved to idx.store.cleanup.
     Use cleanup_stale_documents() for maintenance operations.
@@ -172,17 +174,20 @@ class IngestPipeline:
         with PersistenceTransform and ChunkPersistenceTransform handling
         persistence and FTS indexing.
 
-        Vector indexing is always performed via EmbeddingTransform using
-        the configured embedding backend (MLX or HuggingFace).
+        Vector indexing uses LlamaIndex's native vector_store integration
+        with DocstoreStrategy.UPSERTS for proper handling of document updates.
 
         Notes:
-        - This implementation leans on LlamaIndex node caching, and
-        so we cannot know if a document was updated/skipped until after
-        running the pipeline.
+        - This implementation uses LlamaIndex's docstore caching. Documents
+        with unchanged content hashes are skipped. Changed documents are
+        re-embedded automatically via the UPSERTS strategy.
 
         - LlamaIndex can technically split Documents into TextNodes,
         but effectively this pipeline treats each Document as a single node,
         and so the terms are used interchangeably.
+
+        - When force=True, the pipeline cache and dataset vectors are cleared
+        before running, ensuring a complete re-index.
 
         Args:
             config: Ingestion configuration, either directory or Obsidian.
@@ -252,16 +257,23 @@ class IngestPipeline:
                     fallback_chunk_overlap=50,
                 )
 
-                # Create embedding transform (computes embeddings and inserts into vector store)
+                # Get vector store manager and embed model
                 vector_manager = self._get_vector_store_manager()
-                vector_manager.load_or_create()
-                embedding_transform = EmbeddingTransform(
-                    embed_model=self._get_embed_model(),
-                    vector_store_manager=vector_manager,
-                    batch_size=32,
-                )
+                embed_model = self._get_embed_model()
 
-                # Build pipeline with all transforms
+                # Handle force=True: clear cache and dataset vectors
+                if config.force:
+                    logger.info(f"Force mode: clearing cache for dataset '{normalized_name}'")
+                    clear_cache(normalized_name)
+                    deleted = vector_manager.delete_by_dataset(normalized_name)
+                    if deleted > 0:
+                        logger.info(f"Cleared {deleted} vectors for dataset '{normalized_name}'")
+
+                # Get the vector store for native pipeline integration
+                vector_store = vector_manager.get_vector_store()
+
+                # Build pipeline with native vector_store integration
+                # Using UPSERTS strategy for proper handling of document updates
                 pipeline = IngestionPipeline(
                     transformations=[
                         TextNormalizerTransform(),
@@ -269,13 +281,14 @@ class IngestPipeline:
                         split,
                         chunk_persist,
                         size_splitter,
-                        embedding_transform,
+                        embed_model,
                     ],
                     docstore=SimpleDocumentStore(),
-                    docstore_strategy=DocstoreStrategy.DUPLICATES_ONLY,
+                    docstore_strategy=DocstoreStrategy.UPSERTS,
+                    vector_store=vector_store,
                 )
 
-                # Load persisted pipeline if available
+                # Load persisted pipeline docstore if available
                 if not config.force:
                     pipeline = load_pipeline(normalized_name, pipeline)
 
@@ -299,12 +312,12 @@ class IngestPipeline:
                 # this only works because the reader doesn't split documents
                 result.documents_read = len(source.documents)
 
-                # Vectors are inserted by EmbeddingTransform during pipeline run
+                # Vectors are inserted by native vector_store integration during pipeline run
                 # Count is equal to the number of nodes returned by the pipeline
                 result.vectors_inserted = len(nodes) if nodes else 0
 
                 # Persist vector store after successful pipeline run
-                vector_manager.persist()
+                vector_manager.persist_vector_store()
 
         result.completed_at = datetime.now(tz=timezone.utc)
 

@@ -137,6 +137,7 @@ class TestSearchServiceModes:
     def test_fts_mode_returns_keyword_matches(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -164,6 +165,7 @@ class TestSearchServiceModes:
     def test_fts_mode_with_dataset_filter(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
         tmp_path: Path,
@@ -213,6 +215,7 @@ class TestHybridSearchRRF:
     def test_hybrid_search_returns_results(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -275,6 +278,7 @@ class TestHybridSearchRRF:
     def test_rrf_combines_fts_and_vector_results(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -334,6 +338,7 @@ class TestSearchResultShapes:
     def test_fts_result_has_required_fields(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -362,6 +367,7 @@ class TestSearchResultShapes:
     def test_search_results_has_metadata(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -390,26 +396,17 @@ class TestFTSChunkRetriever:
     def test_chunk_retriever_returns_nodes(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
         """FTSChunkRetriever returns NodeWithScore objects."""
-        # Mock embedding to avoid loading real model
-        mock_embed_model = MagicMock()
-        mock_embed_model.get_text_embedding_batch.return_value = [
-            [0.1] * 384 for _ in range(20)
-        ]
-        mock_manager = MagicMock()
-        mock_manager.load_or_create.return_value = MagicMock()
-
-        with patch.object(IngestPipeline, "_get_embed_model", return_value=mock_embed_model):
-            with patch.object(IngestPipeline, "_get_vector_store_manager", return_value=mock_manager):
-                pipeline = IngestPipeline()
-                config = IngestObsidianConfig(
-                    source_path=sample_vault,
-                    dataset_name="test-vault",
-                )
-                pipeline.ingest(config)
+        pipeline = IngestPipeline()
+        config = IngestObsidianConfig(
+            source_path=sample_vault,
+            dataset_name="test-vault",
+        )
+        pipeline.ingest(config)
 
         # Test chunk retriever
         from llama_index.core.schema import QueryBundle
@@ -429,6 +426,7 @@ class TestFTSChunkRetriever:
     def test_chunk_retriever_respects_dataset_filter(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
         tmp_path: Path,
@@ -477,6 +475,7 @@ class TestHybridSuperset:
     def test_hybrid_includes_fts_matches(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -534,6 +533,7 @@ class TestEmptyAndEdgeCases:
     def test_empty_query_returns_empty_results(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -561,6 +561,7 @@ class TestEmptyAndEdgeCases:
     def test_special_characters_in_query(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -588,6 +589,7 @@ class TestEmptyAndEdgeCases:
     def test_limit_parameter_respected(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:

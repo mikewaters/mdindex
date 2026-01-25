@@ -55,6 +55,11 @@ class TestIngestPipeline:
         with patch("idx.ingest.pipelines.load_pipeline", lambda name, pipeline: pipeline):
             yield
 
+    @pytest.fixture(autouse=True)
+    def use_mock_embedding(self, patched_embedding) -> None:
+        """Use mock embedding model for all tests."""
+        yield
+
     @pytest.fixture
     def test_db(self, tmp_path: Path):
         """Create a test database and patch get_session."""
@@ -368,6 +373,11 @@ class TestObsidianIngest:
         """Disable pipeline cache loading to ensure documents reach transforms."""
         with patch("idx.ingest.pipelines.load_pipeline", lambda name, pipeline: pipeline):
             yield
+
+    @pytest.fixture(autouse=True)
+    def use_mock_embedding(self, patched_embedding) -> None:
+        """Use mock embedding model for all tests."""
+        yield
 
     @pytest.fixture
     def test_db(self, tmp_path: Path):

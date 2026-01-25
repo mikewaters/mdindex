@@ -5,7 +5,6 @@ for persistence and indexing.
 """
 
 from idx.transform.chunker import Chunk, ChunkerTransform, LineChunker
-from idx.transform.embedding import EmbeddingTransform
 from idx.transform.llama import FTSIndexerTransform, TextNormalizerTransform
 from idx.transform.normalize import (
     MimeDetector,
@@ -20,7 +19,6 @@ from idx.transform.splitter import SizeAwareChunkSplitter
 __all__ = [
     "Chunk",
     "ChunkerTransform",
-    "EmbeddingTransform",
     "FTSIndexerTransform",
     "LineChunker",
     "MimeDetector",

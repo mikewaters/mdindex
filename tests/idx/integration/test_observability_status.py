@@ -160,7 +160,7 @@ class TestStatusSmoke:
 class TestEndToEndStatusIntegration:
     """End-to-end integration tests for status checks."""
 
-    def test_status_after_ingest(self, tmp_path: Path) -> None:
+    def test_status_after_ingest(self, tmp_path: Path, patched_embedding) -> None:
         """Health check passes after document ingestion."""
         from contextlib import contextmanager
         from unittest.mock import MagicMock, patch

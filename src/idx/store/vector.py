@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from llama_index.core.embeddings import BaseEmbedding
     from llama_index.core.retrievers import VectorIndexRetriever
     from llama_index.core.schema import TextNode
+    from llama_index.core.vector_stores import SimpleVectorStore
 
 __all__ = ["VectorStoreManager"]
 
@@ -61,6 +62,7 @@ class VectorStoreManager:
         # Lazy-initialized components
         self._index: "VectorStoreIndex | None" = None
         self._embed_model: "BaseEmbedding | None" = None
+        self._vector_store: "SimpleVectorStore | None" = None
 
         logger.debug(
             f"VectorStoreManager initialized with persist_dir={self._persist_dir}"
@@ -302,9 +304,117 @@ class VectorStoreManager:
         Does not delete persisted data.
         """
         self._index = None
+        self._vector_store = None
         logger.debug("Vector store index cache cleared")
 
     @property
     def is_loaded(self) -> bool:
         """Check if an index is currently loaded in memory."""
         return self._index is not None
+
+    def get_vector_store(self) -> "SimpleVectorStore":
+        """Get or create the raw SimpleVectorStore for pipeline integration.
+
+        Returns the underlying SimpleVectorStore instance, creating it if needed.
+        This is used to pass the vector store to IngestionPipeline's vector_store
+        parameter for native integration.
+
+        If an index already exists (from load_or_create), returns its vector store.
+        Otherwise creates a new empty SimpleVectorStore.
+
+        Returns:
+            SimpleVectorStore instance for pipeline use.
+        """
+        from llama_index.core.vector_stores import SimpleVectorStore
+
+        if self._vector_store is not None:
+            return self._vector_store
+
+        # If we have an index, get its vector store
+        if self._index is not None:
+            self._vector_store = self._index.storage_context.vector_store
+            return self._vector_store
+
+        # Check if we can load from disk
+        persist_path = self._persist_dir
+        vector_store_path = persist_path / "default__vector_store.json"
+
+        if vector_store_path.exists():
+            logger.debug(f"Loading vector store from {vector_store_path}")
+            self._vector_store = SimpleVectorStore.from_persist_path(
+                str(vector_store_path)
+            )
+            logger.info(f"Vector store loaded from {vector_store_path}")
+        else:
+            logger.debug("Creating new empty vector store")
+            self._vector_store = SimpleVectorStore()
+
+        return self._vector_store
+
+    def delete_by_dataset(self, dataset_name: str) -> int:
+        """Delete all vectors associated with a dataset.
+
+        Removes all nodes whose ref_doc_id starts with '{dataset_name}:'.
+        This is used by force=True to clear dataset vectors before re-indexing.
+
+        Args:
+            dataset_name: Name of the dataset to clear vectors for.
+
+        Returns:
+            Number of nodes deleted.
+        """
+        vector_store = self.get_vector_store()
+        prefix = f"{dataset_name}:"
+        deleted_count = 0
+
+        # Get all node IDs that match the dataset prefix
+        # SimpleVectorStore stores data in embedding_dict keyed by node_id
+        # We need to find nodes by examining the docstore or metadata
+        if self._index is None:
+            # Try to load the index to access the docstore
+            try:
+                self.load_or_create()
+            except Exception as e:
+                logger.warning(f"Could not load index for deletion: {e}")
+                return 0
+
+        if self._index is not None:
+            # Get ref_doc_info which maps ref_doc_id to node_ids
+            ref_doc_info = self._index.ref_doc_info
+            node_ids_to_delete = []
+
+            for ref_doc_id, info in ref_doc_info.items():
+                if ref_doc_id.startswith(prefix):
+                    node_ids_to_delete.extend(info.node_ids)
+
+            if node_ids_to_delete:
+                logger.debug(
+                    f"Deleting {len(node_ids_to_delete)} nodes for dataset '{dataset_name}'"
+                )
+                self._index.delete_nodes(node_ids_to_delete)
+                deleted_count = len(node_ids_to_delete)
+                logger.info(
+                    f"Deleted {deleted_count} vectors for dataset '{dataset_name}'"
+                )
+
+        return deleted_count
+
+    def persist_vector_store(self, persist_dir: Path | None = None) -> None:
+        """Persist just the vector store to disk.
+
+        Used for persisting after pipeline.run() when using native
+        vector_store integration.
+
+        Args:
+            persist_dir: Directory to persist to. Defaults to self._persist_dir.
+        """
+        if self._vector_store is None:
+            logger.debug("No vector store to persist")
+            return
+
+        target_dir = persist_dir or self._persist_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        vector_store_path = target_dir / "default__vector_store.json"
+        self._vector_store.persist(str(vector_store_path))
+        logger.info(f"Vector store persisted to {vector_store_path}")

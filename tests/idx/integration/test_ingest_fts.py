@@ -83,6 +83,12 @@ def disable_pipeline_cache() -> None:
         yield
 
 
+@pytest.fixture(autouse=True)
+def use_mock_embedding(patched_embedding) -> None:
+    """Use mock embedding model for all tests."""
+    yield
+
+
 @pytest.fixture
 def patched_get_session(session_factory):
     """Patch get_session to use the test database."""

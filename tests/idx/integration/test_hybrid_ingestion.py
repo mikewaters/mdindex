@@ -9,7 +9,7 @@ Tests the ingestion pipeline's hybrid indexing capabilities including:
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 import hashlib
 
 import pytest
@@ -20,8 +20,7 @@ from idx.ingest.pipelines import IngestPipeline
 from idx.ingest.schemas import IngestObsidianConfig
 from idx.store.database import Base, create_engine_for_path
 from idx.store.fts import create_fts_table
-from idx.store.fts_chunk import FTSChunkManager, create_chunks_fts_table
-from idx.store.session_context import use_session
+from idx.store.fts_chunk import create_chunks_fts_table
 
 
 @pytest.fixture
@@ -113,14 +112,6 @@ Covers relational databases and indexes.
     return vault
 
 
-@pytest.fixture
-def vector_store_path(tmp_path: Path) -> Path:
-    """Create a temporary vector store path."""
-    vector_path = tmp_path / "vector_store"
-    vector_path.mkdir()
-    return vector_path
-
-
 def compute_content_hash(content: str) -> str:
     """Compute SHA256 hash of content (same algorithm as pipeline)."""
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -132,6 +123,7 @@ class TestIdempotentIngestion:
     def test_reingest_produces_same_node_ids(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -174,6 +166,7 @@ class TestIdempotentIngestion:
     def test_node_id_format(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -211,6 +204,7 @@ class TestNoDuplicates:
     def test_no_duplicate_chunks_in_fts(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -240,6 +234,7 @@ class TestNoDuplicates:
     def test_no_duplicate_chunks_after_reingest(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -279,6 +274,7 @@ class TestNoDuplicates:
     def test_chunk_count_stable_across_reingest(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -319,6 +315,7 @@ class TestDeletePropagation:
     def test_deleted_file_removed_from_fts(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -380,6 +377,7 @@ class TestDeletePropagation:
     def test_document_fts_removed_on_delete(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -438,37 +436,23 @@ class TestVectorIndexing:
     def test_vector_indexing_always_inserts_vectors(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
-        vector_store_path: Path,
     ) -> None:
         """Vector indexing always inserts vectors during ingestion."""
-        # Mock the embedding model and vector store
-        mock_embed_model = MagicMock()
-        # Return fake embeddings (same dimension for all texts)
-        mock_embed_model.get_text_embedding_batch.return_value = [
-            [0.1] * 384 for _ in range(10)  # Return enough embeddings
-        ]
+        config = IngestObsidianConfig(
+            source_path=sample_vault,
+            dataset_name="test-vault",
+        )
 
-        mock_manager = MagicMock()
-        mock_index = MagicMock()
-        mock_manager.load_or_create.return_value = mock_index
+        pipeline = IngestPipeline()
+        result = pipeline.ingest(config)
 
-        with patch.object(IngestPipeline, "_get_embed_model", return_value=mock_embed_model):
-            with patch.object(IngestPipeline, "_get_vector_store_manager", return_value=mock_manager):
-                config = IngestObsidianConfig(
-                    source_path=sample_vault,
-                    dataset_name="test-vault",
-                )
-
-                pipeline = IngestPipeline()
-                result = pipeline.ingest(config)
-
-        # Verify embedding was called
-        assert mock_embed_model.get_text_embedding_batch.called
-
-        # Verify vectors were inserted
-        assert mock_manager.insert_nodes.called
+        # Verify vector manager was called
+        mock_manager = patched_embedding["vector_manager"]
+        assert mock_manager.get_vector_store.called
+        assert mock_manager.persist_vector_store.called
 
         # Result should track vectors inserted
         assert result.vectors_inserted > 0
@@ -480,6 +464,7 @@ class TestSourceDocIdFormat:
     def test_source_doc_id_format(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -510,6 +495,7 @@ class TestSourceDocIdFormat:
     def test_source_doc_id_unique_per_document(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -541,6 +527,7 @@ class TestChunkMetadata:
     def test_chunks_have_text_content(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -565,6 +552,7 @@ class TestChunkMetadata:
     def test_chunks_indexed_for_all_documents(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -597,6 +585,7 @@ class TestIngestionStats:
     def test_ingest_result_tracks_chunks(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:
@@ -625,6 +614,7 @@ class TestIngestionStats:
     def test_reingest_updates_stats_correctly(
         self,
         patched_get_session,
+        patched_embedding,
         session_factory,
         sample_vault: Path,
     ) -> None:

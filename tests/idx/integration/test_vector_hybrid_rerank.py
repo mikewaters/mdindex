@@ -68,6 +68,12 @@ def patched_get_session(session_factory):
         yield get_test_session
 
 
+@pytest.fixture(autouse=True)
+def use_mock_embedding(patched_embedding) -> None:
+    """Use mock embedding model for all tests."""
+    yield
+
+
 @pytest.fixture
 def sample_docs(tmp_path: Path) -> Path:
     """Create sample documents for testing."""
