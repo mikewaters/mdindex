@@ -435,14 +435,14 @@ class TestDeletePropagation:
 class TestVectorIndexing:
     """Tests for vector store indexing behavior."""
 
-    def test_vector_indexing_enabled_inserts_vectors(
+    def test_vector_indexing_always_inserts_vectors(
         self,
         patched_get_session,
         session_factory,
         sample_vault: Path,
         vector_store_path: Path,
     ) -> None:
-        """When vector indexing is enabled, vectors are inserted."""
+        """Vector indexing always inserts vectors during ingestion."""
         # Mock the embedding model and vector store
         mock_embed_model = MagicMock()
         # Return fake embeddings (same dimension for all texts)
@@ -459,7 +459,6 @@ class TestVectorIndexing:
                 config = IngestObsidianConfig(
                     source_path=sample_vault,
                     dataset_name="test-vault",
-                    enable_vector_indexing=True,
                 )
 
                 pipeline = IngestPipeline()
@@ -473,25 +472,6 @@ class TestVectorIndexing:
 
         # Result should track vectors inserted
         assert result.vectors_inserted > 0
-
-    def test_vector_indexing_disabled_skips_vectors(
-        self,
-        patched_get_session,
-        session_factory,
-        sample_vault: Path,
-    ) -> None:
-        """When vector indexing is disabled, no vectors are inserted."""
-        config = IngestObsidianConfig(
-            source_path=sample_vault,
-            dataset_name="test-vault",
-            enable_vector_indexing=False,
-        )
-
-        pipeline = IngestPipeline()
-        result = pipeline.ingest(config)
-
-        # No vectors should be inserted
-        assert result.vectors_inserted == 0
 
 
 class TestSourceDocIdFormat:

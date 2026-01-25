@@ -63,6 +63,33 @@ class LangfuseSettings(BaseSettings):
     )
 
 
+class EmbeddingSettings(BaseSettings):
+    """Embedding configuration for vector generation.
+
+    Controls which embedding backend to use and model configuration.
+    Supports MLX (Apple Silicon) and HuggingFace backends.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="IDX_EMBEDDING_",
+        extra="ignore",
+    )
+
+    backend: Literal["mlx", "huggingface"] = Field(
+        default="mlx",
+        description="Embedding backend: 'mlx' for Apple Silicon, 'huggingface' for general",
+    )
+    model_name: str = Field(
+        default="mlx-community/e5-small-v2-mlx",
+        description="Name or path of the embedding model",
+    )
+    batch_size: int = Field(
+        default=32,
+        ge=1,
+        description="Batch size for embedding generation",
+    )
+
+
 class PerformanceSettings(BaseSettings):
     """Default performance settings for batch processing and concurrency."""
 
@@ -84,7 +111,7 @@ class PerformanceSettings(BaseSettings):
     embedding_batch_size: int = Field(
         default=32,
         ge=1,
-        description="Batch size for embedding generation",
+        description="Batch size for embedding generation (deprecated: use embedding.batch_size)",
     )
     chunk_max_bytes: int = Field(
         default=2048,
@@ -107,9 +134,10 @@ class Settings(BaseSettings):
     Attributes:
         database_path: Path to the SQLite database file.
         vector_store_path: Path to the LlamaIndex persist directory (rebuildable cache).
-        embedding_model: Name or path of the embedding model.
+        embedding_model: Name or path of the embedding model (deprecated).
         transformers_model: Name or path of the transformers model for reranking.
         log_level: Logging level for the library.
+        embedding: Embedding model configuration (backend, model_name, batch_size).
         langfuse: Langfuse observability settings (placeholder).
         performance: Default performance settings for batch processing.
     """
@@ -152,6 +180,10 @@ class Settings(BaseSettings):
     )
 
     # Nested settings
+    embedding: EmbeddingSettings = Field(
+        default_factory=EmbeddingSettings,
+        description="Embedding model configuration",
+    )
     langfuse: LangfuseSettings = Field(
         default_factory=LangfuseSettings,
         description="Langfuse observability settings (placeholder)",

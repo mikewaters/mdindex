@@ -19,7 +19,6 @@ class IngestDirectoryConfig(BaseModel):
         patterns: Glob patterns for matching files (default: ["**/*.md"]).
         encoding: File encoding to use (default: utf-8).
         force: If True, reprocess all documents even if unchanged.
-        enable_vector_indexing: If True, compute embeddings and index in vector store.
     """
 
     source_path: Path
@@ -27,7 +26,6 @@ class IngestDirectoryConfig(BaseModel):
     patterns: list[str] = Field(default_factory=lambda: ["**/*.md"])
     encoding: str = "utf-8"
     force: bool = False
-    enable_vector_indexing: bool = False
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -46,13 +44,11 @@ class IngestObsidianConfig(BaseModel):
         source_path: Path to the Obsidian vault.
         dataset_name: Name for the dataset (will be normalized).
         force: If True, reprocess all documents even if unchanged.
-        enable_vector_indexing: If True, compute embeddings and index in vector store.
     """
 
     source_path: Path
     dataset_name: str
     force: bool = False
-    enable_vector_indexing: bool = False
 
     model_config = {"arbitrary_types_allowed": True}
 

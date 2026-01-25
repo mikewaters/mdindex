@@ -22,9 +22,9 @@ from idx.core.settings import get_settings
 
 if TYPE_CHECKING:
     from llama_index.core import VectorStoreIndex
+    from llama_index.core.embeddings import BaseEmbedding
     from llama_index.core.retrievers import VectorIndexRetriever
     from llama_index.core.schema import TextNode
-    from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
 __all__ = ["VectorStoreManager"]
 
@@ -56,12 +56,11 @@ class VectorStoreManager:
         """
         settings = get_settings()
         self._persist_dir = persist_dir or settings.vector_store_path
-        self._embedding_model_name = settings.embedding_model
-        self._embedding_batch_size = settings.performance.embedding_batch_size
+        self._embed_settings = settings.embedding
 
         # Lazy-initialized components
         self._index: "VectorStoreIndex | None" = None
-        self._embed_model: "HuggingFaceEmbedding | None" = None
+        self._embed_model: "BaseEmbedding | None" = None
 
         logger.debug(
             f"VectorStoreManager initialized with persist_dir={self._persist_dir}"
@@ -72,21 +71,35 @@ class VectorStoreManager:
         """Get the persistence directory path."""
         return self._persist_dir
 
-    def _get_embed_model(self) -> "HuggingFaceEmbedding":
+    def _get_embed_model(self) -> "BaseEmbedding":
         """Get or create the embedding model (lazy initialization).
 
+        Returns the configured embedding model based on settings.embedding.backend:
+        - "mlx": MLXEmbedding for Apple Silicon
+        - "huggingface": HuggingFaceEmbedding for general use
+
         Returns:
-            HuggingFaceEmbedding instance configured with settings.
+            BaseEmbedding instance configured from settings.
         """
         if self._embed_model is None:
-            from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+            if self._embed_settings.backend == "mlx":
+                from idx.embedding.mlx import MLXEmbedding
 
-            logger.debug(f"Loading embedding model: {self._embedding_model_name}")
-            self._embed_model = HuggingFaceEmbedding(
-                model_name=self._embedding_model_name,
-                embed_batch_size=self._embedding_batch_size,
-            )
-            logger.info(f"Embedding model loaded: {self._embedding_model_name}")
+                logger.debug(f"Loading MLX embedding model: {self._embed_settings.model_name}")
+                self._embed_model = MLXEmbedding(
+                    model_name=self._embed_settings.model_name,
+                    embed_batch_size=self._embed_settings.batch_size,
+                )
+                logger.info(f"MLX embedding model loaded: {self._embed_settings.model_name}")
+            else:
+                from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+
+                logger.debug(f"Loading HuggingFace embedding model: {self._embed_settings.model_name}")
+                self._embed_model = HuggingFaceEmbedding(
+                    model_name=self._embed_settings.model_name,
+                    embed_batch_size=self._embed_settings.batch_size,
+                )
+                logger.info(f"HuggingFace embedding model loaded: {self._embed_settings.model_name}")
 
         return self._embed_model
 

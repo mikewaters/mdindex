@@ -394,14 +394,22 @@ class TestFTSChunkRetriever:
         sample_vault: Path,
     ) -> None:
         """FTSChunkRetriever returns NodeWithScore objects."""
-        # Ingest with vector indexing disabled (just FTS)
-        pipeline = IngestPipeline()
-        config = IngestObsidianConfig(
-            source_path=sample_vault,
-            dataset_name="test-vault",
-            enable_vector_indexing=False,
-        )
-        pipeline.ingest(config)
+        # Mock embedding to avoid loading real model
+        mock_embed_model = MagicMock()
+        mock_embed_model.get_text_embedding_batch.return_value = [
+            [0.1] * 384 for _ in range(20)
+        ]
+        mock_manager = MagicMock()
+        mock_manager.load_or_create.return_value = MagicMock()
+
+        with patch.object(IngestPipeline, "_get_embed_model", return_value=mock_embed_model):
+            with patch.object(IngestPipeline, "_get_vector_store_manager", return_value=mock_manager):
+                pipeline = IngestPipeline()
+                config = IngestObsidianConfig(
+                    source_path=sample_vault,
+                    dataset_name="test-vault",
+                )
+                pipeline.ingest(config)
 
         # Test chunk retriever
         from llama_index.core.schema import QueryBundle

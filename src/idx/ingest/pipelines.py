@@ -13,8 +13,8 @@ Pipeline flow:
 2. PersistenceTransform (upsert to documents table + documents_fts)
 3. MarkdownNodeParser (split into chunks)
 4. ChunkPersistenceTransform (upsert chunks to chunks_fts)
-5. [Optional] Embedding computation (via HuggingFaceEmbedding)
-6. [Optional] Vector store insertion (via VectorStoreManager)
+5. SizeAwareChunkSplitter (split oversized nodes for embedding)
+6. EmbeddingTransform (generate embeddings and insert into vector store)
 """
 
 from __future__ import annotations
@@ -26,7 +26,6 @@ from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.ingestion.pipeline import DocstoreStrategy
 from llama_index.core.storage.docstore import SimpleDocumentStore
 from llama_index.core.node_parser import MarkdownNodeParser
-from llama_index.core.schema import TextNode
 
 from idx.core.logging import get_logger
 from idx.ingest.schemas import IngestDirectoryConfig, IngestObsidianConfig, IngestResult
@@ -45,9 +44,11 @@ from idx.transform.llama import (
     TextNormalizerTransform,
     ChunkPersistenceTransform,
 )
+from idx.transform.splitter import SizeAwareChunkSplitter
+from idx.transform.embedding import EmbeddingTransform
 
 if TYPE_CHECKING:
-    from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+    from llama_index.core.embeddings import BaseEmbedding
     from idx.store.vector import VectorStoreManager
 
 __all__ = [
@@ -80,18 +81,15 @@ class IngestPipeline:
     2. PersistenceTransform - upsert to documents table + documents_fts
     3. MarkdownNodeParser - split into chunks (TextNodes)
     4. ChunkPersistenceTransform - upsert chunks to chunks_fts
-    5. [Optional] Embedding computation - via HuggingFaceEmbedding
-    6. [Optional] Vector store insertion - via VectorStoreManager
+    5. SizeAwareChunkSplitter - split oversized nodes for embedding
+    6. EmbeddingTransform - generate embeddings and insert into vector store
 
     Uses LlamaIndex's IngestionPipeline for document transformations
     with PersistenceTransform and ChunkPersistenceTransform handling
     database persistence and FTS indexing within the pipeline.
 
-    Vector indexing is optional and controlled by the config flag
-    `enable_vector_indexing`. When enabled:
-    - Embeddings are computed using HuggingFaceEmbedding
-    - Vectors are inserted into SimpleVectorStore via VectorStoreManager
-    - Both FTS and vector stores are updated atomically
+    Vector indexing is always performed using the configured embedding
+    backend (MLX or HuggingFace) via EmbeddingTransform.
 
     Note: Stale document handling has been moved to idx.store.cleanup.
     Use cleanup_stale_documents() for maintenance operations.
@@ -101,7 +99,6 @@ class IngestPipeline:
             directory=Path("/path/to/docs"),
             dataset_name="my-docs",
             patterns=["**/*.md"],
-            enable_vector_indexing=True,
         )
         pipeline = IngestPipeline()
         result = pipeline.ingest(config)
@@ -112,29 +109,45 @@ class IngestPipeline:
     def __init__(self) -> None:
         """Initialize the IngestPipeline.
 
-        Lazy-initializes embedding model and vector store manager
-        when vector indexing is enabled.
+        Lazy-initializes embedding model and vector store manager.
         """
-        self._embed_model: "HuggingFaceEmbedding | None" = None
+        self._embed_model: "BaseEmbedding | None" = None
         self._vector_store_manager: "VectorStoreManager | None" = None
 
-    def _get_embed_model(self) -> "HuggingFaceEmbedding":
+    def _get_embed_model(self) -> "BaseEmbedding":
         """Get or create the embedding model (lazy initialization).
 
+        Returns the configured embedding model based on settings.embedding.backend:
+        - "mlx": MLXEmbedding for Apple Silicon
+        - "huggingface": HuggingFaceEmbedding for general use
+
         Returns:
-            HuggingFaceEmbedding instance configured from settings.
+            BaseEmbedding instance configured from settings.
         """
         if self._embed_model is None:
-            from llama_index.embeddings.huggingface import HuggingFaceEmbedding
             from idx.core.settings import get_settings
 
             settings = get_settings()
-            logger.debug(f"Loading embedding model: {settings.embedding_model}")
-            self._embed_model = HuggingFaceEmbedding(
-                model_name=settings.embedding_model,
-                embed_batch_size=settings.performance.embedding_batch_size,
-            )
-            logger.info(f"Embedding model loaded: {settings.embedding_model}")
+            embed_settings = settings.embedding
+
+            if embed_settings.backend == "mlx":
+                from idx.embedding.mlx import MLXEmbedding
+
+                logger.debug(f"Loading MLX embedding model: {embed_settings.model_name}")
+                self._embed_model = MLXEmbedding(
+                    model_name=embed_settings.model_name,
+                    embed_batch_size=embed_settings.batch_size,
+                )
+                logger.info(f"MLX embedding model loaded: {embed_settings.model_name}")
+            else:
+                from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+
+                logger.debug(f"Loading HuggingFace embedding model: {embed_settings.model_name}")
+                self._embed_model = HuggingFaceEmbedding(
+                    model_name=embed_settings.model_name,
+                    embed_batch_size=embed_settings.batch_size,
+                )
+                logger.info(f"HuggingFace embedding model loaded: {embed_settings.model_name}")
 
         return self._embed_model
 
@@ -151,61 +164,6 @@ class IngestPipeline:
 
         return self._vector_store_manager
 
-    def _compute_embeddings(
-        self,
-        nodes: list[TextNode],
-    ) -> list[TextNode]:
-        """Compute embeddings for nodes using batch processing.
-
-        Args:
-            nodes: List of TextNodes to embed.
-
-        Returns:
-            The same nodes with embeddings set.
-        """
-        if not nodes:
-            return nodes
-
-        embed_model = self._get_embed_model()
-
-        # Extract texts for batch embedding
-        texts = [node.get_content() for node in nodes]
-
-        logger.debug(f"Computing embeddings for {len(texts)} chunks")
-        embeddings = embed_model.get_text_embedding_batch(texts)
-
-        # Assign embeddings to nodes
-        for node, embedding in zip(nodes, embeddings):
-            node.embedding = embedding
-
-        logger.info(f"Computed embeddings for {len(nodes)} chunks")
-        return nodes
-
-    def _insert_vectors(
-        self,
-        nodes: list[TextNode],
-    ) -> int:
-        """Insert nodes into the vector store.
-
-        Args:
-            nodes: List of TextNodes with embeddings.
-
-        Returns:
-            Number of vectors inserted.
-        """
-        if not nodes:
-            return 0
-
-        manager = self._get_vector_store_manager()
-
-        # Ensure index is loaded or created
-        manager.load_or_create()
-
-        logger.debug(f"Inserting {len(nodes)} vectors into store")
-        manager.insert_nodes(nodes)
-
-        return len(nodes)
-
     def ingest(self, config: IngestDirectoryConfig | IngestObsidianConfig) -> IngestResult:
         """Ingest documents from a local directory.
 
@@ -214,12 +172,11 @@ class IngestPipeline:
         with PersistenceTransform and ChunkPersistenceTransform handling
         persistence and FTS indexing.
 
-        When `enable_vector_indexing` is True, also computes embeddings
-        and inserts vectors into the vector store. Both FTS and vector
-        stores are updated atomically - on failure, both are rolled back.
+        Vector indexing is always performed via EmbeddingTransform using
+        the configured embedding backend (MLX or HuggingFace).
 
         Notes:
-        - This implementation leans on LLamaIndex node caching, and
+        - This implementation leans on LlamaIndex node caching, and
         so we cannot know if a document was updated/skipped until after
         running the pipeline.
 
@@ -253,9 +210,6 @@ class IngestPipeline:
             dataset_name=normalized_name,
             started_at=started_at,
         )
-
-        # Track nodes for vector indexing (collected during pipeline run)
-        nodes_for_vectors: list[TextNode] = []
 
         with get_session() as session:
             with use_session(session):
@@ -291,13 +245,31 @@ class IngestPipeline:
                     dataset_name=normalized_name,
                 )
 
-                # Build pipeline with transforms + persistence + chunk persistence
+                # Create size-aware splitter for oversized chunks
+                size_splitter = SizeAwareChunkSplitter(
+                    max_chars=2000,
+                    fallback_chunk_size=512,
+                    fallback_chunk_overlap=50,
+                )
+
+                # Create embedding transform (computes embeddings and inserts into vector store)
+                vector_manager = self._get_vector_store_manager()
+                vector_manager.load_or_create()
+                embedding_transform = EmbeddingTransform(
+                    embed_model=self._get_embed_model(),
+                    vector_store_manager=vector_manager,
+                    batch_size=32,
+                )
+
+                # Build pipeline with all transforms
                 pipeline = IngestionPipeline(
                     transformations=[
                         TextNormalizerTransform(),
                         persist,
                         split,
                         chunk_persist,
+                        size_splitter,
+                        embedding_transform,
                     ],
                     docstore=SimpleDocumentStore(),
                     docstore_strategy=DocstoreStrategy.DUPLICATES_ONLY,
@@ -327,33 +299,12 @@ class IngestPipeline:
                 # this only works because the reader doesn't split documents
                 result.documents_read = len(source.documents)
 
-                # Collect nodes for vector indexing if enabled
-                if config.enable_vector_indexing and nodes:
-                    # Filter to only TextNodes (chunks from MarkdownNodeParser)
-                    nodes_for_vectors = [n for n in nodes if isinstance(n, TextNode)]
+                # Vectors are inserted by EmbeddingTransform during pipeline run
+                # Count is equal to the number of nodes returned by the pipeline
+                result.vectors_inserted = len(nodes) if nodes else 0
 
-                # Vector indexing happens inside the session context for atomic rollback
-                if config.enable_vector_indexing and nodes_for_vectors:
-                    try:
-                        # Compute embeddings
-                        self._compute_embeddings(nodes_for_vectors)
-
-                        # Insert into vector store
-                        vectors_inserted = self._insert_vectors(nodes_for_vectors)
-                        result.vectors_inserted = vectors_inserted
-
-                        # Persist vector store after successful insertion
-                        manager = self._get_vector_store_manager()
-                        manager.persist()
-
-                        logger.info(f"Vector indexing complete: {vectors_inserted} vectors inserted")
-
-                    except Exception as e:
-                        error_msg = f"Vector indexing failed: {e}"
-                        logger.error(error_msg)
-                        result.errors.append(error_msg)
-                        # Re-raise to trigger session rollback
-                        raise
+                # Persist vector store after successful pipeline run
+                vector_manager.persist()
 
         result.completed_at = datetime.now(tz=timezone.utc)
 
