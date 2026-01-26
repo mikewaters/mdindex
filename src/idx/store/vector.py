@@ -384,6 +384,8 @@ class VectorStoreManager:
             self._vector_store = SimpleVectorStore.from_persist_path(
                 str(vector_store_path)
             )
+            # stores_text isn't persisted, must set after load for from_vector_store() support
+            self._vector_store.stores_text = True
             logger.info(f"Vector store loaded from {vector_store_path}")
         else:
             logger.debug("Creating new empty vector store")
