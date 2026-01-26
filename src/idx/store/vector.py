@@ -116,8 +116,8 @@ class VectorStoreManager:
 
         logger.debug("Creating new vector store index")
 
-        # Create empty vector store and storage context
-        vector_store = SimpleVectorStore()
+        # Create empty vector store with stores_text=True for from_vector_store() support
+        vector_store = SimpleVectorStore(stores_text=True)
         storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
         # Create empty index
@@ -155,11 +155,44 @@ class VectorStoreManager:
         logger.info(f"Vector store index loaded from {self._persist_dir}")
         return index
 
+    def _create_index_from_vector_store(self) -> "VectorStoreIndex":
+        """Create an index from a persisted vector store file.
+
+        Used when only the vector store was persisted (not the full index).
+        This happens when persist_vector_store() was called instead of persist().
+
+        Returns:
+            VectorStoreIndex created from the loaded vector store.
+        """
+        from llama_index.core import StorageContext, VectorStoreIndex
+
+        logger.debug(f"Creating index from vector store at {self._persist_dir}")
+
+        # Load the vector store
+        vector_store = self.get_vector_store()
+
+        # Create storage context with the loaded vector store
+        storage_context = StorageContext.from_defaults(vector_store=vector_store)
+
+        # Create index from the vector store
+        index = VectorStoreIndex.from_vector_store(
+            vector_store=vector_store,
+            storage_context=storage_context,
+            embed_model=self._get_embed_model(),
+        )
+
+        logger.info(f"Index created from vector store at {self._persist_dir}")
+        return index
+
     def load_or_create(self) -> "VectorStoreIndex":
         """Load an existing index or create a new one.
 
         If the persist directory exists and contains a valid index,
         loads it. Otherwise, creates a new empty index.
+
+        Handles two persistence scenarios:
+        1. Full index (docstore.json exists): Load via StorageContext
+        2. Vector store only (default__vector_store.json exists): Create index from vector store
 
         Returns:
             VectorStoreIndex ready for use.
@@ -167,20 +200,26 @@ class VectorStoreManager:
         if self._index is not None:
             return self._index
 
-        # Check if persist directory exists and has index files
         persist_path = self._persist_dir
+        vector_store_path = persist_path / "default__vector_store.json"
         docstore_path = persist_path / "docstore.json"
 
         if persist_path.exists() and docstore_path.exists():
+            # Full index exists (from StorageContext.persist)
             try:
                 self._index = self._load_existing_index()
             except Exception as e:
-                logger.warning(
-                    f"Failed to load existing index, creating new one: {e}"
-                )
+                logger.warning(f"Failed to load existing index: {e}")
+                self._index = self._create_new_index()
+        elif persist_path.exists() and vector_store_path.exists():
+            # Vector store only (from persist_vector_store)
+            # Create index from the persisted vector store
+            try:
+                self._index = self._create_index_from_vector_store()
+            except Exception as e:
+                logger.warning(f"Failed to create index from vector store: {e}")
                 self._index = self._create_new_index()
         else:
-            # Ensure directory exists for future persistence
             persist_path.mkdir(parents=True, exist_ok=True)
             self._index = self._create_new_index()
 
@@ -347,7 +386,8 @@ class VectorStoreManager:
             logger.info(f"Vector store loaded from {vector_store_path}")
         else:
             logger.debug("Creating new empty vector store")
-            self._vector_store = SimpleVectorStore()
+            # Create with stores_text=True to enable from_vector_store() later
+            self._vector_store = SimpleVectorStore(stores_text=True)
 
         return self._vector_store
 
