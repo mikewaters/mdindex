@@ -116,8 +116,9 @@ class VectorStoreManager:
 
         logger.debug("Creating new vector store index")
 
-        # Create empty vector store with stores_text=True for from_vector_store() support
-        vector_store = SimpleVectorStore(stores_text=True)
+        # stores_text must be set after construction (not accepted in __init__)
+        vector_store = SimpleVectorStore()
+        vector_store.stores_text = True
         storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
         # Create empty index
@@ -386,8 +387,9 @@ class VectorStoreManager:
             logger.info(f"Vector store loaded from {vector_store_path}")
         else:
             logger.debug("Creating new empty vector store")
-            # Create with stores_text=True to enable from_vector_store() later
-            self._vector_store = SimpleVectorStore(stores_text=True)
+            # stores_text must be set after construction (not accepted in __init__)
+            self._vector_store = SimpleVectorStore()
+            self._vector_store.stores_text = True
 
         return self._vector_store
 
