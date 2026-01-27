@@ -395,6 +395,8 @@ class PersistenceTransform(TransformComponent):
         Raises:
             SessionNotSetError: If no ambient session is set.
         """
+        logger.info(f"PersistenceTransform: persisting {len(nodes)} documents")
+
         # Reset stats for this run
         self.stats.reset()
 
@@ -430,6 +432,12 @@ class PersistenceTransform(TransformComponent):
                 self.stats.errors.append(f"{path}: {e}")
 
         session.flush()
+
+        logger.info(
+            f"PersistenceTransform complete: "
+            f"created={self.stats.created}, updated={self.stats.updated}, "
+            f"skipped={self.stats.skipped}, failed={self.stats.failed}"
+        )
 
         return nodes
 
@@ -659,6 +667,8 @@ class ChunkPersistenceTransform(TransformComponent):
         Raises:
             SessionNotSetError: If no ambient session is set.
         """
+        logger.info(f"ChunkPersistenceTransform: persisting {len(nodes)} chunks")
+
         # Reset stats for this run
         self.stats.reset()
 
@@ -689,6 +699,11 @@ class ChunkPersistenceTransform(TransformComponent):
                     logger.error(f"Failed to persist chunk {node_id}: {e}")
                     self.stats.failed += 1
                     self.stats.errors.append(f"{node_id}: {e}")
+
+        logger.info(
+            f"ChunkPersistenceTransform complete: "
+            f"created={self.stats.created}, failed={self.stats.failed}"
+        )
 
         return nodes
 

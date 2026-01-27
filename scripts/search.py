@@ -8,29 +8,39 @@ Executes FTS, vector, and hybrid searches and prints results.
 
 Usage:
     uv run python scripts/search.py "your search query"
+    uv run python scripts/search.py -d obsidian "your search query"
 """
+import argparse
 import sys
 
 from idx.search import search
 
 
 def main() -> int:
-    if len(sys.argv) < 2:
-        print("Usage: search.py <query>", file=sys.stderr)
-        return 1
+    parser = argparse.ArgumentParser(description="Search the idx database")
+    parser.add_argument("query", nargs="+", help="Search query")
+    parser.add_argument(
+        "-d", "--dataset",
+        dest="dataset_name",
+        help="Filter results to a specific dataset",
+    )
+    args = parser.parse_args()
 
-    query = " ".join(sys.argv[1:])
+    query = " ".join(args.query)
+    dataset_name = args.dataset_name
 
-    print(f"=== FTS Search: {query!r} ===\n")
-    fts_results = search(query, mode="fts")
+    dataset_info = f" (dataset: {dataset_name})" if dataset_name else ""
+
+    print(f"=== FTS Search: {query!r}{dataset_info} ===\n")
+    fts_results = search(query, mode="fts", dataset_name=dataset_name)
     _print_results(fts_results)
 
-    print(f"\n=== Vector Search: {query!r} ===\n")
-    vector_results = search(query, mode="vector")
+    print(f"\n=== Vector Search: {query!r}{dataset_info} ===\n")
+    vector_results = search(query, mode="vector", dataset_name=dataset_name)
     _print_results(vector_results)
 
-    print(f"\n=== Hybrid Search: {query!r} ===\n")
-    hybrid_results = search(query, mode="hybrid")
+    print(f"\n=== Hybrid Search: {query!r}{dataset_info} ===\n")
+    hybrid_results = search(query, mode="hybrid", dataset_name=dataset_name)
     _print_results(hybrid_results)
 
     return 0

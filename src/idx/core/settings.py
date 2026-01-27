@@ -80,7 +80,7 @@ class EmbeddingSettings(BaseSettings):
         description="Embedding backend: 'mlx' for Apple Silicon, 'huggingface' for general",
     )
     model_name: str = Field(
-        default="mlx-community/e5-small-v2-mlx",
+        default="mlx-community/all-MiniLM-L6-v2-bf16",
         description="Name or path of the embedding model",
     )
     batch_size: int = Field(

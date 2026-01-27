@@ -92,6 +92,8 @@ class SizeAwareChunkSplitter(TransformComponent):
         Returns:
             List of nodes with oversized ones split into smaller chunks.
         """
+        logger.info(f"SizeAwareChunkSplitter: processing {len(nodes)} nodes")
+
         result: list[BaseNode] = []
         split_count = 0
         pass_through_count = 0
@@ -143,8 +145,12 @@ class SizeAwareChunkSplitter(TransformComponent):
 
         if split_count > 0:
             logger.info(
-                f"SizeAwareChunkSplitter: {pass_through_count} passed through, "
-                f"{split_count} split into {len(result) - pass_through_count} chunks"
+                f"SizeAwareChunkSplitter complete: {pass_through_count} passed through, "
+                f"{split_count} split -> {len(result)} total nodes"
+            )
+        else:
+            logger.info(
+                f"SizeAwareChunkSplitter complete: {len(result)} nodes (no splitting needed)"
             )
 
         return result

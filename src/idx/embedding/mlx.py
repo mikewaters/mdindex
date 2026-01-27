@@ -19,10 +19,14 @@ from typing import Any
 from llama_index.core.bridge.pydantic import PrivateAttr
 from llama_index.core.embeddings import BaseEmbedding
 
+from idx.core.logging import get_logger
+
 __all__ = ["MLXEmbedding"]
 
+logger = get_logger(__name__)
+
 # Default model for MLX embeddings
-DEFAULT_MODEL_NAME = "mlx-community/e5-small-v2-mlx"
+DEFAULT_MODEL_NAME = "mlx-community/all-MiniLM-L6-v2-bf16"
 
 
 class MLXEmbedding(BaseEmbedding):
@@ -38,7 +42,7 @@ class MLXEmbedding(BaseEmbedding):
 
     Attributes:
         model_name: Name or path of the MLX embedding model to use.
-            Defaults to "mlx-community/e5-small-v2-mlx".
+            Defaults to "mlx-community/all-MiniLM-L6-v2-bf16".
 
     Example:
         embed_model = MLXEmbedding(model_name="mlx-community/all-MiniLM-L6-v2-4bit")
@@ -61,11 +65,12 @@ class MLXEmbedding(BaseEmbedding):
 
         Args:
             model_name: Name or path of the MLX embedding model.
-                Defaults to "mlx-community/e5-small-v2-mlx".
+                Defaults to "mlx-community/all-MiniLM-L6-v2-bf16".
             embed_batch_size: Batch size for embedding generation.
                 Defaults to 32.
             **kwargs: Additional arguments passed to BaseEmbedding.
         """
+        logger.info(f"Initializing MLXEmbedding with model: {model_name}")
         super().__init__(
             model_name=model_name,
             embed_batch_size=embed_batch_size,
@@ -86,7 +91,9 @@ class MLXEmbedding(BaseEmbedding):
         if self._model is None or self._tokenizer is None:
             from mlx_embeddings.utils import load
 
+            logger.info(f"Loading MLX embedding model: {self.model_name}")
             self._model, self._tokenizer = load(self.model_name)
+            logger.info(f"MLX embedding model loaded: {self.model_name}")
 
     def _get_text_embedding(self, text: str) -> list[float]:
         """Generate embedding for a single text.
@@ -132,6 +139,8 @@ class MLXEmbedding(BaseEmbedding):
 
         self._load_model()
 
+        #logger.info(f"Generating embeddings for {len(texts)} texts")
+
         # Batch tokenize and generate embeddings
         inputs = self._tokenizer.batch_encode_plus(
             texts,
@@ -147,6 +156,7 @@ class MLXEmbedding(BaseEmbedding):
 
         # Return mean pooled and normalized embeddings
         embeddings = outputs.text_embeds
+        logger.debug(f"Generated {len(embeddings)} embeddings")
         return [emb.tolist() for emb in embeddings]
 
     def _get_query_embedding(self, query: str) -> list[float]:
