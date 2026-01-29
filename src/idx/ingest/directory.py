@@ -13,26 +13,8 @@ from typing import Iterator, Any
 
 from loguru import logger
 from pydantic import BaseModel, Field
-from llama_index.core import Document as LlamaDocument
+from llama_index.core import Document
 
-class SourceDocument(BaseModel):
-    """A document read from a source.
-
-    Attributes:
-        path: Absolute path to the file.
-        relative_path: Path relative to source directory.
-        last_modified: File modification time (for check_modified optimization).
-        content: The file contents (text).
-        etag: Optional etag (for future HTTP sources).
-    """
-
-    path: Path
-    relative_path: str
-    last_modified: datetime | None = None
-    content: str
-    etag: str | None = None
-
-    model_config = {"arbitrary_types_allowed": True}
 
 
 class DirectorySource:
@@ -72,6 +54,7 @@ class DirectorySource:
         Raises:
             ValueError: If no include patterns are provided.
         """
+        raise NotImplementedError("This class needs to be adjusted to wrap a SimpleDirectoryReader")
         self._directory = path.resolve()
         self._patterns = self._parse_patterns(patterns)
         self._encoding = encoding
@@ -104,7 +87,7 @@ class DirectorySource:
         return self._patterns
 
     @cached_property
-    def documents(self) -> list[LlamaDocument]:
+    def documents(self) -> list[Document]:
         """Load and return all documents from the directory as LlamaIndex Documents.
 
         This property enumerates all matching files and converts them to
@@ -114,7 +97,7 @@ class DirectorySource:
         Returns:
             List of LlamaIndex Document instances.
         """
-        return [self.to_llama_doc(doc) for doc in self.enumerate()]
+        return [doc for doc in self.enumerate()]
 
     @staticmethod
     def validate(path: Path) -> None:
@@ -124,7 +107,7 @@ class DirectorySource:
         if not path.is_dir():
             raise ValueError(f"Path is not a directory: {path}")
 
-    def enumerate(self) -> Iterator[SourceDocument]:
+    def enumerate(self) -> Iterator[Document]:
         """Enumerate all documents matching the glob patterns.
 
         Yields SourceDocument instances for each matching file,
@@ -190,7 +173,7 @@ class DirectorySource:
             except OSError as e:
                 logger.warning(f"Error globbing pattern {pattern}: {e}")
 
-    def _read_file(self, file_path: Path, relative_path: str) -> SourceDocument | None:
+    def _read_file(self, file_path: Path, relative_path: str) -> Document | None:
         """Read a file and create a SourceDocument.
 
         Args:
@@ -223,7 +206,7 @@ class DirectorySource:
             logger.warning(f"Error reading {file_path}: {e}")
             return None
 
-        return SourceDocument(
+        return Document(
             path=file_path,
             relative_path=relative_path,
             last_modified=last_modified,
@@ -314,43 +297,6 @@ class DirectorySource:
             return ["**/*.md"]
         return list(patterns)
 
-    #TODO: convert `to_llama_doc` to a classmethod,
-    # which accesses the document type (SourceDocument) from a class-level configuration
-    @staticmethod
-    def to_llama_doc(
-        source_doc: SourceDocument,
-        *,
-        extra_metadata: dict[str, Any] | None = None,
-    ) -> LlamaDocument:
-        """Convert a SourceDocument to a LlamaIndex Document.
-
-        Args:
-            source_doc: The source document to convert.
-            extra_metadata: Optional additional metadata to include.
-
-        Returns:
-            LlamaIndex Document with text and metadata.
-
-        """
-        metadata: dict[str, Any] = {
-            "file_path": str(source_doc.path),
-            "relative_path": source_doc.relative_path,
-        }
-
-        if source_doc.last_modified is not None:
-            metadata["last_modified"] = source_doc.last_modified.isoformat()
-
-        if source_doc.etag is not None:
-            metadata["etag"] = source_doc.etag
-
-        if extra_metadata:
-            metadata.update(extra_metadata)
-
-        return LlamaDocument(
-            text=source_doc.content,
-            doc_id=source_doc.relative_path,
-            metadata=metadata,
-        )
 
 
-__all__ = ["DirectorySource", "SourceDocument"]
+__all__ = ["DirectorySource"]

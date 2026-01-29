@@ -23,7 +23,6 @@ from llama_index.core.readers import SimpleDirectoryReader
 from llama_index.core.schema import Document
 from llama_index.readers.file import MarkdownReader
 
-from idx.ingest.directory import DirectorySource, SourceDocument
 from idx.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -87,7 +86,7 @@ class ObsidianMarkdownReader(MarkdownReader):
         self,
         extract_frontmatter: bool = True,
         remove_frontmatter_from_text: bool = True,
-        frontmatter_metadata_key: str | None = "frontmatter",  # or "obsidian_frontmatter"
+        frontmatter_metadata_key: str = "frontmatter",  # or "obsidian_frontmatter"
         split_on_headers: bool = True,
         *args: Any,
         **kwargs: Any,
@@ -109,12 +108,12 @@ class ObsidianMarkdownReader(MarkdownReader):
     def load_data(
         self,
         file: Any,  # Path | str
-        extra_info: Optional[Dict] = None,
+        extra_info: Optional[dict[str, Any]] = None,
         fs: Optional[AbstractFileSystem] = None,
     ) -> List[Document]:
         extra_info = dict(extra_info or {})
         content = self._read_text(file, fs)
-
+        extracted = False
         # Preserve upstream MarkdownReader behavior: hyperlink/image removal happens
         # in parse_tups today, so apply it here before splitting.
         # (You can also call super().parse_tups after you refactor, but then
@@ -132,24 +131,29 @@ class ObsidianMarkdownReader(MarkdownReader):
             else:
                 # only treat it as frontmatter if parse_frontmatter actually found one
                 if frontmatter is not None:
-                    if self._frontmatter_metadata_key is not None:
-                        extra_info[self._frontmatter_metadata_key] = frontmatter
-                    else:
-                        extra_info.update(frontmatter)  
+                    extra_info[self._frontmatter_metadata_key] = frontmatter
                     if self._remove_frontmatter_from_text:
                         content = remainder
-
+                    extracted = True
         # Now do the normal header splitting and document creation
         if not self._split_on_headers:
-            return [Document(text=content, metadata=extra_info)]
+            doc = Document(text=content, metadata=extra_info)
+            if extracted:
+                doc.excluded_embed_metadata_keys = [self._frontmatter_metadata_key]
+                doc.excluded_llm_metadata_keys = [self._frontmatter_metadata_key]
+            return [doc]
         else:
             tups = self.markdown_to_tups(content)
             results = []
             for header, text in tups:
                 if header is None:
-                    results.append(Document(text=text, metadata=extra_info))
+                    doc = Document(text=text, metadata=extra_info)
                 else:
-                    results.append(Document(text=f"\n\n{header}\n{text}", metadata=extra_info))
+                    doc = Document(text=f"\n\n{header}\n{text}", metadata=extra_info)
+                if extracted:
+                    doc.excluded_embed_metadata_keys = [self._frontmatter_metadata_key]
+                    doc.excluded_llm_metadata_keys = [self._frontmatter_metadata_key]
+                results.append(doc)
             return results
 
 
@@ -214,7 +218,7 @@ def extract_wikilinks(text: str) -> List[str]:
     return list(set(links))
 
 
-class SimpleObsidianReader(SimpleDirectoryReader):
+class ObsidianVaultReader(SimpleDirectoryReader):
     """
     Obsidian vault reader built on SimpleDirectoryReader.
     Should support all features of ObsidianReader, but with
@@ -501,10 +505,12 @@ class SimpleObsidianReader(SimpleDirectoryReader):
                 if self._should_remove_tasks:
                     docs[i] = Document(text=cleaned_text, metadata=doc.metadata)
 
-        # Second pass: assign backlinks
+        # Second pass: assign backlinks and clean up
         for doc in docs:
             note_name = doc.metadata.get("note_name", "")
             doc.metadata["backlinks"] = backlinks_map.get(note_name, [])
+
+            
 
         return docs
 
@@ -529,7 +535,7 @@ class ObsidianVaultSource:
         """
         self.path = Path(path).resolve()
         self.validate(self.path)
-        self.reader = SimpleObsidianReader(
+        self.reader = ObsidianVaultReader(
             input_dir=self.path,
             extract_tasks=extract_tasks,
             remove_tasks_from_text=remove_tasks,
@@ -557,171 +563,6 @@ class ObsidianVaultSource:
             raise ValueError(
                 f"Not a valid Obsidian vault (missing .obsidian directory): {path}"
             )
-        
 
 
-class ObsidianDocument(SourceDocument):
-    """Document from an Obsidian vault with parsed frontmatter.
-
-    Extends SourceDocument with Obsidian-specific metadata
-    extracted from YAML frontmatter.
-    """
-
-    frontmatter: dict[str, Any] | None = None
-    """Parsed YAML frontmatter dictionary, or None if not present."""
-
-    tags: list[str] = Field(default_factory=list)
-    """Tags extracted from frontmatter tags field."""
-
-    aliases: list[str] = Field(default_factory=list)
-    """Aliases extracted from frontmatter aliases field."""
-
-    body: str = ""
-    """Document content without frontmatter."""
-
-
-class ObsidianVaultDirectorySource:
-    """Source reader for Obsidian vaults.
-
-    Enumerates markdown files from an Obsidian vault directory,
-    extracting YAML frontmatter and yielding ObsidianDocument instances.
-
-    Uses DirectorySource internally with glob pattern ["**/*.md"].
-
-    Example:
-        >>> source = ObsidianVaultSource("/path/to/vault")
-        >>> for doc in source:
-        ...     print(doc.path, doc.tags)
-    """
-    type_name = 'obsidian'
-
-    @staticmethod
-    def validate(path: Path) -> None:
-        """Validate that the given path is a valid Obsidian vault."""
-        if not path.exists():
-            raise ValueError(f"Vault path does not exist: {path}")
-        if not path.is_dir():
-            raise ValueError(f"Vault path is not a directory: {path}")
-        obsidian_dir = path / ".obsidian"
-        if not obsidian_dir.is_dir():
-            raise ValueError(
-                f"Not a valid Obsidian vault (missing .obsidian directory): {path}"
-            )
-
-    def __init__(self, path: str | Path) -> None:
-        """Initialize Obsidian vault source.
-
-        Args:
-            path: Path to the Obsidian vault root directory.
-                Must contain a .obsidian subdirectory.
-
-        Raises:
-            ValueError: If the path is not a valid Obsidian vault.
-        """
-        raise NotImplementedError()
-        self.path = Path(path).resolve()
-
-        self.validate(self.path)
-
-        # Create DirectorySource for markdown files, excluding .obsidian directory
-        self._directory_source = DirectorySource(
-            path=self.path,
-            patterns=["**/*.md", "!.obsidian/**"],
-        )
-
-        logger.info(f"Initialized ObsidianVaultSource for vault: {self.path}")
-
-    def __iter__(self) -> Iterator[ObsidianDocument]:
-        """Iterate over all markdown documents in the vault.
-
-        Yields:
-            ObsidianDocument instances for each .md file found.
-            Non-text documents are skipped with a log message.
-        """
-        return self.enumerate()
-
-    def enumerate(self) -> Iterator[ObsidianDocument]:
-        """Enumerate all markdown documents in the vault.
-
-        Uses DirectorySource internally to find all .md files,
-        then parses frontmatter and yields ObsidianDocument instances.
-
-        Yields:
-            ObsidianDocument instances for each .md file found.
-
-        Note:
-            Files in .obsidian directory are skipped.
-            Non-text documents are logged and skipped.
-        """
-        for source_doc in self._directory_source.enumerate():
-            try:
-                obsidian_doc = self._convert_document(source_doc)
-                yield obsidian_doc
-            except Exception as e:
-                logger.warning(f"Error processing document {source_doc.path}: {e}")
-                continue
-
-    def _convert_document(self, source_doc: SourceDocument) -> ObsidianDocument:
-        """Convert a SourceDocument to an ObsidianDocument with parsed frontmatter.
-
-        Args:
-            source_doc: Source document from DirectorySource.
-
-        Returns:
-            ObsidianDocument with parsed frontmatter, tags, and aliases.
-        """
-        frontmatter, body = parse_frontmatter(source_doc.content)
-        tags = extract_tags(frontmatter)
-        aliases = extract_aliases(frontmatter)
-
-        return ObsidianDocument(
-            path=source_doc.path,
-            relative_path=source_doc.relative_path,
-            last_modified=source_doc.last_modified,
-            content=source_doc.content,
-            etag=source_doc.etag,
-            frontmatter=frontmatter,
-            tags=tags,
-            aliases=aliases,
-            body=body,
-        )
-
-    #TODO: convert `to_llama_doc` to a classmethod
-    @staticmethod
-    def to_llama_doc(doc: ObsidianDocument) -> LlamaDocument:
-        """Convert an ObsidianDocument to a LlamaIndex Document.
-
-        Args:
-            doc: The Obsidian document to convert.
-
-        Returns:
-            LlamaIndex Document with text and metadata.
-        """
-        metadata: dict[str, Any] = {
-            "file_path": str(doc.path),
-            "relative_path": doc.relative_path,
-        }
-
-        if doc.last_modified is not None:
-            metadata["last_modified"] = doc.last_modified.isoformat()
-
-        if doc.etag is not None:
-            metadata["etag"] = doc.etag
-
-        if doc.tags:
-            metadata["tags"] = doc.tags
-
-        if doc.aliases:
-            metadata["aliases"] = doc.aliases
-
-        if doc.frontmatter:
-            metadata["frontmatter"] = doc.frontmatter
-
-        # Use body (content without frontmatter) for text
-        return LlamaDocument(
-            text=doc.body,
-            doc_id=doc.relative_path,
-            metadata=metadata,
-        )
-
-__all__ = ["ObsidianDocument", "ObsidianVaultSource"]
+__all__ = ["ObsidianVaultSource"]

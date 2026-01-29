@@ -15,6 +15,8 @@ dependencies = [
     "llama-index-readers-obsidian",
     "llama-index-embeddings-huggingface>=0.6.1",
     "mlx-embeddings>=0.0.5",
+    "llama-index-vector-stores-duckdb>=0.5.1",
+    "llama-index-storage-docstore-duckdb>=0.2.1",
 ]
 
 [dependency-groups]

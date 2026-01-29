@@ -5,7 +5,7 @@ Defines the models used for configuring and reporting pipeline results.
 
 from datetime import datetime
 from pathlib import Path
-
+from typing import Dict, Any
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -58,6 +58,14 @@ class IngestObsidianConfig(BaseModel):
         from idx.ingest.obsidian import ObsidianVaultSource
         ObsidianVaultSource.validate(self.source_path)
         return self
+    
+    @model_validator(mode='before')
+    def post_update(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if values.get('source_path', False):
+            if not values.get('dataset_name', False):
+                values['dataset_name'] = values['source_path'].name
+
+        return values
 
 class DocumentStats(BaseModel):
     """Statistics for a single document ingestion.

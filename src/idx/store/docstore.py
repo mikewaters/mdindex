@@ -39,10 +39,10 @@ from llama_index.core.storage.kvstore.types import DEFAULT_BATCH_SIZE
 from idx.store.models import Document as SQLDocument
 from idx.store.repositories import DocumentRepository
 
-__all__ = ["SQLDocStore"]
+__all__ = ["SQLiteDocumentStore"]
 
 
-class SQLDocStore(BaseDocumentStore):
+class SQLiteDocumentStore(BaseDocumentStore):
     """LlamaIndex document store backed by idx's SQLite storage.
 
     This class implements LlamaIndex's BaseDocumentStore interface using the
@@ -72,7 +72,8 @@ class SQLDocStore(BaseDocumentStore):
     def __init__(
         self,
         dataset_id: int,
-        session_factory: Callable[[], Session],
+        #database_path: Optional[Path],
+        #session_factory: Callable[[], Session],
         *,
         batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> None:
@@ -85,7 +86,8 @@ class SQLDocStore(BaseDocumentStore):
             batch_size: Default batch size for bulk operations.
         """
         self._dataset_id = dataset_id
-        self._session_factory = session_factory
+        #self._database_path = database_path
+        #self._session_factory = session_factory
         self._batch_size = batch_size
         # In-memory cache for document hashes (doc_id -> hash)
         self._doc_hashes: Dict[str, str] = {}
@@ -99,7 +101,10 @@ class SQLDocStore(BaseDocumentStore):
 
     def _get_session(self) -> Session:
         """Get a new database session."""
-        return self._session_factory()
+        from idx.store import get_session_factory
+        session_factory = get_session_factory()
+        return session_factory()
+        #return self._session_factory()
 
     def _node_to_sql_doc(
         self,

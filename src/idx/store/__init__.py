@@ -39,7 +39,7 @@ from idx.store.fts_chunk import (
     create_chunks_fts_table,
     drop_chunks_fts_table,
 )
-from idx.store.docstore import SQLDocStore
+from idx.store.docstore import SQLiteDocumentStore
 from idx.store.vector import VectorStoreManager
 from idx.store.session_context import (
     SessionNotSetError,
@@ -96,7 +96,7 @@ __all__ = [
     "cleanup_fts_for_inactive_documents",
     "cleanup_stale_documents",
     # LlamaIndex integration
-    "SQLDocStore",
+    "SQLiteDocumentStore",
     "VectorStoreManager",
     # Session context
     "SessionNotSetError",
