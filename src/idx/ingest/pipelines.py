@@ -199,14 +199,6 @@ class NonFlatVectorDBStripMetadataTransform(TransformComponent):
     might have nested metadata of its own.
     """
     keys_to_strip: list[str] = field(default_factory=lambda: [])
-    #def __init__(self, keys_to_strip: list[str] | None = None):
-    #    if keys_to_strip is None:
-    #        keys_to_strip = [
-    #            "content_hash",
-    #            "bronze_meta_version",
-    #            "bronze_meta_hash",
-    #        ]
-    #    self.keys_to_strip = keys_to_strip
 
     def __call__(self, nodes: list[BaseNode], **kwargs: Any) -> list[BaseNode]:
         for node in nodes:
